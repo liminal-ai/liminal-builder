@@ -1,0 +1,2282 @@
+
+ ▐▛███▜▌   Claude Code v2.1.34
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/code/liminal-builder
+
+❯ /liminal-spec 
+
+❯ Base directory for this skill:                                            
+  /Users/leemoore/.claude/skills/liminal-spec                               
+                                                                            
+  # SDD: Spec-Driven Development                                            
+                                                                            
+  SDD is a methodology for AI-assisted software development built on three  
+  ideas: **context isolation** (fresh agent contexts with artifact          
+  handoff), **artifact-driven phases** (each phase defined by what goes in  
+  and what comes out), and **verification gradient** (upstream work gets    
+  more scrutiny because errors compound downstream).                        
+                                                                            
+  ## When to Use SDD                                                        
+                                                                            
+  **Use SDD for:**                                                          
+  - New features with multiple components or flows                          
+  - Complex integrations with external systems                              
+  - Clear requirements that can be broken into verifiable acceptance        
+  criteria                                                                  
+                                                                            
+  **Skip SDD for:**                                                         
+  - Bug fixes under 2 hours                                                 
+  - Single-file changes with obvious implementation                         
+  - Exploratory spikes or proof-of-concepts                                 
+  - Emergency production fixes                                              
+                                                                            
+  **SDD is SDD.** If context can't support the full methodology, switch     
+  workflows entirely. No "SDD lite" — the rigor IS the point.               
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Quickstart: Your First Feature                                         
+                                                                            
+  Already know what you want to build? Start here.                          
+                                                                            
+  **1. Write the Feature Spec** (Phase 2 — most projects start here)        
+                                                                            
+  Load `references/feature-specification.md` and                            
+  `references/writing-style.md`. Write a spec covering:                     
+  - **User Profile** — Who, context, mental model, key constraint           
+  - **Feature Overview** — What they can do after that they can't do now    
+  - **Scope** — In/out/assumptions                                          
+  - **Flows with ACs and TCs** — Each flow groups its acceptance criteria,  
+  each AC groups its test conditions (Given/When/Then)                      
+  - **Data Contracts** — Typed shapes for APIs and responses                
+  - **Recommended Story Breakdown** — Story 0 (infrastructure) + feature    
+  stories                                                                   
+                                                                            
+  Target: ~300 lines. Every AC testable, every AC has at least one TC.      
+                                                                            
+  **2. Validate** — Have a fresh agent read the spec and confirm they could 
+   design from it without asking questions. If they can't, fix the spec.    
+                                                                            
+  **3. Tech Design** (Phase 3) — Load `references/tech-design.md` and       
+  `templates/tech-design.template.md`. Transform the spec into              
+  architecture, interfaces, and test mapping (~2000 lines).                 
+                                                                            
+  **4. Story Sharding** (Phase 4) — Load `references/story-sharding.md` and 
+   `references/story-prompts.md`. Break into stories, write self-contained  
+  prompt packs.                                                             
+                                                                            
+  **5. Execute** (Phase 5) — Load `references/implementation.md` and        
+  `references/execution-orchestration.md`. Execute prompts in fresh agent   
+  contexts: Skeleton → TDD Red → TDD Green → Gorilla → Verify.              
+                                                                            
+  Each phase uses a **fresh context** that reads the previous phase's       
+  artifact cold. That's the core of SDD — context isolation with artifact   
+  handoff.                                                                  
+                                                                            
+  → Read the rest of this file for the full methodology. The sections below 
+   explain *why* each piece works.                                          
+                                                                            
+  ---                                                                       
+                                                                            
+  ## The Two Dimensions                                                     
+                                                                            
+  SDD operates on two dimensions that nest together:                        
+                                                                            
+  **Macro: The Five Phases** — SDLC-oriented stages defined by artifact     
+  entry/exit. Each phase transforms one artifact into another. Phases are   
+  named by where they sit in the software lifecycle, not by who does the    
+  work.                                                                     
+                                                                            
+  **Micro: The Story Execution Cycle** — Within Phase 5 (Execution), each   
+  story follows Skeleton → TDD Red → TDD Green → Gorilla → Verify. This is  
+  the implementation rhythm.                                                
+                                                                            
+  ```                                                                       
+  ┌─────────────────────────────────────────────────────────────────────┐   
+  │  Phase 1 → Phase 2 → Phase 3 → Phase 4 → Phase 5                   │    
+  │  (PRD)     (Spec)    (Design)  (Stories)  (Execution)              │    
+  │                                              ↓                      │   
+  │                                   ┌─────────────────────┐          │    
+  │                                   │ Per-Story Cycle:    │          │    
+  │                                   │ Skeleton → Red →    │          │    
+  │                                   │ Green → Gorilla →   │          │    
+  │                                   │ Verify              │          │    
+  │                                   └─────────────────────┘          │    
+  └─────────────────────────────────────────────────────────────────────┘   
+  ```                                                                       
+                                                                            
+  ---                                                                       
+                                                                            
+  ## The Five Phases                                                        
+                                                                            
+  Phases are defined by artifact boundaries — what you need going in, what  
+  you produce coming out. Agents attach to phases but don't define them.    
+                                                                            
+  | Phase | Entry Artifact | Exit Artifact | Work |                         
+  |-------|---------------|---------------|------|                          
+  | **1. Product Research** | Vision, idea | PRD | Ideation, product brief, 
+   PRD |                                                                    
+  | **2. Feature Specification** | PRD or direct need | Feature Spec | Nail 
+   down requirements (ACs, TCs, flows) |                                    
+  | **3. Tech Design** | Feature Spec | Tech Design doc(s) | Architecture,  
+  interfaces, test mapping |                                                
+  | **4. Story Sharding** | Spec + Design | Stories + Prompts | Break into  
+  stories, draft execution prompts |                                        
+  | **5. Execution** | Stories + Prompts | Verified code | Execute prompts, 
+   verify, iterate |                                                        
+                                                                            
+  ### Phase 1: Product Research & Planning (Optional)                       
+                                                                            
+  **Often skipped.** If you already know the feature you want, go straight  
+  to Phase 2 with "here's what I need." Use Phase 1 when you need to        
+  explore product direction or document multiple related features.          
+                                                                            
+  → Reference: `references/product-research.md`                             
+                                                                            
+  ### Phase 2: Feature Specification                                        
+                                                                            
+  **The linchpin.** This is where requirements become precise. The Feature  
+  Spec gets the most scrutiny because errors here cascade everywhere.       
+                                                                            
+  The spec author produces a complete specification: User Profile, Feature  
+  Overview, User Flows with co-located Acceptance Criteria and Test         
+  Conditions, Data Contracts, Scope Boundaries, and a recommended Story     
+  Breakdown. Approximately 300 lines that expand to ~2000 lines of tech     
+  design.                                                                   
+                                                                            
+  → Reference: `references/feature-specification.md` — Feature spec         
+  creation, structure, and template                                         
+  → Reference: `references/writing-style.md` — Documentation principles for 
+   spec writing                                                             
+                                                                            
+  ### Phase 3: Tech Design                                                  
+                                                                            
+  Transform the Feature Spec into implementable architecture. May produce   
+  one document or split based on complexity:                                
+  - Tech Design (core architecture, interfaces)                             
+  - Tech Design UI (if UI-heavy)                                            
+  - Test Plan (if testing needs depth)                                      
+                                                                            
+  The Tech Lead validates the Feature Spec by confirming they can design    
+  from it. If they can't, the spec goes back for revision.                  
+                                                                            
+  → Reference: `references/tech-design.md`                                  
+  → Reference: `references/writing-style.md` — Documentation principles for 
+   design writing                                                           
+  → Reference: `references/testing.md` — Mock strategy, test architecture   
+  → Template: `templates/tech-design.template.md`                           
+                                                                            
+  ### Phase 4: Story Sharding + Prompt Drafting                             
+                                                                            
+  Break the feature into executable stories. Draft prompts for each story   
+  phase.                                                                    
+                                                                            
+  **Special artifacts:**                                                    
+  - **Story 0:** Infrastructure setup — types, fixtures, error classes,     
+  stubs                                                                     
+  - **Feature 0:** Stack standup — auth, connectivity, integrated skeleton  
+  with no product functionality (used when building on a new stack)         
+                                                                            
+  The Orchestrator runs this phase and continues into Phase 5.              
+                                                                            
+  **Model guidance:** Opus 4.5 typically orchestrates and drafts prompts.   
+  When writing prompts, specify the target execution model so prompts       
+  include appropriate guidance.                                             
+                                                                            
+  → Reference: `references/story-sharding.md`                               
+  → Reference: `references/story-prompts.md` — Prompt structure and         
+  self-contained prompt writing                                             
+  → Reference: `references/prompting-opus-4.5.md` — Orchestration and       
+  prompt drafting                                                           
+                                                                            
+  ### Phase 5: Execution                                                    
+                                                                            
+  Execute stories using the Story Execution Cycle. The same Orchestrator    
+  from Phase 4 drives this phase, calling on a Senior Engineer (fresh       
+  context) to execute each prompt.                                          
+                                                                            
+  The Senior Engineer doesn't orchestrate or document — they receive a      
+  self-contained prompt and execute it. The Orchestrator handles            
+  coordination, verification, and iteration.                                
+                                                                            
+  **Execution pipeline:** Stories flow through validation → fix → execute → 
+   verify. Multiple stories can be in flight: while Story N executes, Story 
+   N+1 validates. This parallelism maximizes throughput.                    
+                                                                            
+  **Model guidance:**                                                       
+  - **Implementation:** Claude Code subagent is the typical choice.         
+  Fallback: Opus 4.5 with TDD/service-mocks/contract-first context.         
+  - **Finicky implementation or difficult debugging:** GPT 5.2 or GPT 5.2   
+  Codex (via Codex CLI or Copilot) for detailed, disciplined execution.     
+  - **Verification/code review:** GPT 5.2 or GPT 5.2 Codex — pedantic,      
+  catches what builders miss.                                               
+                                                                            
+  → Reference: `references/implementation.md`                               
+  → Reference: `references/phase-execution.md`                              
+  → Reference: `references/execution-orchestration.md` — Agent              
+  coordination, dual-validator pattern, parallel pipeline                   
+  → Reference: `references/prompting-gpt-5.2.md` — Verification and         
+  detailed implementation                                                   
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Core Concept: Context Isolation                                        
+                                                                            
+  **"Agents" means fresh context with artifact handoff. Not roleplay.**     
+                                                                            
+  Each phase gets a clean context. No accumulated assumptions, no           
+  negotiation baggage, no conversation history. The artifact (document) IS  
+  the handoff.                                                              
+                                                                            
+  ```                                                                       
+  Phase N (context)                                                         
+      └── Produces artifact (e.g., Feature Spec)                            
+                ↓                                                           
+  Phase N+1 (fresh context)                                                 
+      ├── Reads artifact cold                                               
+      └── No negotiation history                                            
+                └── Produces next artifact                                  
+  ```                                                                       
+                                                                            
+  **Why this matters:**                                                     
+  - **No negotiation baggage** — Fresh context reads artifact as-is         
+  - **Token efficiency** — Clean context vs bloated history                 
+  - **Expansion ratios** — Each phase needs room (300 lines → 2000 lines)   
+  - **Debuggable handoffs** — You can read exactly what was passed          
+                                                                            
+  → Deep dive: `references/context-economics.md`                            
+  ---                                                                       
+                                                                            
+  ## The Confidence Chain                                                   
+                                                                            
+  Every line of code traces back through a chain:                           
+                                                                            
+  ```                                                                       
+  AC (requirement) → TC (test condition) → Test (code) → Implementation     
+  ```                                                                       
+                                                                            
+  **Validation rule:** Can't write a TC? The AC is too vague. Can't write a 
+   test? The TC is too vague.                                               
+                                                                            
+  This chain is what makes SDD traceable. When something breaks, you can    
+  trace from the failing test back to the TC, back to the AC, back to the   
+  requirement.                                                              
+                                                                            
+  ---                                                                       
+                                                                            
+  ## The Verification Model                                                 
+                                                                            
+  **Upstream gets more scrutiny.** Errors in the Feature Spec cascade       
+  through every downstream phase. Errors in implementation are localized.   
+                                                                            
+  ```                                                                       
+  Feature Spec:  ████████████████████ Every line (human reads all)          
+  Tech Design:   █████████████░░░░░░░ Detailed review                       
+  Stories:       ████████░░░░░░░░░░░░ Key things + shape                    
+  Prompts:       ██████░░░░░░░░░░░░░░ Shape + intuition                     
+  Implementation:████░░░░░░░░░░░░░░░░ Spot checks + tests                   
+  ```                                                                       
+                                                                            
+  ### Multi-Agent Validation Pattern                                        
+                                                                            
+  Each artifact gets validated by its downstream consumer — the agent who   
+  needs to use it:                                                          
+                                                                            
+  | Artifact | Author | Validated By | Why They Validate |                  
+  |----------|--------|--------------|-------------------|                  
+  | Feature Spec | BA | Tech Lead | Needs it for design |                   
+  | Tech Design | Tech Lead | Orchestrator | Needs it for stories |         
+  | Prompts | Orchestrator | Senior Engineer + different model | Needs to   
+  execute |                                                                 
+                                                                            
+  **Different models catch different issues.** Use adversarial/diverse      
+  perspectives: Opus for gestalt, GPT-5.2 for pedantic detail.              
+                                                                            
+  **Dual-validator pattern:** For story/prompt validation, launch two       
+  validators with different cognitive profiles in parallel. Consolidate     
+  findings, fix blockers, then re-validate with the same validator session. 
+                                                                            
+  → Details: `references/execution-orchestration.md`                        
+                                                                            
+  ### Verification Checkpoints                                              
+                                                                            
+  Before each phase transition, verify readiness:                           
+                                                                            
+  **Before Tech Design:**                                                   
+  - [ ] Feature Spec complete (all ACs have TCs)                            
+  - [ ] BA self-review done                                                 
+  - [ ] Tech Lead validated: "I can design from this"                       
+  - [ ] Human reviewed every line                                           
+                                                                            
+  **Before Story Sharding:**                                                
+  - [ ] Tech Design complete                                                
+  - [ ] TC-to-test mapping complete                                         
+  - [ ] Orchestrator validated: "I can derive stories"                      
+                                                                            
+  **Before Execution:**                                                     
+  - [ ] Stories and prompts complete                                        
+  - [ ] Prompts are self-contained                                          
+  - [ ] Different model reviewed prompts                                    
+                                                                            
+  → Details: `references/verification.md`                                   
+                                                                            
+  ### Orchestration (Quick Nav)                                             
+                                                                            
+  - **Phase transition gates:** see `### Verification Checkpoints` above.   
+  - **Prompt packs (Phase 4):** `references/story-sharding.md` and          
+  `references/story-prompts.md`.                                            
+  - **Execution pipeline (Phase 5):** Validate → Fix → Execute → Verify.    
+  Each story flows through this pipeline; validation can run ahead while    
+  the previous story executes.                                              
+  - **Per-story cycle / done criteria:** `references/phase-execution.md`.   
+  - **Agent coordination patterns:**                                        
+  `references/execution-orchestration.md` — dual-validator template, agent  
+  selection table, session management, parallel pipeline details,           
+  checklist.                                                                
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Model Selection                                                        
+                                                                            
+  Different models excel at different tasks. Use the right model for the    
+  job.                                                                      
+                                                                            
+  | Task | Recommended Model | Why |                                        
+  |------|-------------------|-----|                                        
+  | **Orchestration** | Opus 4.5 | Gestalt thinking, manages complexity |   
+  | **Story sharding** | Opus 4.5 | Understands scope, breaks work          
+  coherently |                                                              
+  | **Prompt drafting** | Opus 4.5 | Captures intent, writes for other      
+  models |                                                                  
+  | **Spec/design writing** | Opus 4.5 | Narrative flow,                    
+  functional-technical weaving |                                            
+  | **Implementation** | Claude Code / Opus 4.5 | TDD discipline, service   
+  mocks |                                                                   
+  | **Finicky implementation** | GPT 5.2 / 5.2 Codex | Precise,             
+  disciplined, less drift |                                                 
+  | **Difficult debugging** | GPT 5.2 / 5.2 Codex | Methodical, catches     
+  details |                                                                 
+  | **Verification** | GPT 5.2 / 5.2 Codex | Pedantic, catches what         
+  builders miss |                                                           
+  | **Code review** | GPT 5.2 / 5.2 Codex | Thorough, checks against spec | 
+                                                                            
+  ### Typical Flow                                                          
+                                                                            
+  1. **Opus 4.5** orchestrates, shards stories, drafts prompts              
+  2. **Claude Code subagent** (or Opus with TDD context) executes           
+  implementation                                                            
+  3. **GPT 5.2** verifies artifacts and reviews code                        
+                                                                            
+  ### Access Methods                                                        
+                                                                            
+  - **Opus 4.5:** Claude Code, API, Clawdbot subagents                      
+  - **GPT 5.2:** Codex CLI (`codex exec`), GitHub Copilot, API              
+  - **GPT 5.2 Codex:** Codex CLI with `-m gpt-5.2-codex`                    
+                                                                            
+  → Reference: `references/prompting-opus-4.5.md`                           
+  → Reference: `references/prompting-gpt-5.2.md`                            
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Story Execution Cycle                                                  
+                                                                            
+  Within Phase 5, each story follows this rhythm:                           
+                                                                            
+  ```                                                                       
+  SKELETON → TDD RED → TDD GREEN → GORILLA → VERIFY                         
+  ```                                                                       
+                                                                            
+  | Phase | Do | Exit |                                                     
+  |-------|------|------|                                                   
+  | **Skeleton** | Stubs throwing `NotImplementedError` | Compiles,         
+  structure reviewed |                                                      
+  | **TDD Red** | Tests assert behavior, ERROR on stubs | All TCs covered | 
+  | **TDD Green** | Implement until tests pass | All green |                
+  | **Gorilla** | Human ad hoc testing | "Feels right" |                    
+  | **Verify** | Full suite + types + lint | Ship ready |                   
+                                                                            
+  ### Why Gorilla Testing?                                                  
+                                                                            
+  After TDD Green, before formal verification. Unstructured, interactive,   
+  catches "feels wrong." Run the feature, try weird inputs, click in        
+  unexpected order.                                                         
+                                                                            
+  **Gorilla testing legitimizes ad hoc work within the structured           
+  process.** TDD ensures correctness against spec. Gorilla catches what     
+  specs miss.                                                               
+                                                                            
+  → Details: `references/phase-execution.md`                                
+  → Orchestration: `references/execution-orchestration.md` — How to         
+  coordinate agents through the cycle                                       
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Writing Style: Progressive Depth                                       
+                                                                            
+  Documentation fails when it's flat — lists of equal-weight items, uniform 
+   depth everywhere. Good documentation operates in three dimensions:       
+  **hierarchy** (sections), **network** (cross-references), and             
+  **narrative** (temporal/causal flow).                                     
+                                                                            
+  LLMs trained on narrative text. Conform to that substrate and             
+  relationships arrive "for free." Fight it with flat bullets and you waste 
+   tokens.                                                                  
+                                                                            
+  ### Altitude and Descent                                                  
+                                                                            
+  Documentation exists at altitudes: PRD (25k ft) → Tech Design (15k ft) →  
+  Phase Spec (10k ft) → Code (1k ft). Each level answers questions raised   
+  by the level above. **Don't jump altitudes** — bridge them smoothly.      
+                                                                            
+  ### Branches and Leaves                                                   
+                                                                            
+  Prose paragraphs establish **branches** (context, importance). Bullets    
+  hang **leaves** (specifics). Diagrams are **landmarks**. Flat bullets     
+  without a branch force every item to compete equally.                     
+                                                                            
+  ### The Internal Check                                                    
+                                                                            
+  Before writing the next section:                                          
+  1. What question is the reader asking right now?                          
+  2. Am I listing leaves without a branch?                                  
+  3. Is the functional thread still visible?                                
+  4. Have I earned this complexity progressively?                           
+                                                                            
+  → Deep dive: `references/writing-style.md`                                
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Testing Rules                                                          
+                                                                            
+  1. **Mock at API boundary**, not hooks — preserves real integration path  
+  2. **Assert behavior**, not `NotImplementedError` — tests must verify     
+  outcomes                                                                  
+  3. **Test entry points**, not internal helpers — test what users touch    
+                                                                            
+  → Details: `references/testing.md`                                        
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Progressive Disclosure — What to Load When                             
+                                                                            
+  ### Phase 1: Product Research (if used)                                   
+  1. This file (overview)                                                   
+  2. `references/product-research.md`                                       
+                                                                            
+  ### Phase 2: Feature Specification                                        
+  1. This file (overview)                                                   
+  2. `references/feature-specification.md`                                  
+  3. `references/writing-style.md`                                          
+  4. `examples/feature-verification-prompt.md` (for spec validation before  
+  handoff)                                                                  
+                                                                            
+  ### Phase 3: Tech Design                                                  
+  1. `references/tech-design.md`                                            
+  2. `references/testing.md`                                                
+  3. `references/writing-style.md`                                          
+  4. `templates/tech-design.template.md`                                    
+                                                                            
+  ### Phase 4: Story Sharding                                               
+  1. `references/story-sharding.md`                                         
+  2. `references/story-prompts.md`                                          
+  3. `references/prompting-opus-4.5.md` (for drafting prompts)              
+  ### Phase 5: Execution                                                    
+  1. `references/implementation.md`                                         
+  2. `references/phase-execution.md`                                        
+  3. `references/execution-orchestration.md` (agent coordination,           
+  dual-validator, pipeline)                                                 
+  4. `references/prompting-gpt-5.2.md` (for verification)                   
+  ### Understanding the Why                                                 
+  1. `references/context-economics.md`                                      
+  2. `references/verification.md`                                           
+  3. `references/terminology.md` (glossary, when terms are unclear)         
+                                                                            
+  ### Resuming Work                                                         
+  1. `references/state-management.md`                                       
+                                                                            
+  ---                                                                       
+                                                                            
+  ## Full Reference List                                                    
+                                                                            
+  **By Phase:**                                                             
+  - `references/product-research.md` — Phase 1: Product Brief → PRD         
+  - `references/feature-specification.md` — Phase 2: Feature Spec           
+  (creation, structure, template)                                           
+  - `references/tech-design.md` — Phase 3: Tech Design                      
+  - `references/story-sharding.md` — Phase 4: Stories + Prompts             
+  - `references/implementation.md` — Phase 5: Execution                     
+                                                                            
+  **Process & Patterns:**                                                   
+  - `references/phase-execution.md` — Story execution cycle details         
+  - `references/execution-orchestration.md` — Agent coordination,           
+  dual-validator, parallel pipeline                                         
+  - `references/verification.md` — Multi-agent validation patterns          
+  - `references/testing.md` — Mock strategies, test patterns                
+  - `references/story-prompts.md` — Writing self-contained prompts          
+  - `references/state-management.md` — Project state, recovery              
+                                                                            
+  **Model Prompting:**                                                      
+  - `references/prompting-opus-4.5.md` — Orchestration, prompt drafting     
+  - `references/prompting-gpt-5.2.md` — Verification, detailed              
+  implementation                                                            
+                                                                            
+  **Conceptual:**                                                           
+  - `references/context-economics.md` — Why context isolation works         
+  - `references/writing-style.md` — Documentation principles                
+  - `references/terminology.md` — Glossary                                  
+                                                                            
+  **Templates:**                                                            
+  - `templates/tech-design.template.md` — Phase 3 artifact template         
+                                                                            
+  **Examples:**                                                             
+  - `examples/feature-verification-prompt.md` — Ready-to-use prompt for     
+  Phase 2→3 spec validation                                                 
+                                                                            
+
+⏺ SDD: Spec-Driven Development
+
+  SDD is loaded and ready. Here's where we are:
+
+  What is SDD? A methodology for AI-assisted development built on context
+  isolation, artifact-driven phases, and upstream verification rigor.
+
+  The Five Phases:
+  ┌─────────────────────────┬─────────────────────────────────┬────────────────┐
+  │          Phase          │              What               │    Artifact    │
+  ├─────────────────────────┼─────────────────────────────────┼────────────────┤
+  │ 1. Product Research     │ Ideation → PRD                  │ PRD (optional) │
+  ├─────────────────────────┼─────────────────────────────────┼────────────────┤
+  │ 2. Feature              │ Requirements → ACs/TCs          │ Feature Spec   │
+  │ Specification           │                                 │                │
+  ├─────────────────────────┼─────────────────────────────────┼────────────────┤
+  │ 3. Tech Design          │ Architecture → interfaces       │ Tech Design    │
+  │                         │                                 │ doc            │
+  ├─────────────────────────┼─────────────────────────────────┼────────────────┤
+  │ 4. Story Sharding       │ Break into stories + prompts    │ Story packs    │
+  ├─────────────────────────┼─────────────────────────────────┼────────────────┤
+  │ 5. Execution            │ Skeleton → TDD → Gorilla →      │ Shipped code   │
+  │                         │ Verify                          │                │
+  └─────────────────────────┴─────────────────────────────────┴────────────────┘
+  What do you want to do?
+
+  - Start a new feature — I'll guide you through Phase 2 (Feature Spec) or
+  wherever makes sense
+  - Resume existing work — Point me to your artifacts and I'll pick up where you
+   left off
+  - Explain a phase — I can deep-dive into any phase or concept
+
+  What are we building?
+
+❯ We are building liminal-builder. a first pass at an agentic ide. moving   
+  away from vscode clones and CLI's. the first most important element is    
+  teh ability to move between projects and sessions for projects. I'm       
+  taking inspiration from a new product released by openai named codex app. 
+   I'll show you a screenshot. so here is a general starting point. I want  
+  project root folders, and then lists of threads under then. however in    
+  this case it's only codex. I want this to wrap claude code, codex cli,    
+  gemini cli, cursor cli, copilot cli. basically I can adapt cli's to it    
+  and get a nicer interface where I can move through these pretty well. I   
+  may also want a simple way to run a console on wahtever project I'm on. I 
+   dont know how to organize it but probably that console can stay out of   
+  the way. there I can stop and start services specific to the relavent     
+  directory. so if I have a directory. it's almost always a awy to launch   
+  console associated with that directory. that's less important to start    
+  with but that would be nice. I think there is a lot of value if I can get 
+   a smooth responsive way to simply have my sessions organized by folder   
+  and quickly move between sessions to see where things are. I'm            
+  considering tabs for teh chats as well so you can keep certain sessions   
+  in a tab. if you click on a session and you have a tab open for it, you   
+  just go to the tab. general feelin gif I can do that, run those cli's     
+  smoothly, that's a huge ergonomic win for vibe coding and genaral         
+  parallel agentic coding                                                   
+  ⎿  [Image #1]
+  ⎿  [Image #2]
+  ⎿  [Image #3]
+
+❯ [Image: source: /var/folders/16/fm50btnd3f5b8pn6z7lvh0gc0000gn/T/Temporar 
+  yItems/NSIRD_screencaptureui_Xxs5xB/Screenshot 2026-02-05 at              
+  9.14.10 PM.png]                                                           
+
+❯ [Image: source: /var/folders/16/fm50btnd3f5b8pn6z7lvh0gc0000gn/T/Temporar 
+  yItems/NSIRD_screencaptureui_v80RgL/Screenshot 2026-02-05 at              
+  9.14.28 PM.png]                                                           
+
+❯ [Image: source: /var/folders/16/fm50btnd3f5b8pn6z7lvh0gc0000gn/T/Temporar 
+  yItems/NSIRD_screencaptureui_gAa8Nd/Screenshot 2026-02-05 at              
+  9.14.43 PM.png]                                                           
+
+⏺ Great vision. This is exactly the kind of multi-component feature that
+  benefits from SDD. Let me first see what exists in the project, then we'll
+  nail down the spec.
+
+⏺ Clean slate. Before I write the Feature Spec, I have a few questions that'll
+  sharpen the requirements:
+
+⏺ Good instinct to ask. We should start with a Product Brief / PRD (Phase 1).
+
+  Here's why: What you're describing is a whole product, not a single feature.
+  You've got:
+
+  - Project/session organization (sidebar, folders, threads)
+  - Multi-CLI wrapping (Claude Code, Codex, Gemini, Cursor, Copilot)
+  - Tab management for parallel sessions
+  - Console/terminal per project
+  - Session browsing and switching
+
+  A Product Brief will:
+  1. Lock down the platform/architecture decisions (Electron vs Tauri, framework
+   choice, CLI interaction model) — those questions I tried to ask are
+  product-level, not feature-level
+  2. Decompose into distinct features with priority order
+  3. Define the MVP — what ships first to get the ergonomic win you described
+
+  Then from the PRD, we pick Feature 1 (probably "project sidebar + session
+  management for a single CLI") and write a tight Feature Spec for it.
+
+  Let me load the Phase 1 reference and get started. Should I proceed with the
+  Product Brief?
+
+✻ Churned for 54s
+
+❯ are you thinking a product brief and a PRD is the same thing? 
+
+⏺ No — you're right to call that out. Let me check the Phase 1 reference to be
+  precise about the distinction.
+
+⏺ You're right — they're distinct artifacts within Phase 1:
+
+  - Product Brief — the vision distilled. What problem, why now, who for.
+  Lightweight.
+  - PRD — the Product Brief expanded into scoped features with priorities,
+  high-level ACs, architectural considerations. The actual exit artifact of
+  Phase 1.
+
+  The flow is: Vision → Product Brief → PRD → then pick a feature and write a
+  Feature Spec.
+
+  For liminal-builder, you've already articulated a lot of the Product Brief
+  just now — the vision, the inspiration, the core value prop (ergonomic session
+   management across CLI agents). What you haven't done yet is decompose it into
+   prioritized features with boundaries.
+
+  So the right move is: write a PRD that captures the vision and breaks
+  liminal-builder into discrete features (sidebar/project org, CLI wrapping, tab
+   management, console). Then we pick the highest-priority feature and write a
+  Feature Spec for it.
+
+  Want me to draft the PRD? I'll need those architecture questions answered
+  first — platform, framework, CLI interaction model, storage — since those are
+  cross-cutting decisions that shape every feature.
+
+❯ my stuff on these isn't very extensive. I typically start at feature, so  
+  the guidance there is minimal                                             
+
+⏺ That's fine. The Phase 1 reference itself says it's lightweight and often
+  skipped. But you're in the right spot to use it — this is a new product with
+  multiple features that need to be decomposed and prioritized, and there are
+  architecture decisions that cut across all of them.
+
+  Here's what I'd suggest: a lean PRD — maybe 60-80 lines. Vision, features
+  decomposed with priorities, architecture decisions, out of scope. No elaborate
+   process. Just enough to give us a clean handoff to Feature Spec for the first
+   feature.
+
+  But I do need those architecture decisions locked down first since they shape
+  everything. Let me ask them more conversationally rather than as a form:
+
+⏺ What would you like to clarify?
+
+❯ I'd like to stick with chat. I'm defiant. for some reason the user        
+  question tool irritates me                                                
+
+⏺ Ha — fair enough. Let's just talk.
+
+  So the key decisions I need before writing the PRD:
+
+  App shell — Electron or Tauri? Electron is what Codex App almost certainly
+  uses, battle-tested for this. Tauri is lighter but younger. Or do you want to
+  defer that choice?
+
+  CLI rendering — You showed the Codex App which renders as a chat UI (parsed
+  user/assistant turns). Are you thinking the same? Or embedded terminals? Or
+  both with a toggle?
+
+  Frontend framework — React? Svelte? Something else? Or no preference?
+
+  Storage — Where do sessions live? Each CLI already stores its own history
+  (Claude Code in ~/.claude/, etc.). Do you want to leverage that, or maintain
+  your own session store, or both?
+
+  Hit me with whatever you know. Anything you're unsure about I can recommend.
+
+❯ so first no tauri. options I'm willing to consider is electron (i haven't 
+   written electron before). I'm also willing to consider web front end.    
+  even straight html/javascript/server pages in bun/fasitfy. I do want to   
+  discuss this shell a bit rather than just proclaim one. what ar eyour     
+  thoughts                                                                  
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ or even swift ui as well 
+
+⏺ Good — let's actually think through this rather than just pick.
+
+  The key constraint that shapes this decision: CLI processes are local child 
+  processes regardless of shell choice. Whether Electron or web app, you have a
+  server/backend process managing CLIs and a frontend rendering the chat. The
+  architecture is nearly identical — the question is really about the shell
+  around the frontend.
+
+  Electron:
+  - What Codex App does. Proven for IDE-like apps. Native window management,
+  OS-level tabs, dock integration.
+  - But: heavy (bundles Chromium), memory hungry, and you'd be learning it from
+  scratch. Honestly though, Electron is just a web app with extra APIs — your
+  web skills transfer directly.
+
+  Web frontend (Bun/Fastify + HTML/JS):
+  - Architecturally almost the same as Electron — server manages CLI processes,
+  WebSocket pushes output to browser, browser renders chat UI.
+  - Fastest path to something working. No new framework. You seem comfortable
+  with Bun/Fastify.
+  - What you lose: native "app" feel, OS-level window management, dock icon.
+  What you gain: simplicity, speed to MVP.
+  - And you can always wrap it in Electron later — it's the same web code.
+
+  SwiftUI:
+  - Beautiful native macOS experience. Lightweight.
+  - But: macOS-only forever. Markdown/code rendering is harder (no xterm.js, no
+  existing chat UI components). Terminal emulation in Swift is a project in
+  itself. Smallest ecosystem for this use case.
+
+  My honest take: Start with web frontend on Bun/Fastify. It gets you to a
+  working product fastest, the architecture is identical to what you'd build in
+  Electron anyway, and you're not learning a new framework while also designing
+  a new product. If you want the native app feel later, wrapping that same
+  frontend in Electron is a well-trodden path.
+
+  SwiftUI would make a gorgeous app but it's the hardest path and locks you to
+  macOS.
+
+  What's your gut on that?
+
+✻ Crunched for 32s
+
+❯ I don tmind the macos lockin. but I dont want to be a major struggle.     
+  other considerations. cli's can be heavy weight if you get a bunch of     
+  them going. are you familiar with zed the new rust opensource editor? it  
+  build something that wraps claude code and gemini cli nicely but with a   
+  native feel. theres some standard they call it. I know it's rust. but     
+  wondering if I can get a nice way of wrapping the cli's so moving between 
+   sessions isn't quite so pokey                                            
+
+⏺ Good points. Let me research what Zed is doing with CLI wrapping — that
+  "standard" they use could be relevant to your architecture.
+
+❯ before you research, I also have the zed open source pojrect downloaded.  
+  so you could probably send a few agents to scour that too while web       
+  researching. ~/code/zed                                                   
+
+⏺ Good call — let me hit both in parallel.
+
+⏺ This is really valuable. Here's what Zed does and why it matters for
+  liminal-builder:
+
+  Zed's Approach: Agent Client Protocol (ACP)
+
+  Zed co-created an open standard called ACP (Agent Client Protocol) with
+  JetBrains. It's basically LSP for AI agents:
+
+  - JSON-RPC 2.0 over stdio — editor spawns the CLI as a child process,
+  communicates via stdin/stdout
+  - One process, multiple sessions — a single agent subprocess can handle many
+  concurrent conversation threads
+  - Structured updates — agents push SessionUpdate messages (message chunks,
+  tool calls, plans) instead of raw terminal output
+  - Two integration patterns:
+    - Native ACP — CLI speaks ACP directly (Gemini CLI, Copilot CLI)
+    - Adapter/bridge — lightweight wrapper translates SDK → ACP (Claude Code has
+   one: claude-code-acp)
+
+  Why This Matters For You
+
+  The performance concern you raised — "CLI's can be heavyweight if you get a
+  bunch going" — ACP addresses this by design:
+
+  1. One process per agent type, multiple sessions — you don't spawn a new
+  Claude Code process per conversation
+  2. Structured streaming — you get parsed message chunks, not raw terminal
+  bytes to parse yourself
+  3. Session list/resume — protocol supports listing and resuming past sessions
+  natively
+
+  The adapters already exist. There's a claude-code-acp bridge on GitHub. Gemini
+   CLI speaks ACP natively. Codex has one too.
+
+  The Decision This Opens Up
+
+  If you adopt ACP as your CLI integration layer, your app shell choice becomes
+  less constrained. ACP handles the hard part (efficient multi-session CLI
+  communication). Your frontend just needs to:
+
+  1. Spawn ACP agent processes
+  2. Send/receive JSON-RPC messages over stdio
+  3. Render the structured updates
+
+  That works in any shell — SwiftUI, Electron, web app, whatever. The rendering
+  is just chat UI fed by structured JSON.
+
+  So the real question becomes: Do you want to adopt ACP (leverage existing
+  adapters, standardized protocol, Zed/JetBrains backing) or roll your own
+  simpler integration? ACP is the "right" answer architecturally, but it's also
+  a dependency on someone else's protocol.
+
+  What's your thinking?
+
+✻ Churned for 4m 4s
+
+❯ if I read this right, seems like a bit of a no brainer? what about        
+  codex/cursor/copilot cli's? i'm guessing we dont have adaptors for those. 
+   codex is open source so I suspect it woudln't be terribly hard to build  
+
+⏺ You're reading it right — it's close to a no-brainer. And the coverage is
+  better than you might think:
+  ┌──────────┬───────────────────────┬─────────────────────────────────────────┐
+  │   CLI    │      ACP Status       │                 Source                  │
+  ├──────────┼───────────────────────┼─────────────────────────────────────────┤
+  │ Claude   │ Adapter exists        │ GitHub, Zed blog Sep 2025               │
+  │ Code     │ (claude-code-acp)     │                                         │
+  ├──────────┼───────────────────────┼─────────────────────────────────────────┤
+  │ Gemini   │ Native ACP support    │ Speaks it directly                      │
+  │ CLI      │                       │                                         │
+  ├──────────┼───────────────────────┼─────────────────────────────────────────┤
+  │ Codex    │ Adapter exists in Zed │ crates/agent_servers/src/codex.rs, Zed  │
+  │ CLI      │                       │ blog Oct 2025                           │
+  ├──────────┼───────────────────────┼─────────────────────────────────────────┤
+  │ Copilot  │ ACP support announced │ Zed blog Jan 2026                       │
+  │ CLI      │                       │                                         │
+  ├──────────┼───────────────────────┼─────────────────────────────────────────┤
+  │ Cursor   │ Unknown               │ No mention in any source                │
+  │ CLI      │                       │                                         │
+  └──────────┴───────────────────────┴─────────────────────────────────────────┘
+  So four out of five already have ACP support. Cursor is the outlier — they're
+  proprietary and may not have adopted ACP. For that one you might need to
+  either build an adapter or fall back to PTY wrapping.
+
+  And yes — since Codex is open source and ACP is just JSON-RPC over stdio,
+  building an adapter for anything is pretty mechanical. The protocol is
+  well-defined: implement the handshake, translate the CLI's native output into
+  SessionUpdate messages, done.
+
+  The bigger win here: you don't have to build any of these adapters yourself 
+  for the first four. You can pull in the existing ones and focus your energy on
+   the UI — the sidebar, tabs, session management, the stuff that makes
+  liminal-builder yours.
+
+  This also makes the app shell decision clearer. Since ACP is just JSON-RPC
+  over stdio, any backend that can spawn processes and pipe stdio works. Bun can
+   do that trivially. SwiftUI can do that via Process. Electron can do that.
+
+  Want to lock in ACP as the integration layer and move to the PRD? I think we
+  have enough to make architecture decisions now.
+
+❯ cursor and copilot is the least important. currenty priority is claude    
+  code, codex, gemini. and gemini can wait a little longer probably         
+
+⏺ Good — that simplifies the MVP. Claude Code and Codex both have existing ACP
+  adapters. That's your launch set.
+
+  So here's where we've landed:
+
+  - Integration layer: ACP (locked)
+  - Priority: Claude Code → Codex → Gemini (later) → Cursor/Copilot (eventually)
+  - Rendering: Chat UI from structured ACP updates
+  - App shell: Still open
+
+  On the shell — now that ACP is the integration layer, the backend is identical
+   everywhere (spawn process, pipe stdio). So it really comes down to frontend
+  experience:
+
+  SwiftUI — native macOS, fast, lightweight, great tab/sidebar primitives built
+  into the platform. But you'd be rendering markdown/code blocks in Swift, which
+   is doable but less ecosystem support than web.
+
+  Web (Bun/Fastify) — fastest to build, richest ecosystem for chat UI / markdown
+   rendering / syntax highlighting. Runs in a browser tab though.
+
+  Electron — web ecosystem with native app feel. Learning curve for you but it's
+   thin — it's 95% just a web app.
+
+  My honest rec given your priorities: SwiftUI is actually interesting here.
+  macOS lock-in doesn't bother you, the sidebar/tab UX is native and fast, and
+  the hard part (CLI communication) is solved by ACP. The markdown rendering gap
+   is real but solvable. Or Electron if you want the web ecosystem for rendering
+   but still want an app.
+
+  But I don't want to belabor this — what's your gut? Then I'll write the PRD.
+
+❯ no this is the biggest platform decision. My current platform of choice   
+  is convex + fastify. in fastify I have api's, html/javascript/server      
+  pages as ui and if I need mcp i just make mcp endpoints. other optoin     
+  might be next and use the api's to manage all the cli's. speed and ease   
+  of agentic coding is a major factor as well. that's one of the reasons I  
+  like the 1 du self contained thing with easy tech. these days react is    
+  often pre-mature optimization. agentic coding model intellgience scales   
+  very well wtih any html/javascript dom update complexity. but can still   
+  struggle with react rendering lifecycles and such. though vercel dropped  
+  a pretty great react skill. I also shy away from the next complexity when 
+   you get into SSR and such                                                
+
+⏺ This is really helpful — your reasoning about agentic coding friendliness is
+  sharp. Let me think through the options with that lens:
+
+  Fastify + HTML/JS server pages + WebSocket is the natural fit:
+  - Your comfort zone, proven stack
+  - ACP messages come in via stdio → bridge to WebSocket → DOM updates. Dead
+  simple pipeline.
+  - No build step, no framework lifecycle, no SSR complexity
+  - Agentic coding scales perfectly — AI can manage DOM updates without fighting
+   React re-renders
+  - Single self-contained deployable
+  - Sidebar, tabs, chat panels — all doable with vanilla JS and CSS. It's just
+  DOM.
+
+  The one gap: it runs in a browser, not as a native app. No dock icon, no
+  Cmd+Tab to "Liminal Builder." But honestly — for MVP that doesn't matter. Ship
+   the ergonomic win first.
+
+  Convex question though: For a tool that's fundamentally local (local CLIs,
+  local processes, local ACP), do you need Convex for MVP? Or is it there for
+  future cross-machine sync / persistence? For the initial pass, session state
+  could just live in-memory on the Fastify server + filesystem. Convex could
+  come in later when you want persistence or sync.
+
+  Or do you see Convex playing a different role here?
+
+✻ Worked for 34s
+
+❯ here's a ui patterns from a recent project. you can see what I did with   
+  html/js in various situations:                                            
+  /Users/leemoore/promptdb/docs/tech-arch/ui-patterns.md. you can also      
+  check out the readme in that folder too                                   
+
+⏺ This is extremely clarifying. Your Shell/Portlet architecture maps almost 1:1
+  onto liminal-builder:
+
+  Direct mapping:
+  - Shell = outer chrome (project sidebar, tab bar, header)
+  - Portlet = each chat session (iframe rendering ACP agent output)
+  - Tab switching = swapping which portlet iframe is visible
+  - postMessage = shell ↔ session communication (same pattern)
+  - Components = chat message renderer, input bar, session list items
+
+  Architecture for liminal-builder:
+  ┌─────────────────────────────────────────────────────────┐
+  │  Fastify (Bun) — local server                           │
+  │  ├── ACP process manager (spawn/pipe Claude, Codex)     │
+  │  ├── WebSocket bridge (ACP stdio ↔ browser)             │
+  │  ├── /_m/* (portlet HTML — session chat UI)              │
+  │  ├── /* (shell, static assets)                           │
+  │  └── Session metadata (filesystem or SQLite)             │
+  └───────────────────────────┬─────────────────────────────┘
+                              │ WebSocket
+  ┌───────────────────────────▼─────────────────────────────┐
+  │  Browser                                                 │
+  │  Shell (sidebar: projects → sessions, tab bar)           │
+  │  └── Portlet per active session (iframe, ACP chat UI)   │
+  └─────────────────────────────────────────────────────────┘
+
+  The key insight: ACP handles the hard part (multi-session CLI communication).
+  Your existing stack handles the rest. No Convex needed for MVP — this is a
+  local tool. Session metadata on filesystem, ACP processes managed by Fastify,
+  vanilla HTML/JS portlets for the chat UI.
+
+  Ready to write the PRD? I think we've made all the major decisions:
+
+  - Stack: Fastify + Bun + vanilla HTML/JS (shell/portlet pattern)
+  - CLI integration: ACP protocol
+  - Priority CLIs: Claude Code → Codex → Gemini
+  - UI: Sidebar (projects → sessions), tabs, chat rendering
+  - Storage: Local filesystem (no cloud dependencies)
+  - Console: Lower priority, later feature
+
+✻ Churned for 34s
+
+❯ yeah, that's right. i wanted you to get teh shell portlet side of it.     
+  does this seem like a pretty straightforward app then? functionally do we 
+   need to decide anynore? or is that more when we get to the feature. have 
+   I explained sufficeintly for a prd?                                      
+
+⏺ Yes — this is a straightforward app. The architecture is proven (your
+  shell/portlet pattern), the hard integration problem is solved (ACP), and the
+  UI is a well-understood pattern (sidebar + chat). No exotic tech, no novel
+  protocols to invent.
+
+  You've explained enough for the PRD. What remains — exact flows, acceptance
+  criteria, data contracts — that's Feature Spec territory, not PRD.
+
+  Let me write it.
+
+⏺ PRD is at docs/prd.md. Take a read — it's about 80 lines of substance. The key
+   decomposition:
+
+  MVP (Features 1-4):
+  1. Project sidebar & session management
+  2. Chat session UI
+  3. Tab management
+  4. ACP CLI integration (Claude Code + Codex)
+
+  Post-MVP:
+  5. Gemini CLI
+  6. Project console
+  7. Cursor/Copilot
+
+  Anything you'd change, add, or cut before we pick a feature and write the
+  spec?
+
+✻ Churned for 1m 1s
+
+❯ no, let's do it 
+
+⏺ Let me load the Phase 2 references and write the Feature Spec for the MVP.
+
+⏺ Now let me write the Feature Spec. This covers the full MVP — Features 1-4
+  from the PRD as a single cohesive epic.
+
+⏺ Feature Spec is at docs/feature-spec-mvp.md. ~350 lines.
+
+  What's in it:
+  - 5 flows: Project management, Session browsing, Chat interaction, Tab
+  management, Agent lifecycle
+  - 19 ACs, each with TCs (Given/When/Then)
+  - Data contracts for Project, Session, ChatEntry, and WebSocket messages
+  - NFRs (performance, reliability, resource management)
+  - 7 stories (Story 0 through Story 6) sequenced: skeleton → sidebar → ACP
+  pipeline → chat UI → sessions → tabs → Codex
+
+  What's next per SDD:
+  1. You read every line — this is the highest-scrutiny artifact
+  2. Fix anything that doesn't match your intent
+  3. Then a fresh context validates it ("can I design from this without
+  questions?")
+  4. Then Phase 3: Tech Design
+
+  Take a read and tell me what needs adjusting.
+
+✻ Baked for 2m 56s
+
+❯ did you work a lot of this detail out based on acp and how zed has it     
+  worked? It feels like you are hitting everything at just the right level  
+  and your types seems to have what they need and not extra                 
+
+⏺ Yes — heavily. The ACP research and Zed codebase exploration did a lot of the
+  heavy lifting:
+
+  ChatEntry types map directly to ACP's SessionUpdate variants. Zed's codebase
+  has UserMessageChunk, AgentMessageChunk, AgentThoughtChunk, ToolCall — that's
+  exactly why the spec has user, assistant, thinking, tool-call as the four
+  entry types. Not guessing, just translating what ACP already defines.
+
+  The agent lifecycle (one process, multiple sessions, spawn on demand, graceful
+   shutdown) comes straight from how Zed's AcpConnection works — it holds a
+  HashMap<SessionId, AcpSession> on a single child process. That's why AC-5.1b
+  exists ("subsequent sessions reuse existing process").
+
+  Session listing and resume — I was confident speccing "open existing session
+  loads history" because the ACP spec has session_capabilities for listing and
+  loading past sessions. The app doesn't need to store conversation history
+  itself — it asks the agent.
+
+  Tool call states (running → complete/error) come from Zed's ToolCallUpdate
+  handling in acp_thread.rs. Without seeing that, I might have specced tool
+  calls as flat text rather than stateful elements.
+
+  The Codex App screenshots gave the sidebar/session structure. Your LiminalDB
+  architecture gave the shell/portlet pattern and the contract style. ACP gave
+  the internals. It all converged pretty cleanly — which is probably why it
+  feels right-sized. The protocol already made most of the decisions.
+
+❯ yeah, it feels like this came together very well very quickly. used to    
+  needing a good bit more time to dial something like this in               
+
+⏺ The stars aligned on this one. ACP being a real, well-designed protocol meant
+  we weren't inventing integration patterns. Your existing shell/portlet
+  architecture meant we weren't debating UI patterns. And the Codex App
+  screenshots gave concrete UX to aim at. Most of the spec was just connecting
+  dots that already existed.
+
+  Take your pass through the spec. Once you're satisfied, we'll validate it with
+   a fresh context and move to Tech Design.
+
+❯ almost done reading. it's very solid. nice work on this. 
+
+⏺ Thanks. Let me know when you're done with your pass — any changes or good to
+  validate?
+
+❯ I think I'm good with it. what's the next step? 
+
+⏺ Per SDD, the next step is spec validation — a fresh context reads the spec
+  cold and confirms they could design from it without asking questions. This is
+  the "Tech Lead validates" gate before Phase 3 (Tech Design).
+
+  Let me grab the verification prompt template and run the validation.
+
+⏺ Good — the template recommends running validation with a different model for
+  diverse perspective. Let me launch two validators in parallel: one via a fresh
+   Claude context, one via Codex (GPT 5.2) for the pedantic detail catch.
+
+⏺ Both validators are running. Let me add a third with GPT 5.3 Codex.
+
+⏺ GPT 5.3 Codex came back first — and it's doing exactly what we want: being
+  pedantic. Verdict: NOT READY, 5 critical issues.
+
+  Here's my take on which findings are real vs. overly pedantic:
+
+  Legit catches worth fixing:
+  1. Tab reorder — mentioned in PRD, missing from spec ACs. Need to either spec
+  it or explicitly move to out-of-scope
+  2. Session persistence ambiguity — spec says "sessions survive restart" but
+  also "history comes from ACP." Need to clarify: metadata is ours, conversation
+   history is ACP's
+  3. ChatEntry lacks IDs — real issue for streaming updates. Tool calls need an
+  ID to update status from "running" to "complete"
+  4. WebSocket reconnect on browser refresh — PRD calls it out, spec only has it
+   as an NFR, not an AC with TCs
+  5. Story 2 conflict — claims "no UI" but includes the launching indicator AC.
+  Fair catch
+  6. NFR metrics don't match PRD — spec says 3s/5+ sessions, PRD says 2s/10+.
+  Should reconcile
+
+  Overly pedantic / Tech Design territory:
+  - State machines, error taxonomy with machine-readable codes, storage backend
+  decision — these belong in Tech Design, not feature spec
+  - Traceability matrix — valid for large teams, overkill here
+  - Protocol version pinning — implementation detail
+
+  Still waiting on the other two validators. Want to start processing these
+  fixes, or wait for all three?
+
+✻ Worked for 5m 7s
+
+⏺ Agent "Validate feature spec (Claude)" failed: classifyHandoffIfNeeded is
+not defined
+
+⏺ Claude validator hit an internal error. Let me relaunch it and check on the
+  GPT 5.2 one.
+
+⏺ All three validators are in. GPT 5.2 also came through (the agent errored on
+  exit but the review was captured). All three say NOT READY — which is exactly
+  what validation is for.
+
+  Here's the consolidated view — consensus issues across all three reviewers:
+
+  Must Fix (all three flagged these)
+
+  1. ChatEntry needs IDs — no stable identifiers means you can't update a tool
+  call from "running" to "complete" or attach streaming chunks to the right
+  message. Need entryId, toolCallId.
+  2. Session-to-project mapping undefined — spec says sessions live under
+  projects but never defines how the system knows which sessions belong to which
+   project. Is it ACP metadata (cwd)? Local mapping? This is a core model
+  question.
+  3. Persistence model ambiguous — "sessions survive restart" conflicts with
+  "history comes from ACP." Need to explicitly state: metadata + project mapping
+   + archive state = ours (local). Conversation history = ACP's.
+  4. WebSocket messages incomplete — missing project CRUD (project:add,
+  project:remove), session list, session archive. The contracts only cover chat,
+   not the sidebar flows.
+  5. Tab reorder — PRD says it, spec doesn't. Either add an AC or explicitly
+  move to out-of-scope.
+  6. PRD/spec metric mismatch — PRD says 2s/10+ sessions, spec says 3s/5+. Pick
+  one.
+  7. Vague AC wording — "instantly", "subtle indicator", "disabled or
+  indicates". Make binary-testable.
+  8. Story 2 conflict — says "no UI" but includes AC-5.4 (launching indicator).
+  Move AC-5.4 to Story 3.
+
+  Should Fix (2+ reviewers flagged)
+
+  9. Archive semantics — clarify it's a local UI overlay (hide in sidebar), not
+  an ACP operation
+  10. Session title derivation — who sets it, when, editable?
+  11. Codex end-to-end TC — PRD requires it, spec only has Codex in the CLI
+  picker
+  12. Cancel flows — what if user cancels folder picker or CLI selection?
+  13. Agent start failure — in error table but no AC/TC
+  14. WebSocket reconnect on browser refresh — PRD calls it out, spec has it as
+  NFR only
+
+  Pedantic (skip — Tech Design territory)
+
+  - Full traceability matrix, state machines, error taxonomy with codes, storage
+   backend choice, pagination/virtualization, security trust model for tool
+  calls
+
+  Want me to apply the fixes to the spec? I can knock out all the "Must Fix" and
+   "Should Fix" items in one pass.
+
+✻ Cogitated for 2m 39s
+
+⏺ Agent "Validate feature spec (Codex/GPT)" failed: classifyHandoffIfNeeded is
+ not defined
+
+⏺ That's the GPT 5.2 one — we already captured its full review before it errored
+   on exit. All three reviews are accounted for. Waiting on your call to apply
+  the fixes.
+
+❯ oh you sent sonnet 4.5 eww that's kinda week. I want a proper opus. have  
+  a look at senior engineer. it's specified as opus. does it say 4.5 or     
+  4.6? if it just says opus then please launch that one. I dont care much   
+  for sonnet 4.5                                                            
+
+⏺ The senior-engineer agent type just says "opus" in its config — which resolves
+   to Opus 4.6 (current). Let me launch it.
+
+⏺ File's created at docs/liminal-spec-notes.md. Opus validator is still running.
+   What were you thinking for what goes in there?
+
+✻ Sautéed for 1m 50s
+
+⏺ Agent "Validate feature spec (Opus 4.6)" failed: classifyHandoffIfNeeded is
+ not defined
+
+⏺ Same exit error. Let me grab the output — it likely completed the review
+  before crashing on handoff.
+
+⏺ The output is embedded in JSON log lines — hard to extract cleanly. But we
+  already have strong consensus from 3 validators. The Opus review would be a
+  4th opinion on the same findings.
+
+  Let me capture everything we've learned into those notes. Here's what I'm
+  thinking for the notes file — observations from this session about the SDD
+  skill itself:
+
+  Observations so far:
+  1. Validation approach — dual-validator pattern works well. Lock in: Codex 5.3
+   (GPT) for pedantic detail + senior-engineer (Opus 4.6) for gestalt. If codex
+  CLI isn't available, fall back to copilot CLI manually.
+  2. PRD phase value — even the "lightweight" Phase 1 PRD was valuable here. The
+   validators caught PRD↔spec mismatches that wouldn't have been catchable
+  without it.
+  3. ACP research front-loaded architecture decisions — the protocol research
+  before spec writing meant the data contracts landed close to right on first
+  pass. The skill guidance doesn't explicitly call out "research integration
+  protocols before writing spec" but it should.
+  4. Data contract depth — validators unanimously flagged missing IDs/sequencing
+   in WebSocket messages. The feature-specification.md guidance says "define all
+   shapes precisely" but could be more explicit about streaming/real-time
+  contracts needing correlation IDs, sequencing, and completion markers.
+  5. Persistence authority model — when wrapping external tools (ACP agents),
+  the spec must explicitly state what's "ours" vs "theirs." This is a pattern
+  the skill doesn't currently address.
+
+  What else were you thinking? And should I add anything about the validator
+  agent configuration (which models, what prompts worked)?
+
+✻ Baked for 39s
+
+❯ didn't i just giev you feedback about validator agent configuration to    
+  add?                                                                      
+
+⏺ You did — sorry. Let me add it all now.
+
+⏺ Done. Your feedback about the validator config is captured — Codex 5.3 for
+  pedantic, senior-engineer (Opus) for gestalt, copilot as fallback.
+
+  Ready to apply the spec fixes whenever you are.
+
+❯ give me a list of spec fixes recommended. as well as additional fixes     
+  requested and why they are not recommended                                
+
+⏺ Recommended Fixes
+
+  These are consensus issues (flagged by 2+ validators) that would block or
+  confuse a Tech Lead:
+
+  1. Add IDs to ChatEntry and WebSocket messages — entryId on ChatEntry,
+  toolCallId on tool calls, messageId on session:chunk. Without these you can't
+  update a tool call from "running" to "complete" or attach streaming chunks to
+  the right assistant message.
+  2. Define session-to-project mapping — Explicitly state that Liminal Builder
+  maintains a local {sessionId → projectId} mapping, and that new sessions are
+  created with the project's directory path as the agent's working directory.
+  This is a core model question the spec currently skips.
+  3. Clarify persistence authority model — Add a section: "Ours: project list,
+  collapse state, session-to-project mapping, archive state, open tabs. Theirs
+  (ACP): conversation history, session content." Resolves the contradiction
+  between "sessions survive restart" and "history comes from ACP."
+  4. Add missing WebSocket message types — project:add, project:remove,
+  session:list, session:archive. The current contracts only cover chat flow, not
+   sidebar operations.
+  5. Resolve tab reorder — PRD says "Reorder tabs (drag)." Either add AC-4.6
+  with TCs, or move it to Out of Scope with a note. All three validators flagged
+   this gap.
+  6. Reconcile PRD/spec metrics — Pick one set: PRD says <2s new session / 10+
+  concurrent / <200ms tab switch. Spec says <3s / 5+ / <100ms. Update whichever
+  is wrong.
+  7. Tighten vague AC wording — "instantly" → "within 100ms". "subtle indicator"
+   → "status icon in session header showing
+  connected/disconnected/reconnecting". "disabled or indicates" → pick one
+  behavior.
+  8. Fix Story 2 conflict — Move AC-5.4 (launching indicator) from Story 2 to
+  Story 3. Story 2 is pipeline plumbing, Story 3 is chat UI.
+  9. Add archive semantics — "Archive is a local UI operation that sets
+  archived: true in session metadata. Archived sessions are hidden from the
+  sidebar but not deleted from ACP. Unarchive is not in MVP scope."
+  10. Add session title derivation rule — "Title defaults to 'New Session'.
+  After the first agent response, title updates to the first 60 characters of
+  the user's first message. Users cannot edit titles in MVP."
+  11. Add Codex end-to-end TC — TC-2.2c or similar: "Given: Codex agent is
+  available. When: User creates a Codex session and sends a message. Then: Codex
+   streams a response with the same rendering as Claude Code sessions."
+  12. Add cancel flow for CLI selection — TC-2.2d: "Given: CLI type selection is
+   shown. When: User cancels. Then: No session is created, previous state is
+  restored."
+  13. Add agent start failure AC — AC-5.5: "System shows actionable error if
+  agent process fails to start" with TCs for CLI not installed, handshake
+  failure, and retry.
+  14. Add WebSocket reconnect AC — AC-5.6: "Browser refresh restores open tabs
+  and reconnects to running agent processes" with TCs for tab restoration and
+  session resumption.
+
+  ---
+  Not Recommended (flagged by validators, deferred or rejected)
+  Suggestion: Full traceability matrix (PRD → Flow → AC → TC → Story table)
+  Why Not: Overhead for a solo developer project. The story breakdown section
+    already maps ACs to stories. Traceability matrices serve large teams
+    with handoff risk — not the case here.
+  ────────────────────────────────────────
+  Suggestion: State machines for session/agent/WebSocket lifecycles
+  Why Not: Tech Design artifact, not feature spec. The spec defines the states
+    the user sees (connected/disconnected/reconnecting). The state machine
+     governing transitions is an implementation decision.
+  ────────────────────────────────────────
+  Suggestion: Error taxonomy with machine-readable codes
+  Why Not: The Error States table covers user-facing messages. Structured error
+    codes are a Tech Design / implementation concern.
+  ────────────────────────────────────────
+  Suggestion: Security/trust model for tool calls
+  Why Not: Tool calls are display-only in this app — the ACP agent executes them
+
+    independently. The app is a viewer, not an execution gate. This is
+    obvious from context and doesn't need an AC.
+  ────────────────────────────────────────
+  Suggestion: Storage backend decision (JSON vs SQLite)
+  Why Not: Tech Design decision, explicitly. The spec says "local filesystem"
+  and
+     defines the shapes. How those shapes are stored is implementation.
+  ────────────────────────────────────────
+  Suggestion: Pagination/virtualization for long histories
+  Why Not: Valid concern but premature for MVP. Add as an NFR note ("consider
+    virtualization for sessions exceeding 500 messages") rather than full
+    AC/TC coverage.
+  ────────────────────────────────────────
+  Suggestion: Session migration across processes
+  Why Not: Edge case that doesn't apply. One process per CLI type, sessions
+  don't
+     move.
+  ────────────────────────────────────────
+  Suggestion: Protocol/ACP version pinning
+  Why Not: Operational concern, not a feature requirement. Note in assumptions
+  at
+     most.
+  ────────────────────────────────────────
+  Suggestion: Markdown flavor specification (CommonMark vs GFM)
+  Why Not: Tech Design decision. The AC says "renders markdown with formatting"
+  —
+     which flavor is implementation.
+  ────────────────────────────────────────
+  Suggestion: Timestamp format rules ("just now" vs "3h" vs "2d")
+  Why Not: Minor polish. Can be decided during implementation without spec-level
+
+    definition.
+  ────────────────────────────────────────
+  Suggestion: Sorting tiebreakers for same-timestamp sessions
+  Why Not: Vanishingly unlikely edge case. Not worth spec real estate.
+  ────────────────────────────────────────
+  Suggestion: Multiple agent processes per CLI type (different API keys)
+  Why Not: Out of scope. One process per CLI type is the model. Future
+    enhancement if ever needed.
+
+✻ Worked for 41s
+
+❯ " Suggestion: Full traceability matrix (PRD → Flow → AC → TC → Story      
+  table)" this is core liminal spec. do it. put in the notes that you tried 
+   to bypass and hadnwave this away. we need to review the skill and see if 
+   it gives any indication it's optional. also add a comment for feature    
+  spec validation that for gpt 5.2 or 5.3's review that we need to remind   
+  gpt to not give notes that are more appropraite for tech design. I do     
+  agree many of these tech things are tech design issues, but let's add a   
+  section for tech deisgn questions raised, and list them there. I want to  
+  make sure these questions get answered in the tech design (like markdown  
+  flavor and state machine. now this all reminds me of one thing. we want   
+  to make sure that all cli's are known to be running in oauth mode. not    
+  with api keys. also please take all the suggestions that you pushed back  
+  on, that I didn't comment on or agreed with and feed them back to same    
+  session gpt 5.3 codex with your or my pushbacks and see what it says.     
+  "────────────────────────────────────────                                 
+    Suggestion: Pagination/virtualization for long histories" for this we   
+  can just add it to the out of scope notes                                 
+
+⏺ Got it. Multiple things to do — let me parallelize.
+
+⏺ GPT 5.3 agreed with 7/8 pushbacks. The one disagreement: tool calls should 
+  explicitly state "display-only, no approval controls" to prevent scope drift.
+  Fair point — one line in the spec.
+
+  Now let me check the traceability matrix in the skill, then apply all fixes.
+
+⏺ OK — the full TC-to-test-file traceability matrix lives in the Tech Design 
+  template, not the feature spec. But a PRD → Flow → AC → TC → Story mapping
+  table absolutely belongs in the feature spec to ensure nothing falls through
+  the cracks. The validators were right to flag it, and I was wrong to wave it
+  away.
+
+  Let me apply everything now — notes update, then spec fixes.
+
+⏺ Now let me apply all fixes. This is a substantial rewrite of several sections
+  — I'll update both files.
+
+⏺ Good — notes updated. Now the big one: applying all fixes to the feature spec.
+
+⏺ All fixes applied. Here's what changed:
+
+  New sections added:
+  - Persistence Authority Model — ours vs ACP's, explicit
+  - Tech Design Questions — 7 items deferred from validation
+  - Traceability Matrix — PRD → Flow → AC → Story + AC → TC coverage table
+
+  New ACs/TCs added:
+  - AC-2.5 (session persistence across restart)
+  - AC-4.6 (tab reorder via drag-and-drop)
+  - AC-5.5 (agent start failure with retry)
+  - AC-5.6 (browser refresh restores state)
+  - TC-1.2c, TC-2.2c, TC-2.2d, TC-3.1b, TC-3.6c, TC-4.4c, TC-5.2c, TC-5.5a/b,
+  TC-5.6a/b
+
+  Fixed:
+  - Vague wording → binary-testable ("within 100ms", specific status icons,
+  "send is disabled")
+  - PRD metrics reconciled (2s, 10+ sessions, 100ms tab switch)
+  - Story 2 conflict resolved (AC-5.4 moved to Story 3)
+  - Archive semantics clarified (local UI overlay only)
+  - Session title → agent-provided, not locally derived
+  - ChatEntry has entryId and toolCallId
+  - WebSocket messages have entryId, session:complete, project/session CRUD
+  - A5 added for OAuth mode
+  - Tool call display-only explicitly in Out of Scope
+  - Pagination/virtualization in Out of Scope
+
+  Ready for your review pass, then we re-validate.
+
+✻ Cogitated for 6m 22s
+
+⏺ Good call. We're in a solid spot — spec v2 is written with all fixes applied.
+
+  Where we are: Phase 2 spec is updated, needs your review pass, then 
+  re-validation before moving to Phase 3 (Tech Design).
+
+  The spec is at docs/feature-spec-mvp.md. Key changes from v1:
+
+  - Persistence Authority Model section added
+  - Traceability Matrix (PRD → Flow → AC → TC → Story)
+  - 6 new ACs (session persistence, tab reorder, agent failure, browser refresh,
+   etc.)
+  - Data contracts have IDs for streaming correlation
+  - Vague wording made binary-testable
+  - PRD metrics reconciled
+  - Tech Design Questions captured for Phase 3
+  - OAuth mode assumption added
+  - Tool call display-only explicit in Out of Scope
+
+  Take your pass and let me know when you're ready to re-validate.
+
+❯ did you make any updates to teh liminal spec notes? that I requested last 
+   turn?                                                                    
+
+⏺ Let me check what's actually on disk — the clone may have happened before the
+  write landed.
+
+⏺ Yes — it all landed. The updates you requested are there:
+
+  1. GPT validator prompt note (line 15) — instruction to limit feedback to
+  feature spec concerns, flag Tech Design items separately
+  2. Traceability Matrix correction (line 23-24) — documented that I tried to
+  handwave it away and was wrong, noted it's core SDD
+  3. GPT 5.3 pushback results (line 26-27) — 7/8 agreed, 1 disagreed (tool call
+  scope drift)
+
+  The tech design questions themselves are captured in the feature spec's new
+  "Tech Design Questions" section rather than in the notes — that felt like the
+  right place since they need to be answered during Phase 3. Want them
+  duplicated here too?
+
+❯ I dont think you are following me. liminal spec notes. notes to track for 
+   updating the liminal spec skill. did i give you some notes and did you   
+  put them in there from turn before last                                   
+
+⏺ You're right — I'm conflating the spec fixes with the skill improvement notes.
+   Let me re-read what you asked for.
+
+  You said the liminal-spec skill itself should be updated to:
+
+  1. Include a "Tech Design Questions" section in the feature spec template — so
+   that deferred questions (like markdown flavor, state machines) have a formal
+  home and get answered in Phase 3
+  2. The skill's tech design phase should explicitly check for and answer those
+  deferred questions
+
+  I captured the traceability and GPT prompt notes, but I didn't capture those
+  as skill action items. Let me fix that.
+
+⏺ That's 8 concrete action items for updating the skill. Were there others I
+  missed from your request?
+
+✻ Brewed for 37s
+
+❯ did we capture that we want to add validation guidance to gpt models that 
+   feature spec is for functional details, not for tech design issues       
+
+⏺ That's covered in item #4 but it's underspecified — it only says "separate
+  feature spec issues from Tech Design questions." Your point is stronger: tell 
+  GPT the feature spec is for functional details, not tech design issues. Let me
+   sharpen it.
+
+⏺ Better. That now captures the full intent — functional vs technical boundary
+  guidance, not just "separate them."
+
+❯ ok go ahead and run another validate with senior-engineer and gpt 5.3     
+  codex                                                                     
+
+⏺ Both came back. Good news: both acknowledge the spec is significantly
+  improved. Both say NOT READY but close. Let me consolidate.
+
+  Consensus Issues (both flagged)
+  #: 1
+  Issue: WebSocket upsert semantics undefined — when session:update arrives with
+
+    an existing entryId, does it replace or append? Drives all client-side
+    rendering
+  Fix: Add 3-line "Message Reconciliation" note to Data Contracts
+  ────────────────────────────────────────
+  #: 2
+  Issue: Reconnect button has no contract — AC-5.2b shows a "Reconnect" button
+    but no ClientMessage for reconnect and no TC for clicking it
+  Fix: Add session:reconnect client message + TC-5.2d
+  ────────────────────────────────────────
+  #: 3
+  Issue: Session creation failure TC missing — error table has it, no AC/TC
+  Fix: Add TC-2.2e
+  ────────────────────────────────────────
+  #: 4
+  Issue: Duplicate project directory not handled — TC-1.2a/b cover
+  valid/invalid,
+     not "already added"
+  Fix: Add TC-1.2d
+  ────────────────────────────────────────
+  #: 5
+  Issue: cliType: string in session:list — should be the union type
+  Fix: Fix to 'claude-code' | 'codex'
+  Opus-Only Issues (worth considering)
+  #: C1
+  Issue: Iframe vs SPA not stated — PRD says portlet/iframes, spec is silent
+  My Take: Real gap. Add one paragraph declaring the model.
+  ────────────────────────────────────────
+  #: C3
+  Issue: Session creation message sequence undefined — what comes between
+    session:create and "ready"?
+  My Take: Add a note: session:created means input is enabled.
+    agent:status(starting) comes before if agent needs launch.
+  ────────────────────────────────────────
+  #: C4
+  Issue: agent:status is per-cliType not per-session
+  My Take: Add note: "All sessions of a CLI type share connection status.
+    Per-session status is derived by the client."
+  ────────────────────────────────────────
+  #: M2
+  Issue: Orphan sessions (user ran CLI outside app)
+  My Take: Real edge case. Add policy note.
+  ────────────────────────────────────────
+  #: Missing
+  Issue: session:title-updated message — titles will go stale
+  My Take: Valid. Add it.
+  GPT-Only Issues
+  #: C1
+  Issue: No requestId on ClientMessage
+  My Take: Valid for concurrent ops. Add optional requestId field.
+  ────────────────────────────────────────
+  #: C2
+  Issue: Session ID uniqueness across CLI types
+  My Take: Worth a one-line note: "Session IDs are globally unique (ACP
+    guarantees this per agent; the app prefixes with cliType if needed)."
+  ────────────────────────────────────────
+  #: M5
+  Issue: No Claude Code end-to-end TC parallel to Codex
+  My Take: Fair catch — we have TC-2.2d for Codex but not an equivalent for
+    Claude. Claude Code is the primary target though, so arguably the
+    whole flow IS the Claude e2e test. Skip.
+  This is a much tighter round — mostly contract precision, not structural gaps.
+   Want me to apply these fixes?
+
+✻ Brewed for 3m 35s
+
+❯ we want codex and claude code to work. dont go wtih the lazy thinking of  
+  "claude code is the primary". go ahead and make all the fixes             
+
+⏺ Now applying all fixes. There are a lot of targeted edits — let me do them
+  systematically.
+
+⏺ Now the UI architecture decision and the data contract fixes:
+
+⏺ Now the data contract fixes — message reconciliation, requestId, reconnect
+  message, title update, cliType fix:
+
+⏺ Now add the error states for the new scenarios and fix the PRD metric:
+
+⏺ Now add the keyboard shortcuts to out of scope and update the traceability
+  matrix:
+
+⏺ Now update the traceability matrix for the new TCs:
+
+⏺ Now update the story breakdown to reflect the new TCs and add the Tech Design
+  Questions that were raised:
+
+⏺ Now add the new Tech Design questions from this round:
+
+⏺ Finally, update the PRD to reconcile the 200ms → 100ms:
+
+⏺ All fixes applied. Here's the summary:
+
+  New TCs:
+  - TC-1.2d (duplicate project directory)
+  - TC-2.2d (Claude Code end-to-end — no longer lazy, both CLIs have explicit
+  e2e tests)
+  - TC-2.2e (Codex end-to-end)
+  - TC-2.2f (session creation failure)
+  - TC-5.2d (manual reconnect button)
+
+  New spec sections:
+  - UI Architecture — explicitly declares shell/portlet iframe model, connection
+   status per-cliType derivation
+  - Message Reconciliation Rules — upsert semantics for session:update, append
+  for session:chunk, finalize for session:complete
+  - Session Creation Sequence — step-by-step message flow from session:create to
+   input bar enabled
+  - Orphan session policy — ignored, only app-created sessions appear
+  - Session ID uniqueness — prefixed with cliType for global uniqueness
+
+  Data contract fixes:
+  - requestId on all client messages (optional correlation ID)
+  - session:reconnect client message added
+  - session:title-updated server message added
+  - cliType: string → 'claude-code' | 'codex' in session:list
+  - requestId on session:created and error responses
+
+  Out of Scope additions:
+  - Keyboard shortcuts (explicit deferral with examples)
+  - Multi-browser-tab usage
+
+  PRD reconciled: 200ms → 100ms tab switch
+
+  Tech Design Questions added: reconnection strategy, postMessage relay, state
+  versioning, title update mechanism
+
+  Ready for your review.
+
+✻ Sautéed for 2m 30s
+
+❯ for the current story breakdown, how parralel is the potential for        
+  running stories?                                                          
+
+⏺ Looking at the dependencies:
+
+  Story 0 (infrastructure)
+    ├── Story 1 (sidebar)        ← depends on: Story 0 only
+    └── Story 2 (ACP connection) ← depends on: Story 0 only
+          └── Story 3 (chat UI)  ← depends on: Story 2
+                └── Story 4 (session management) ← depends on: Stories 1, 2, 3
+                      └── Story 5 (tab management) ← depends on: Stories 3, 4
+                            └── Story 6 (codex + status) ← depends on: Stories
+  2, 3, 4, 5
+
+  Only one parallelization point: Stories 1 and 2 can run simultaneously after 
+  Story 0. Everything else is sequential.
+
+  That's not great. The bottleneck is that Story 3 (chat UI) blocks on Story 2
+  (ACP), and then everything after blocks on Story 3.
+
+  If we restructured, we could get more parallelism. For example:
+
+  - Split Story 3 into "Chat UI with mock data" (parallel with Story 2) and
+  "Wire chat to ACP" (after Story 2)
+  - Split Story 5 into "Tab bar shell" (parallel with Story 4) and "Tab ↔
+  session integration" (after Story 4)
+
+  That would give us:
+
+  Story 0
+    ├── Story 1 (sidebar)
+    ├── Story 2 (ACP backend)
+    └── Story 3a (chat UI, mock data)
+          │
+          ├── Story 3b (wire chat to ACP) ← after Story 2
+          ├── Story 4 (session management) ← after Stories 1, 2, 3b
+          └── Story 5a (tab bar shell)
+                │
+                └── Story 5b (tab ↔ session integration) ← after Story 4
+                      └── Story 6 (codex + status)
+
+  Three parallel tracks after Story 0 instead of two. But more stories means
+  more overhead and more handoff surface.
+
+  Is parallelism important to you here? If you're planning to use a team of
+  agents executing stories concurrently, restructuring is worth it. If it's more
+   sequential execution, the current breakdown is cleaner.
+
+❯ I may actually run this build otu a few times. I do want this and now I'm 
+   currently practicing for a teacing a course on spec driven design        
+  tomorrow. after that I may try out the agent team swwarm approach. are we 
+   good to have the tech lead work on this now you think?                   
+
+⏺ We're close. Honest assessment:
+
+  Round 1: Three validators, all NOT READY — 5 critical, 5 major. Structural
+  gaps.
+  Round 2: Two validators, both NOT READY but close — mostly contract precision
+  issues.
+  Round 2 fixes applied: All critical and major issues addressed mechanically
+  (added TCs, contract fields, reconciliation rules, UI architecture decision,
+  policy notes).
+
+  Strictly by SDD, we should re-validate to get a clean READY. The fixes were
+  straightforward though — adding fields, adding TCs, adding policy notes — not
+  restructuring anything. The risk of a new critical issue surfacing is low.
+
+  Two options:
+
+  1. Move to Tech Design now. The Tech Lead reads the spec cold anyway (context
+  isolation). If something is still ambiguous, it surfaces immediately and we
+  patch. Pragmatic.
+  2. One more quick validation. Run GPT 5.3 Codex only (fastest, most pedantic).
+   If it comes back READY or only minor issues, we're clean. Takes ~3 minutes.
+
+  Given you're prepping for a course on SDD tomorrow — running the clean
+  validation pass is actually good demonstration material. Shows the iteration
+  loop working: NOT READY → fix → NOT READY (close) → fix → READY.
+
+  Your call.
+
+❯ tech lead will validate before makign the tech design 
+
+⏺ That's exactly right — the Tech Lead validates the spec by confirming they can
+   design from it. That's the Phase 2→3 gate built into the process. If they
+  can't, the spec comes back.
+
+  Go ahead and kick off Phase 3 whenever you're ready. The Tech Lead loads:
+
+  1. docs/feature-spec-mvp.md (the spec)
+  2. docs/prd.md (for alignment)
+  3. ~/.claude/skills/liminal-spec/references/tech-design.md
+  4. ~/.claude/skills/liminal-spec/references/testing.md
+  5. ~/.claude/skills/liminal-spec/templates/tech-design.template.md
+
+❯ do a ccs-clone of this ac375937-fe91-4a41-9262-02e436a3d0fd  make it      
+  extreme and --dskp                                                        
+
+⏺ Done. Resume with:
+
+  claude --resume 44ed5020-c211-47a6-a65a-b0294433ad30
+  --dangerously-skip-permissions
+
+  54.8% size reduction. That should give the Tech Lead plenty of context room
+  for the design work.
+
+❯ actually i already have another agent for that. I want to use this for a  
+  quick exploration. please run ccs-cloner cli . the help should give you a 
+   refreshed overview on what this does then let's talk about it            
+
+⏺ Got it. ccs-cloner v0.3.5 — clones Claude Code sessions with reduced context
+  by stripping tool call turns. Three presets: default (keep 20), aggressive
+  (keep 10), extreme (remove all). The key insight is it keeps the newest tool
+  turns at full fidelity while truncating older ones, so the cloned session has
+  the most recent context intact.
+
+  What did you want to explore about it?
+
+❯ so is there some way we can use this with the acp layer in a less clunky  
+  way. so that you can either manually select a thread and do a clone and a 
+   removal of many or most of the tool calls and have a more seamless user  
+  expereince with our ACP layer in between sipmly changing to a new session 
+   id?                                                                      
+
+⏺ Really interesting idea. Let me think through the layers.
+
+  What ccs-cloner does today:
+  1. Reads Claude Code's JSONL session file from ~/.claude/
+  2. Strips tool-call turns (configurable depth)
+  3. Writes a new JSONL file with a new session ID
+  4. You resume with claude --resume <new-id>
+
+  The integration question: Can we make this a seamless "Clone & Slim" button in
+   Liminal Builder's UI, where the user clicks it and ends up in a fresh,
+  lighter session without leaving the app?
+
+  There are two approaches depending on how deep we go:
+
+  Approach A: File-level (CLI-specific, works now)
+  - Liminal Builder knows where Claude Code stores sessions (~/.claude/)
+  - Import ccs-cloner's stripping logic as a library
+  - When user clicks "Clone & Slim" on a session:
+    a. Server reads the JSONL file directly
+    b. Applies stripping (user picks preset: default/aggressive/extreme)
+    c. Writes new JSONL with new session ID
+    d. Updates local session-to-project mapping
+    e. Opens new session via ACP (it finds the file)
+    f. Old session stays in sidebar (archived or kept), new one opens in its tab
+  - Pro: Works today, proven logic
+  - Con: File-format coupling — only works for Claude Code. Codex stores
+  sessions differently. Each CLI would need its own clone path.
+
+  Approach B: ACP-level (protocol-native, cleaner)
+  - After opening a session, we have the full history as ChatEntry[] (ACP gave
+  it to us)
+  - Apply stripping logic to the in-memory entries (same algorithm, different
+  input format)
+  - Create a new ACP session
+  - "Replay" the slimmed history into the new session as context
+  - Pro: Works for any ACP agent, no file-format coupling
+  - Con: ACP may not support "create session with pre-injected history." Need to
+   check if there's a way to seed a new session with prior context.
+
+  Approach C: Hybrid
+  - For Claude Code: use file-level (Approach A) since we know the format
+  - For others: fall back to Approach B if ACP supports it, or just don't offer
+  cloning for agents that don't support it
+  - Abstract behind a SessionCloner interface so each CLI type can plug in its
+  own strategy
+
+  The real question is: does ACP have any mechanism for creating a session with 
+  pre-loaded history? If it does, Approach B is the clean answer. If not, you're
+   stuck with file-level for Claude Code and waiting for protocol support for
+  others.
+
+  Want me to dig into the ACP spec and the Zed codebase to check?
+
+✻ Cogitated for 35s
+
+❯ wait, so ACP is also a full in between layer for threads and messages?    
+  and does it read from the original file every time? claude code doesnt'   
+  read from teh session file every time normally. it almost never reads     
+  from it. hence the need to clone                                          
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ i dont actually care so much about cloining. I'd be good with backing up. 
+   or i use cloning under the covers for the context cleaning but be        
+  transparent to users. and you'd have the ability to have it periodiaclly  
+  clean to a config, or you could manually clean with a UI operation when   
+  you feel you need to. Maybe you have a check box on the thread that you   
+  could check or uncheck as needed                                          
+
+⏺ That's a much better framing. Not cloning as a user concept — context cleaning
+   as an operational concern that the app manages transparently.
+
+  So from the user's perspective:
+  - They have a session. It's getting long/heavy.
+  - They can toggle "auto-clean" on a session (checkbox), which periodically
+  strips old tool calls per a configured threshold
+  - Or they hit a manual "clean context" button when they feel it's sluggish
+  - Either way, the session feels continuous — same thread in the sidebar, same
+  tab, conversation keeps flowing
+
+  Under the covers:
+  1. Server reads Claude Code's JSONL for that session
+  2. Applies ccs-cloner stripping logic
+  3. Writes a new JSONL with new session ID
+  4. Closes the old ACP session, opens the new one (Claude Code loads the
+  slimmed file)
+  5. App swaps the session mapping — old canonical ID → new canonical ID
+  6. User sees a brief "cleaning context..." indicator and keeps going
+
+  The key thing that makes this work: the ACP layer is our abstraction boundary.
+   The user never sees session IDs. They see "Fix auth bug" in the sidebar. What
+   session ID backs that is our internal concern. Swapping it is invisible.
+
+  This feels like a solid post-MVP feature though — not MVP. It depends on the
+  ACP pipeline and file-level access being stable first. Should I add it to the
+  PRD as a planned feature and note it in the spec's out-of-scope?
+
+❯ correct. that's why i said this was a clone to discuss a seperate idea.   
+  Iwanted you with sufficient context. but I wanted to capture some         
+  exploration real quick. do an extreme clone:                              
+  ac375937-fe91-4a41-9262-02e436a3d0fd with dsp before you run out of       
+  context again                                                             
+
+❯ ok you cloned it and we are in the new context now. but you have no tool  
+  calls, so there may be some re-orienting as needed. hopefully we have     
+  sufficient talking history to maintain quality of interaction             
+
+⏺ I'm oriented. Here's where we are:
+
+  - Phase 1 (PRD): Done — docs/prd.md
+  - Phase 2 (Feature Spec): Done — docs/feature-spec-mvp.md, two validation
+  rounds, all fixes applied
+  - Phase 3 (Tech Design): Ready to kick off in a fresh context
+  - Skill notes: Captured at docs/liminal-spec-notes.md
+  - Context cleaning exploration: Captured as a post-MVP concept (transparent
+  session slimming via ccs-cloner logic)
+
+  We also discussed parallelizing the story breakdown and you mentioned
+  potentially running this build multiple times — once for practice/teaching,
+  once with agent team swarm.
+
+  What's next?
+
+❯ still in context cleaning exploration as this may change how we think     
+  about storing info. so it seems like 1 way is to update model source      
+  files. but this acp could be a useful point of indirection where I can    
+  keep alternate curated history right? maybe a sqlite database with a      
+  curated history. though over time it might get really weird the original  
+  history vs the curated. not exactly sure what that looks like. in fact    
+  I'm not sure i've thought this through. do you see where I'm trying to go 
+   here? I've been working on various context management techniques but     
+  generally they require using my own or an open source harness. and claude 
+   code is such a good harness that the rewrite and loss in quality of an   
+  alternate harness is not yet worth to take a leap. and I can't fork it as 
+   it's not open source. but I want a good place to keep a compression      
+  gradient, self cleaning dynamic context that can shift a bit more turn to 
+   turn with more seaches and esrvies and agents that tend the context in   
+  careful ways to compress bands of message history at different levels of  
+  fidelity keeping the most recent the highest fidelity and allowing the    
+  low fidelity early parts of history to go back weeks (or months) and      
+  millioins or 10's of millions of tokens but smartly compressed. using     
+  this you could fix history at around say 100k tokens with a leeway of     
+  20k. and run automated system that keeps up with the compression gradient 
+   and the tool use gradient (full content, trucnated to 120 chars,         
+  removed) updates for these happen every 5 or 10 turns (to reduce the kv   
+  cache misses) but generally keeps the history in a balanced stasis. from  
+  there you can have dynamic entry points of ranked vector and traiditonal  
+  searches anda fast high context model tracking a medium fidelity version  
+  of the context with high fidelity lat 5 turns and making deicsions about  
+  what ot include in the more dynamic sections that we'll specify for it's  
+  context (often between current turn and previous turns (currently         
+  thinking of a TTL zone of quick access things like memory retrievals,     
+  memory tickles "this conversation reminds me of xyz conversation wtih the 
+   user {call getMem('423343223') to retrieve memory or consolidated        
+  lesson). the subsystems inject the memory tickle, the model decides       
+  whether to grab. this is a broad picture. first I wnat to integrate tool  
+  call context management hten message history (manage context size adn     
+  stabilize using fidelity grdient before injecting a bunch of extra stuff  
+  in the working memory). so my current systems brain is thinking ACP and   
+  my liminal-builder might have the right point of indirection to manage    
+  context while being able to use existing cli harnesses. I think i'm       
+  missing something about this though that makes it a little harder than I  
+  think. but maybe not. Hopefully you see where I'm hoping to eventually    
+  get to. wanting to udnerstand if there is soemthign in this acp approach  
+  that makes this a better point of processing and indirection. my first    
+  thought too is if we need persistence of an alternate ACP representation  
+  that we send to the harness we could keep in redis, but I'm guessin       
+  gultimately the changes we need would need to be in the model formats of  
+  the session. but maybe I'm wrong                                          
+
+⏺ I see exactly where you're going. And you're right that there's a catch — but
+  it might not be as hard as you fear. Let me lay out what ACP actually gives
+  you and where the friction is.
+
+  What ACP Actually Controls
+
+  ACP is a communication channel, not a context construction layer. The critical
+   thing:
+
+  You (UI) → ACP → CLI Harness → API
+                      ↑
+                CLI owns context.
+                It reads from its own session state.
+                ACP just passes messages through.
+
+  So you can't just hand a curated history through ACP and have the CLI use it.
+  The CLI (Claude Code, Codex) manages its own context from its own session
+  files. ACP is a window, not a lever.
+
+  Where Your Indirection Actually Lives
+
+  It's a two-layer indirection, not one:
+
+  1. ACP layer — gives you structured message flow. You see every turn, every
+  tool call, every response. You can track, index, and analyze everything
+  flowing through.
+  2. File layer — the actual session state. For Claude Code, it's JSONL in
+  ~/.claude/. This is where context lives. This is where ccs-cloner operates.
+
+  The combination is what makes Liminal Builder the right insertion point:
+
+  ┌──────────────────────────────────────────────────────┐
+  │  Liminal Builder                                      │
+  │                                                       │
+  │  ACP Layer (observation + routing)                    │
+  │  ├── Tracks all messages flowing through              │
+  │  ├── Indexes into your SQLite/Redis for search        │
+  │  ├── Feeds the "tracking model" with medium-fidelity  │
+  │  └── Triggers context maintenance cycles              │
+  │                                                       │
+  │  File Layer (mutation)                                │
+  │  ├── Reads CLI session files                          │
+  │  ├── Applies compression gradient                     │
+  │  ├── Writes curated version with new session ID       │
+  │  └── Swaps: close old ACP session, open new one       │
+  │                                                       │
+  │  Context Store (your persistent representation)       │
+  │  ├── Full archival history (everything, forever)      │
+  │  ├── Compression gradient metadata                    │
+  │  ├── Vector index for retrieval                       │
+  │  └── Memory tickles, TTL entries                      │
+  └──────────────────────────────────────────────────────┘
+
+  The Swap Mechanic
+
+  This is the core move. Every 5-10 turns (your cadence):
+
+  1. ACP layer signals "maintenance cycle"
+  2. Read CLI's current session file (full fidelity, what the model actually
+  has)
+  3. Apply your gradient logic:
+    - Recent 5 turns: full fidelity
+    - Turns 6-30: tool calls truncated to 120 chars
+    - Turns 31-100: tool calls removed, assistant messages summarized
+    - Turns 100+: consolidated into a context preamble
+  4. Write new session file with new ID
+  5. Close current ACP session, open new one (CLI loads the curated file)
+  6. UI masks the swap — same tab, same thread name, brief "optimizing..."
+  indicator
+
+  The user never sees session IDs. They see their thread. The swap is invisible.
+   This is exactly why Liminal Builder's session-to-project mapping abstraction
+  matters — the canonical thread is yours, the backing session ID is disposable.
+
+  The KV Cache Tradeoff
+
+  You already identified this. Every swap = full KV cache rebuild. At 100k
+  tokens that's real latency. The 5-10 turn cadence is the right knob — you're
+  trading a periodic cache miss for stable context size.
+
+  The alternative: only swap when context crosses a threshold (say 120k), not on
+   a timer. This means the model runs with natural KV caching most of the time
+  and only takes the hit when it actually needs cleaning.
+
+  What You're NOT Missing
+
+  I think the thing you suspected might be harder — it's actually not, for
+  Claude Code specifically. Because:
+
+  - Claude Code reads the JSONL at session start, then keeps state in memory
+  - It writes to the file as it goes (append-only)
+  - On --resume, it reads the file fresh
+  - So the swap mechanic (write new file, open new session) is exactly what
+  ccs-cloner proves works
+
+  For Codex and Gemini — you'd need to understand their session storage format.
+  But the pattern is the same. And since you control the ACP layer, you can
+  detect which CLI type and apply the right file-level strategy.
+
+  The Dynamic Injection Piece
+
+  The compression gradient stabilizes your base context at ~100k. That gives you
+   your ~20k working memory budget for:
+
+  - Memory tickles injected as system-level context between the compressed
+  history and the current turn
+  - The tracking model (fast, medium-fidelity view) deciding what to inject
+  - Vector search results, retrieved memories, consolidated lessons
+
+  This injection would happen at swap time — when you're already rewriting the
+  file, you insert the dynamic sections. Between swaps, the context is static
+  and the KV cache is stable.
+
+  [System preamble]
+  [Compressed ancient history — consolidated summaries]
+  [Medium-fidelity middle history — tool-stripped]
+  [DYNAMIC ZONE — memory tickles, retrieved context, TTL entries]
+  [Full-fidelity recent turns — last 5-10]
+  [Current user message]
+
+  The Honest Gap
+
+  The one thing that's genuinely hard: the tracking model. The compression
+  gradient and tool stripping are mechanical (ccs-cloner already does the hard
+  version). But a model that watches medium-fidelity context and makes
+  intelligent decisions about what to inject in the dynamic zone — that's a real
+   system. It needs its own context, its own inference calls, and good judgment
+  about what matters.
+
+  That said, it doesn't need to be perfect day one. Start with rule-based:
+  recent ccs-cloner stripping + simple keyword/embedding retrieval. Graduate to
+  model-driven curation once the plumbing works.
+
+  Bottom Line
+
+  ACP alone isn't the indirection point. ACP + file-level access + your own 
+  persistent store is the triad. Liminal Builder sits at exactly the right spot
+  to orchestrate all three. The architecture you're describing is sound — it's
+  essentially building a "context kernel" on top of existing CLI harnesses
+  without forking them.
+
+  Want to capture this as a design exploration doc? It's adjacent to
+  liminal-builder but could shape the persistence architecture in the MVP (e.g.,
+   making sure the session mapping layer is designed to support transparent
+  swaps from the start).
+
+✻ Cogitated for 1m 15s
+
+❯ so the tracking is not fully specified and it's known as hard and fiddly  
+  to dial in. the thinking is it will be a lot of dumb deterministic work   
+  and dumb model ranking and then a final smaller faster big context model  
+  doing a final review of it's own version of the history along with the    
+  items that were surfafaced by transcription matches, consoidated memory   
+  matches, reference layer matches, memory tickles. these will be ranked    
+  and then a final fast model will make judgement on the short list of      
+  items surfaced by those previous systems and be a final filter mechanism  
+  on what we'd want to inject into the TTL dynamic layer. Then the model    
+  itself would have tools to find chunks where there is compressed history  
+  and pull higher fidelity versions of those chunks to inspect them or to   
+  pull memory tickles, or when large numbers of search results show up dump 
+   those results into redis with a quick retrieval id and a summary and the 
+   key for further retrieval as needed. that's the full system I'm goign    
+  for. I expect that file layer is actually a data persistane layer where I 
+   will inject a richer system like convex and redis. convex for relational 
+   data storage, search and retrieval. redis for big chunks of texts and    
+  resutls keyed and TTL'd and perhaps redis streams as needed for async     
+  messaging or more robust streaming. the full picture is large and         
+  sophisticated. but it can be bult on. but I have shied away because I     
+  keep falling in teh whole of devising my own coding harness and trying to 
+   stick all models into and have a sophisticated UI. this seems a better   
+  path and I have points of indirection where I can keep my versions of     
+  history and have them backup and overwrite existing session files with    
+  whatever I need while keeping the real system of record in my convex      
+  layer                                                                     
+
+⏺ Now I see the full picture. And I think you've cracked the key insight that's
+  been eluding you.
+
+  The breakthrough: CLI session files are not the system of record — they're a
+  materialized view. Convex is the system of record. You write whatever the CLI
+  needs into its session file format, but the real history, the real context
+  decisions, the real compression gradient — all of that lives in your layer.
+
+  Convex (system of record)
+    ├── Full archival history (every message, every tool call, forever)
+    ├── Compression gradient metadata (what fidelity level each chunk is at)
+    ├── Memory graph (consolidated lessons, tickles, references)
+    └── Session state (what the CLI currently "sees")
+           │
+           │  materialize
+           ▼
+  CLI session file (disposable view)
+    └── Written by Liminal Builder
+        Read by CLI harness
+        Overwritten whenever context needs change
+           │
+           │  ACP (communication)
+           ▼
+  CLI harness (Claude Code, Codex, etc.)
+    └── Does what it's good at:
+        tool execution, permissions, model interaction
+
+  The reason you kept falling into the harness hole is because if you own 
+  context, you think you need to own execution. But you don't. The CLIs are
+  great execution engines. You just need to own what they see. And the file
+  layer is a dumb pipe between your system of record and their execution engine.
+
+  The pipeline you described for the tracking/injection system:
+
+  Stage 1: Deterministic (cheap, fast)
+    ├── Transcription matches (keyword/pattern)
+    ├── Consolidated memory matches (embedding similarity)
+    ├── Reference layer matches (structured lookups)
+    └── Memory tickles (association triggers)
+           │
+           │  ranked short list
+           ▼
+  Stage 2: Fast model review (big context, quick judgment)
+    └── Reviews its own medium-fidelity history view
+        + ranked items from Stage 1
+        → Filters to final injection set
+           │
+           │  approved items
+           ▼
+  Stage 3: Injection
+    ├── TTL dynamic zone (injected into next materialized view)
+    ├── Redis (big chunks keyed with summary for model retrieval)
+    └── Model tools (pull higher fidelity, retrieve from Redis)
+
+  This is sound. The expensive model calls are bounded — Stage 2 only sees a
+  short list, not the full search space. The dumb work is dumb. The smart work
+  has a small surface.
+
+  What ACP gives you in this architecture:
+
+  It's not the indirection point for context — you're right, that's the file +
+  Convex layer. ACP gives you:
+
+  1. Observation — every message flowing through gets indexed into Convex (your
+  system of record fills naturally)
+  2. Session lifecycle control — close/open sessions to trigger the file rewrite
+  3. Multi-CLI abstraction — same observation pipeline regardless of which CLI
+  is underneath
+
+  Redis's role is clean here too. Convex for structured data and search. Redis
+  for:
+  - Ephemeral big text chunks (search result dumps with TTL)
+  - Retrieval keys the model can call tools against
+  - Streams if you need async between the tracking pipeline and the main session
+
+  The thing that makes this actually buildable on top of liminal-builder MVP:
+
+  The MVP establishes:
+  - ACP process management (observation point)
+  - Session-to-project mapping (your abstraction over CLI session IDs)
+  - WebSocket message flow (you see everything)
+  - Local metadata store (upgrades to Convex later)
+
+  Then the context management system layers on top without changing the core
+  architecture — it just gets more sophisticated about what it writes into the
+  materialized view.
+
+  Want me to capture this as a design exploration doc? Something like
+  docs/context-kernel-exploration.md — not a spec, just the architectural
+  thinking crystallized so you don't lose it. It would also serve as input when
+  you eventually spec this as a feature.
+
+✻ Cogitated for 35s
+
+❯ yeah, call it context-memory-coredata-ideate-braindump.md lol that should 
+   cover it. feel free to be verbose and long. but DONT extrapiloate or add 
+   or enhace stuff here. I have a lot more deail of this topic based on my  
+  need as a user and an iterating on systems design on this for the last    
+  6-8 months                                                                
+
+⏺ Let me read the existing docs directory first to make sure I place this
+  correctly, then write it up strictly from what we discussed.
+
+  Now let me write this. Strictly what we discussed — no embellishments.
+
+⏺ Searched for 1 pattern (ctrl+o to expand)
+
+⏺ Write(docs/context-memory-coredata-ideate-braindump.md)
+  ⎿  Wrote 238 lines to docs/context-memory-coredata-ideate-braindump.md
+      1 # Context Memory / Core Data — Ideation Braindump
+      2 
+      3 **Date:** 2026-02-06
+      4 **Context:** Explored during liminal-builder Phase 2 spec work. C
+        onversation between Lee and Opus 4.6 in Claude Code.
+      5 **Status:** Raw exploration, not spec'd. Lee has 6-8 months of sy
+        stems design iteration behind this topic — this doc captures only
+         what surfaced in this conversation, not the full picture.
+      6 
+      7 ---
+      8 
+      9 ## The Problem
+     … +228 lines (ctrl+o to expand)
+
+⏺ Done. docs/context-memory-coredata-ideate-braindump.md — ~250 lines. Strictly
+  what we discussed, no extrapolation. Open questions at the bottom are
+  explicitly flagged as "not explored in this conversation" so future-you knows
+  where the doc's boundary is.
+

@@ -1,0 +1,756 @@
+
+ ▐▛███▜▌   Claude Code v2.1.34
+▝▜█████▛▘  Opus 4.6 · Claude Max
+  ▘▘ ▝▝    ~/code/liminal-builder
+
+❯ /liminal-spec 
+
+⏺ Liminal Spec
+
+  A spec-driven development system for features with detailed requirements and
+  complex integrations. Runs a rigorous, phased approach from specification
+  through implementation — each phase produces an artifact the next phase reads
+  cold. The traceability chain (requirement → test condition → test → code)
+  means when tests go green, you have high confidence the implementation
+  actually matches the spec.
+
+  The Phases
+  ┌─────────────────┬─────────────────┬─────────────┬─────────────────────────┐
+  │      Phase      │      Entry      │    Exit     │    Start Here If...     │
+  ├─────────────────┼─────────────────┼─────────────┼─────────────────────────┤
+  │ 1. Product      │ Vision, idea    │ PRD         │ You need to explore     │
+  │ Research        │                 │             │ product direction first │
+  ├─────────────────┼─────────────────┼─────────────┼─────────────────────────┤
+  │ 2. Feature      │ Requirements or │ Feature     │ Most common entry       │
+  │ Specification   │  direct need    │ Spec        │ point. You know what    │
+  │                 │                 │             │ you want to build       │
+  ├─────────────────┼─────────────────┼─────────────┼─────────────────────────┤
+  │                 │                 │             │ You have a complete     │
+  │ 3. Tech Design  │ Feature Spec    │ Tech Design │ spec ready for          │
+  │                 │                 │             │ architecture            │
+  ├─────────────────┼─────────────────┼─────────────┼─────────────────────────┤
+  │ 4. Story        │                 │ Stories +   │ Design is done, ready   │
+  │ Sharding        │ Spec + Design   │ Prompt      │ to break into           │
+  │                 │                 │ Packs       │ executable work         │
+  ├─────────────────┼─────────────────┼─────────────┼─────────────────────────┤
+  │ 5. Execution    │ Stories +       │ Verified    │ Stories are sharded,    │
+  │                 │ Prompts         │ code        │ ready to implement      │
+  └─────────────────┴─────────────────┴─────────────┴─────────────────────────┘
+  Most work starts at Phase 2. Tell me what you want to build and which phase
+  you're starting from.
+
+  When to Use
+
+  - New features with multiple components or integration points
+  - Complex business logic where requirements need precision
+  - Multi-agent builds where context isolation matters
+
+  Not for: quick bug fixes, single-file changes, spikes, or emergency patches.
+  Either run the full methodology or use a lighter workflow.
+
+❯ we are at 3. tech design had a first draft but no review. please load all 
+   skill references needed through the tech design phase. dont skip because 
+   you think you know better. . then read prd, feature spec and tech        
+  design. the key focus here is give me your full review of the spec design 
+   against the feature spec and prd. I want a full  assessement primarily   
+  of the tech design but if you encounter inconsistencies between prd and   
+  feature spec call that out and recommend the best places to change. dont  
+  just assume tech design. but the tech design is the least validated here  
+  and finalizing it is the primary object.                                  
+
+⏺ Loading all skill references through Phase 3 and all project artifacts. This
+  is a lot of material — reading everything in parallel.
+
+⏺ Read 10 files (ctrl+o to expand)
+
+⏺ The tech design is too large to read in one shot. Let me read it in parts.
+
+⏺ Read 1 file (ctrl+o to expand)
+
+⏺ All skill references loaded, all three project artifacts read end-to-end.
+  Here's the full assessment.
+
+  ---
+  Tech Design Review — Liminal Builder MVP
+
+  Overall Assessment
+
+  NOT READY for Story Sharding in current form. The design is architecturally
+  sound and demonstrates strong understanding of the problem space. The issues
+  are not "wrong architecture" — they're document hygiene, unresolved spec
+  conflicts, and missing traceability. Fixable without restructuring.
+
+  ---
+  Strengths
+
+  The design does a lot of things right:
+
+  - ACP protocol depth is excellent. The discovery that ACP has no session/list
+  method — and the entire design pivoting around that reality — shows genuine
+  research. The external contracts section is one of the best parts of the
+  document.
+  - State machines are fully specified. Both the Agent Lifecycle and WebSocket
+  Lifecycle machines are complete with transitions, events, and browser-side
+  emissions. Copy-paste ready.
+  - Module boundaries are clean. Server (7 modules) and client (6 modules) have
+  clear responsibilities. The responsibility matrix traces to ACs. No circular
+  dependencies.
+  - TC mapping coverage is near-complete. 73 tests across 10 test files,
+  organized by chunk with running totals. The service-mock pattern is correctly
+  applied (mock at ACP/filesystem boundary, exercise internal modules).
+  - The deferred markdown rendering decision (raw text during streaming,
+  markdown on complete) is well-reasoned and documented with rationale.
+  - Chunk sequencing maps 1:1 to the feature spec's recommended story breakdown,
+   which makes Phase 4 sharding straightforward.
+
+  ---
+  Critical Issues (Must Fix Before Story Sharding)
+
+  C1: Persistence Authority Model is Contradicted by ACP Reality
+
+  Feature spec (Persistence Authority Model, line 69-88) says:
+  "ACP agents own: Conversation history, Session list per agent, Session titles"
+
+  "On app restart: Liminal Builder loads its local state and queries each agent 
+  for current session lists."
+
+  Tech design (line 160-164) discovered:
+  "Critical: No session listing in ACP... session IDs and metadata are entirely 
+  our responsibility."
+
+  The tech design's Q2 flags this but doesn't resolve it — it just says "Spec's
+  Persistence Authority Model needs updating." This isn't a tech design decision
+   to make unilaterally; it's a factual correction. The feature spec is wrong 
+  about what the ACP protocol provides.
+
+  Impact: The entire session listing flow, the restart flow, the title
+  mechanism, and the SessionMeta type all change. The tech design has the
+  correct architecture, but the feature spec still says the old thing.
+
+  Recommendation: Update the feature spec's Persistence Authority Model to
+  reflect reality:
+  - Move "Session list per agent" and "Session titles" from "ACP agents own" to
+  "Liminal Builder owns"
+  - Rewrite the "On app restart" paragraph (no querying agents for session
+  lists)
+  - Update the sentence about session:title-updated to note it's locally derived
+  - Update the SessionMeta data contract to include title, lastActiveAt,
+  createdAt
+  - This is a feature spec fix, not a tech design fix — the tech design has it
+  right
+
+  C2: SessionMeta Data Contract Mismatch
+
+  Feature spec (line 570-576):
+  interface SessionMeta {
+    id: string; projectId: string; cliType: ...; archived: boolean;
+  }
+  // "Session title and timestamps come from the ACP agent, not stored locally."
+
+  Tech design (line 1068-1083):
+  export interface SessionMeta {
+    id: string; projectId: string; cliType: CliType; archived: boolean;
+    title: string;        // ADDED
+    lastActiveAt: string; // ADDED
+    createdAt: string;    // ADDED
+  }
+
+  This follows from C1. The tech design correctly added these fields because ACP
+   doesn't provide them. But the artifacts now disagree on the shape of a core
+  data contract.
+
+  Recommendation: Update the feature spec SessionMeta to add title,
+  lastActiveAt, createdAt. Remove the note about titles coming from ACP. This is
+   the same fix as C1.
+
+  C3: Missing TC Mappings — 4 TCs Unmapped
+
+  The following TCs from the feature spec appear in no test mapping table in the
+   tech design:
+  ┌─────────┬────────┬─────────────────────────────────────────────┐
+  │   TC    │   AC   │                 Description                 │
+  ├─────────┼────────┼─────────────────────────────────────────────┤
+  │ TC-3.7a │ AC-3.7 │ Cancel action visible during agent response │
+  ├─────────┼────────┼─────────────────────────────────────────────┤
+  │ TC-3.7b │ AC-3.7 │ Cancel stops response and re-enables input  │
+  ├─────────┼────────┼─────────────────────────────────────────────┤
+  │ TC-3.7c │ AC-3.7 │ Cancel not visible when agent is idle       │
+  ├─────────┼────────┼─────────────────────────────────────────────┤
+  │ TC-4.5b │ AC-4.5 │ Placeholder title for new session           │
+  └─────────┴────────┴─────────────────────────────────────────────┘
+  The entire cancel flow (AC-3.7) is missing from the Flow 3 TC mapping. Flow 3
+  header says "Covers: AC-3.1, AC-3.2, AC-3.3, AC-3.4, AC-3.5, AC-3.6" — AC-3.7
+  is omitted. The cancel mechanism is documented in the ACP protocol section but
+   never traced to tests.
+
+  TC-4.5b (placeholder "New Session" title) is missing from the tabs TC mapping
+  even though the tech design discusses title derivation.
+
+  Impact: 4 tests missing from the confidence chain. The test count should be
+  ~77, not 73. More importantly, the cancel flow has no test coverage design at
+  all.
+
+  Recommendation: Add to the tech design:
+  - TC-3.7a → input.test.ts: cancel button visible when sending state active
+  - TC-3.7b → portlet.test.ts + websocket.test.ts: cancel sends session:cancel,
+  receives session:cancelled, input re-enables
+  - TC-3.7c → input.test.ts: cancel button not visible when idle
+  - TC-4.5b → tabs.test.ts: new session shows "New Session" title
+  - Update running totals through all chunks
+
+  ---
+  Major Issues (Should Fix)
+
+  M1: Stream-of-Consciousness Deliberation in Final Document
+
+  The tech design contains unresolved thinking-out-loud passages that violate
+  the writing style reference's guidance. A finalized design should present
+  decisions, not the deliberation that led to them. These passages create
+  ambiguity about what was actually decided.
+
+  Worst offenders:
+
+  Lines 508-535 (collapse state deliberation):
+  "Actually — looking at the data model..." → "Wait, that's over-engineered." → 
+  "Actually, re-reading the feature spec's WebSocket messages..." → "Decision: 
+  Option B." → "Actually, the feature spec says..." → "Decision revised: Add a 
+  project:update client message"
+
+  Lines 884-896 (tab state persistence):
+  "Actually — this creates an unnecessary server round-trip..." → deliberation →
+   "Decision: Persist tab state client-side" → more deliberation → "Decision 
+  confirmed"
+
+  Impact: Someone entering this document cold (fresh context, as the methodology
+   requires) will be confused about what was actually decided. The deliberation
+  process is valuable in conversation but toxic in an artifact that serves as a
+  source of truth.
+
+  Recommendation: Rewrite these sections to state the final decision cleanly:
+  - Collapse state: stored in client localStorage. Period.
+  - Tab state: stored in client localStorage. Period.
+  - Remove all "Actually..." and "Wait..." passages
+  - If the deliberation is valuable context, put a single sentence: "We
+  considered server-side persistence but localStorage is simpler and satisfies
+  TC-1.4b."
+
+  M2: Storage Design Section is Stale
+
+  Lines 259-302 define three JSON files:
+  ~/.liminal-builder/
+  ├── projects.json
+  ├── sessions.json
+  └── ui-state.json       ← STALE
+
+  Lines 896-908 remove ui-state.json and move to localStorage:
+  ~/.liminal-builder/
+  ├── projects.json
+  └── sessions.json
+
+  Browser localStorage:
+  ├── liminal:tabs
+  └── liminal:collapsed
+
+  A reader entering at the Storage Design section gets wrong information. The
+  later "revision" doesn't update the earlier section.
+
+  Recommendation: Update the Storage Design section (lines 259-302) to reflect
+  the final decision. Remove ui-state.json. Add the localStorage keys. Update
+  the ProjectsFile schema to remove collapsed from Project.
+
+  M3: Project.collapsed Removed but Project Interface Still Has It
+
+  The Low Altitude section (line 1046-1055) defines:
+  export interface Project {
+    id: string;
+    path: string;
+    name: string;
+    addedAt: string;
+  }
+
+  Good — collapsed is removed here. But the feature spec's Project type (line
+  558-564) still has collapsed: boolean. And the Storage Design section (line
+  280) references the feature spec's Project which includes collapsed.
+
+  Recommendation: Consistent with C1, update the feature spec Project interface
+  to remove collapsed. Add a note that collapse state is client-side. Also
+  update the tech design's Storage Design schema section for consistency.
+
+  M4: project:update / project:updated Messages — Dead Code
+
+  Lines 527-533 define new WebSocket message types for collapse state updates:
+  | { type: 'project:update'; projectId: string; collapsed?: boolean }
+  | { type: 'project:updated'; project: Project }
+
+  These were added during the deliberation about server-side collapse
+  persistence. The final decision moves collapse to localStorage, making these
+  messages unnecessary. But they're never formally withdrawn.
+
+  Recommendation: Remove the project:update / project:updated message type
+  definitions. If a project:update message is needed for other mutable project
+  fields in the future, add it then.
+
+  M5: session:cancelled Missing from postMessage Protocol
+
+  The feature spec defines session:cancelled as a server→client message. The
+  tech design's postMessage protocol (ShellToPortlet, lines 426-433) doesn't
+  include it:
+
+  type ShellToPortlet =
+    | { type: 'session:history'; ... }
+    | { type: 'session:update'; ... }
+    | { type: 'session:chunk'; ... }
+    | { type: 'session:complete'; ... }
+    | { type: 'agent:status'; ... }
+    | { type: 'session:error'; ... }
+    // MISSING: session:cancelled
+
+  The portlet message handler (lines 693-727) also doesn't handle
+  session:cancelled.
+
+  Recommendation: Add { type: 'session:cancelled'; entryId: string } to
+  ShellToPortlet. Add handler in portlet that treats it like session:complete
+  (finalize entry, re-enable input). This ties directly to C3 (the missing
+  cancel TC mapping).
+
+  M6: No Cancel Flow Sequence Diagram
+
+  The tech design has sequence diagrams for Add Project, Remove Project, Create
+  Session, Open Session, and Streaming Response — but no sequence diagram for
+  the Cancel flow. The feature spec defines a complete Cancel Response Sequence
+  (lines 666-671). The tech design should show how this maps through the
+  postMessage → WebSocket → ACP → back chain.
+
+  Recommendation: Add a Cancel Response sequence diagram under Flow 3 or as a
+  sub-flow. Show: user clicks cancel → portlet posts to shell → shell sends
+  session:cancel → server sends ACP session/cancel notification → prompt
+  response arrives with stopReason: 'cancelled' → server sends session:cancelled
+   → shell routes to portlet → portlet finalizes entry.
+
+  ---
+  Minor Issues (Fix Before Handoff)
+
+  m1: Spec's "A5" Assumption and Tech Design Q3 Overlap
+
+  Feature spec A5 says OAuth token passthrough is "Unvalidated." Tech Design Q3
+  says the same thing. This is fine for now, but both should track toward the
+  same resolution. Consider adding a cross-reference.
+
+  m2: TC-2.1a Test Description is Stale
+
+  TC-2.1a test in session-manager.test.ts says "Mock ACP list returns 3
+  sessions" — but there's no ACP list. The test setup should say "3 sessions in
+  local store" since listing is entirely local.
+
+  m3: Feature Spec's Orphan Session Behavior Could Use a Tech Design Note
+
+  The feature spec defines AC-2.4b (orphan sessions hidden). The tech design
+  handles this implicitly (local-only listing means external sessions never
+  appear), but a brief note connecting the AC to the architecture decision would
+   strengthen traceability.
+
+  m4: ACP session/set_mode Listed but Never Referenced
+
+  Line 129 lists session/set_mode as an ACP method. It's never used or mapped to
+   any AC. Add a note that this is unused in MVP, or remove it from the table.
+
+  m5: Test Count Arithmetic
+
+  After adding the 4 missing TCs (C3), the final test count changes. Chunk 3
+  adds TC-3.7a/b/c (~3 tests), Chunk 5 adds TC-4.5b (~1 test). Running totals: 9
+   → 27 → 44 → 57 → 71 → 77 (approximate). Update all running totals.
+
+  m6: highlight.js Not in Chunk 0 Dependencies
+
+  The markdown module uses highlight.js for code blocks (mentioned at line
+  1721). This library dependency should appear in Chunk 0's infrastructure setup
+   (package.json). Similarly, marked and DOMPurify should be listed as Chunk 0
+  dependencies.
+
+  ---
+  PRD ↔ Feature Spec Notes
+
+  The PRD and feature spec are well-aligned. Two minor observations:
+
+  1. PRD says "JSON files or SQLite" for session storage — the feature spec
+  correctly chose JSON files. No conflict, just a downstream decision. The tech
+  design confirms JSON. Clean chain.
+  2. PRD mentions "Gemini speaks ACP natively" (Feature 5) — this is out of MVP
+  scope and correctly deferred. No issue.
+
+  No actionable PRD ↔ feature spec conflicts found. The inconsistencies are
+  between feature spec ↔ tech design, specifically around the ACP protocol
+  reality discovered during tech design work.
+
+  ---
+  Recommended Fix Priority
+
+  1. C1 + C2 + M3 (fix together): Update feature spec's Persistence Authority
+  Model, SessionMeta type, Project type, and restart flow to match ACP reality.
+  This is a feature spec edit, not a tech design edit.
+  2. C3 + M5 + M6: Add cancel flow to tech design — TC mappings, postMessage
+  protocol, sequence diagram, test count updates.
+  3. M1: Clean up stream-of-consciousness passages. Rewrite as finalized
+  decisions.
+  4. M2 + M4: Update Storage Design section and remove dead project:update
+  messages.
+  5. m1-m6: Minor fixes as a final pass.
+
+  After these fixes, the tech design is ready for Orchestrator validation ("Can
+  I derive stories from this?") and then Story Sharding.
+
+✻ Brewed for 3m 9s
+
+❯ Okay, this makes sense. We'll talk through these things piece by piece.   
+  First, can you go into the future and read the                            
+  context-memory-coredata-ideate-braindump.md? That way you know where      
+  we're going. I want you to understand that. Because I want to since we    
+  have more persistence things to nail down just for this MVP. Where we     
+  might be going and so then that may inform some additional persistence    
+  decisions as we're working through this. Check that out first. Tell me    
+  what you think as it relates to if we need to refine our persistence      
+  here. Do we want to look at maybe introducing SQLite or are we fine with  
+  file-based systems? Does it inform any way how we set up persistence? I   
+  don't want to add a bunch of scope but at the same time I want to make    
+  sure whatever we do for persistence we're not what we have with where     
+  we're going in mind.                                                      
+
+⏺ Searched for 3 patterns, read 1 file (ctrl+o to expand)
+
+⏺ This is a clarifying read. Let me connect the dots.
+
+  How the Future Informs MVP Persistence
+
+  The braindump establishes a clear trajectory:
+
+  MVP (now)              →  Context Kernel (future)
+  ─────────────────────────────────────────────────
+  JSON files             →  Convex (system of record)
+  (projects, sessions)      (full archival, memory graph,
+                             compression metadata, search)
+
+  (nothing)              →  Redis (ephemeral)
+                             (text chunks, TTL, streams)
+
+  ACP passthrough        →  ACP observation + file mutation
+                             (index all messages, swap mechanic)
+
+  The key line is on line 207: "Local metadata store → upgrades to Convex 
+  later."
+
+  And line 209: "MVP starts with simple local storage. Context kernel upgrades 
+  the persistence and adds the compression/injection pipeline."
+
+  The SQLite Question: No
+
+  JSON files are the right call for MVP. Here's the reasoning:
+
+  1. The destination is Convex, not SQLite. SQLite would be an intermediate step
+   that doesn't move you closer to where you're going. The migration path is
+  JSON → Convex, not JSON → SQLite → Convex. Adding SQLite now means you'd be
+  migrating twice, and SQLite's strengths (ACID, concurrent access, complex
+  queries) aren't needed at MVP scale.
+
+  2. MVP data volumes are tiny. Maybe 5-20 projects, 50-200 sessions. Full file
+  rewrite on every mutation is fine at this scale. The JsonStore with debounced
+  writes and atomic rename is perfectly adequate.
+
+  3. The braindump explicitly expects local storage to be temporary. The
+  "disposable materialized view" philosophy extends to the metadata store — it's
+   a stepping stone, not a destination. Don't over-invest in it.
+
+  What the Braindump DOES Inform
+
+  While the backing store doesn't need to change, a few architectural things
+  surfaced:
+
+  1. The Store Interface Matters More Than the Store
+
+  The tech design's JsonStore<T> → ProjectStore / SessionManager layering is
+  good. The business logic (filtering, sorting, canonical ID management) lives
+  in the managers, not the store. When Convex comes, you swap JsonStore for
+  Convex clients behind the same manager interfaces. The managers barely change.
+
+  No action needed — the current design already has this right.
+
+  2. Sessions Are Disposable; Threads Are Not
+
+  This is the big conceptual insight from the braindump. Line 102: "The user 
+  never sees session IDs. They see their thread." The swap mechanic means one
+  user-visible conversation maps to multiple ACP sessions over time as context
+  gets rebuilt.
+
+  The MVP currently treats sessions as the user-visible thing (1:1
+  session-to-tab mapping). That's fine for now because there are no swaps. But
+  when context management arrives, you'd add a Thread entity that wraps multiple
+   sessions:
+
+  Future:  Thread → [Session_v1, Session_v2, Session_v3...]
+  MVP:     Session (= Thread, 1:1)
+
+  Does this change the MVP persistence schema? No. The current SessionMeta is
+  fine. A future Thread table wraps around it — the MVP SessionMeta becomes the
+  child entity. No schema migration needed; you add a table, you don't change
+  one.
+
+  The one thing worth doing: mentally treat SessionMeta as "the thing the user 
+  sees" rather than "the ACP session." The canonical ID prefix system already
+  abstracts over the raw ACP ID. When swaps come, the canonical ID stays stable
+  while the underlying ACP session ID changes. The architecture already supports
+   this without modification.
+
+  3. Message Observation Hooks Are Already There
+
+  The braindump says ACP gives "observation — every message flowing through gets
+   indexed." The MVP doesn't index messages — it passes them through. But the
+  hook points are naturally in place:
+
+  - websocket.ts sees every client→server message
+  - acp-client.ts's onEvent callback sees every agent→client streaming event
+  - session-manager.ts's sendMessage and openSession see every interaction
+
+  When Convex comes, you add a messageObserver that taps these existing flows.
+  No restructuring needed.
+
+  4. lastActiveAt Timestamp Tracking Is Future-Critical
+
+  The MVP adds lastActiveAt to SessionMeta (one of the C1/C2 fixes from the
+  review). This timestamp becomes important for the compression gradient — it's
+  how you know which sessions have recent activity and which are candidates for
+  context maintenance. Good that we're tracking it from day one.
+
+  The One Small Thing I'd Recommend
+
+  The tech design's JsonStore currently has:
+
+  class JsonStore<T> {
+    read(): Promise<T>;
+    write(data: T): Promise<void>;
+    writeSync(data: T): Promise<void>;
+  }
+
+  This is fine. But consider adding one method:
+
+    update(fn: (current: T) => T): Promise<void>;
+
+  This read-modify-write pattern is what every caller does anyway (read, mutate,
+   write back). It prevents race conditions from concurrent updates (debounce
+  window) and maps cleanly to Convex's mutation pattern later. Small change,
+  prevents a class of bugs, and the pattern is the same one Convex uses.
+
+  But — this could also be considered over-engineering for MVP. The current
+  callers are all single-path (one WebSocket handler, one mutation at a time).
+  Up to you whether the update() convenience is worth adding now or if it's a
+  pre-Convex refactor.
+
+  Bottom Line
+
+  Stay with JSON files. The persistence interface (store abstraction → managers
+  → handlers) is what matters, and the current design has it right. The backing
+  store is disposable — same philosophy as the CLI session files. When Convex
+  arrives, the managers get new plumbing but the same API surface.
+
+  No SQLite. No schema changes needed for the future. The architecture is
+  already set up to absorb what's coming. The only thing to be thoughtful about
+  is keeping the manager interfaces clean — which they already are.
+
+✻ Worked for 1m 24s
+
+❯ So on SQLite to Convex and so forth, I'm a little bit torn because I may  
+  get a work version of this going where I can use SQLite, but I can't use  
+  Convex. But even so, it might be that I'm probably going to have a few    
+  different variations of this: currently it's a web version. I may also    
+  once the specs are built, certain things can be quickly regenerated, and  
+  I can practice rebuilds. There are a few reasons why I might build and    
+  rebuild this a few times, so I'm just throwing around if I need a         
+  work-friendly version that doesn't have that, I could potentially use     
+  SQLite. It may be that if I just want to be simple, that I go with SQLite 
+   over Convex, and maybe I don't need a lot of the special Convex stuff.   
+  Anyway, I think I agree with everything you say. So NoSQLite makes sure   
+  we have a dialed-in format to handle the data that we need, and that it   
+  doesn't hopefully we were close enough that we don't have to do big       
+  changes on. Now then, all that being said, if we're good to move forward. 
+   I'd say do the first set of changes (#1). But you don't do them. Go      
+  ahead and fully specify everything you need in a sub-agent. Use the       
+  senior engineer to make the changes. At this point, we've loaded you up   
+  with a lot of context, but we need it, and we need to be a little bit     
+  stingy with it. Don't do any, lots of file writes and updates right now.  
+  We're going to try to steer all of the updates to the senior engineer,    
+  and then we'll start to remove tool calls to make this go a bit further.  
+  So yeah, I have senior engineer do number one, which I believe is C1, C2, 
+   and M3. After he makes those updates, have him go back and critically    
+  review them to make sure they look correct. But if there's a lot          
+  involved, let's stop and talk to me because we may want to micromanage    
+  your context a little bit until we're ready to shrink it up a little bit. 
+                                                                            
+
+⏺ Good call on keeping context lean. The scope for C1+C2+M3 is contained — all
+  changes are in one file (docs/feature-spec-mvp.md). Let me enumerate the
+  specific edits before launching so you can sanity check:
+
+  C1 (Persistence Authority Model):
+  - Move "Session list per agent" and "Session titles" from "ACP agents own" to
+  "Liminal Builder owns"
+  - Add lastActiveAt tracking to what we own
+  - Rewrite the "On app restart" paragraph (no querying agents for session
+  lists)
+  - Adjust the session:title-updated explanation (locally derived, not ACP push)
+
+  C2 (SessionMeta type):
+  - Add title, lastActiveAt, createdAt to the SessionMeta interface
+  - Remove the note "Session title and timestamps come from the ACP agent, not
+  stored locally"
+
+  M3 (Project.collapsed):
+  - Remove collapsed: boolean from the Project interface
+  - Add note that collapse state is client-side (localStorage)
+
+  All feature spec edits. TCs don't change (they describe behavior, not
+  implementation). WebSocket message types don't change (they still work, just
+  the mechanism behind session:title-updated changes). Manageable scope — I'll
+  send it to senior engineer now.
+
+⏺ senior-engineer(Fix C1+C2+M3 in feature spec)
+  ⎿  Done (23 tool uses · 58.1k tokens · 2m 39s)
+
+⏺ Done. The senior engineer made all C1+C2+M3 edits and caught a few additional
+  coherence fixes during the review pass. Here's the summary:
+
+  Core edits (as planned):
+  - Persistence Authority Model: we now own titles + timestamps, ACP only owns
+  conversation content, restart paragraph rewritten
+  - SessionMeta: added title, lastActiveAt, createdAt fields; removed stale ACP
+  note
+  - Project: removed collapsed, added localStorage note
+
+  Bonus coherence fixes the review pass caught:
+  - Flow 2 intro text still said "title (provided by the agent)" and "Session
+  lists come from the ACP agent" — fixed both
+  - Story 4 description still said "listed in the sidebar from agent history" —
+  fixed to "from local metadata"
+  - Assumption A2 said ACP "supports listing and resuming past sessions" —
+  corrected to just resuming (no listing)
+  - Tech Design Questions Q11 — updated from "from ACP" to "locally derived"
+
+  Verified unchanged: All ACs, TCs, WebSocket message types, traceability
+  matrix, orphan session logic, session ID uniqueness.
+
+  Want to spot-check any of the changes before we move to the next fix set (C3 +
+   M5 + M6 — the cancel flow gaps)?
+
+✻ Cogitated for 3m 45s
+
+❯ Let's go ahead and launch another senior engineer To run to implement the 
+   next round of changes please. Then after the engineer runs that, rerun   
+  him again to validate the changes that he made.                           
+  ⎿  Interrupted · What should Claude do instead?
+
+❯ Make sure it's the same session senior engineer when you rerun it. 
+
+⏺ senior-engineer(Fix C3+M5+M6 in tech design)
+  ⎿  Done (66 tool uses · 85.6k tokens · 4m 4s)
+
+⏺ Changes are in. Now resuming the same agent for the validation pass.
+
+⏺ senior-engineer(Validate C3+M5+M6 changes) resuming a27bb9f
+  ⎿  Done (9 tool uses · 96.7k tokens · 43s)
+
+⏺ Validation caught one issue: the PortletToShell type is missing
+  session:cancel. The cancel flow diagram shows the portlet sending it to the
+  shell, but the type definition doesn't have the variant. Quick fix — resuming
+  the same agent to add it.
+
+⏺ senior-engineer(Add session:cancel to PortletToShell) resuming a27bb9f
+  ⎿  Done (2 tool uses · 97.6k tokens · 11s)
+
+⏺ Fixed. C3 + M5 + M6 are complete and validated. Here's where we stand:
+
+  Done:
+  - C1 + C2 + M3 — Feature spec persistence model, SessionMeta,
+  Project.collapsed
+  - C3 + M5 + M6 — Cancel flow TC mappings, postMessage protocol, sequence
+  diagram, test counts (78 total)
+
+  Remaining from the review:
+  - M1 — Clean up stream-of-consciousness deliberation passages in tech design
+  - M2 + M4 — Update stale Storage Design section, remove dead project:update
+  messages
+  - m1-m6 — Minor fixes (stale test description, cross-references, highlight.js
+  dependency, etc.)
+
+  Want to continue with the next batch, or review what's been done so far first?
+
+✻ Churned for 6m 17s
+
+! ccs-cloner 
+  ⎿ ccs-cloner v0.3.5 - Clone Claude Code sessions with reduced context
+
+    TIP: Configure Claude Code to show session ID in status line for easy
+    access.
+
+    USAGE
+      ccs-cloner <command> [options]
+
+    COMMANDS
+      clone <id>   Clone session with modifications
+      list         List sessions
+      info <id>    Show session details
+
+    PRESETS (for --strip-tools)
+      default      Keep 20 tool-turns: 10 truncated, 10 full fidelity
+      aggressive   Keep 10 tool-turns: 5 truncated, 5 full fidelity
+      extreme      Remove all tools
+
+    HOW IT WORKS
+      Tool removal targets "turns with tools" (not all turns).
+      Of kept turns, oldest portion is truncated, newest is full fidelity.
+      This ensures consistent behavior across multiple clones.
+
+    CUSTOM PRESETS
+      Define in ccs-cloner.config.ts:
+        customPresets: {
+          minimal: { name: "minimal", keepTurnsWithTools: 5, truncatePercent: 80
+     }
+        }
+
+    OUTPUT OPTIONS
+      --json       JSON output (for agents)
+      --dsp        Include --dangerously-skip-permissions in resume command
+
+    GLOBAL OPTIONS
+      --help, -h       Show help
+      --quickstart     Show minimal quickstart guide
+      --version        Show version
+
+    ENVIRONMENT
+      CCS_CLONER_CLAUDE_DIR      Claude data directory (default: ~/.claude)
+      CCS_CLONER_OUTPUT_FORMAT   "human" or "json"
+      CCS_CLONER_VERBOSE         true/false
+
+    Run "ccs-cloner <command> --help" for command-specific options.
+
+❯ let's deal with your context. please run clone with dsp on this:          
+  0d0f5791-7e67-4d10-93ae-394f335d70da make it aggressive and give me the   
+  command line output                                                       
+
+⏺ Bash(ccs-cloner clone 0d0f5791-7e67-4d10-93ae-394f335d70da --strip-tools
+      aggressive --dsp)
+  ⎿  Session cloned successfully!
+
+       Source:  0d0f5791-7e67-4d10-93ae-394f335d70da
+     … +14 lines (ctrl+o to expand)
+
+⏺ Here's the output:
+
+  - New session: 3a75b9ce-8fed-43db-89bc-5cea25e63395
+  - Size reduction: 2.8 MB → 2.4 MB (-14%)
+  - Tool calls truncated: 15, Thinking blocks removed: 8
+
+  Resume command:
+  claude --resume 3a75b9ce-8fed-43db-89bc-5cea25e63395
+  --dangerously-skip-permissions
+
+  Only 14% reduction since this session is mostly long document reads rather
+  than tool-heavy turns. The aggressive preset stripped what it could but the
+  bulk is the spec/design content in conversation history. Want to resume from
+  the clone and continue with M1+M2+M4?
