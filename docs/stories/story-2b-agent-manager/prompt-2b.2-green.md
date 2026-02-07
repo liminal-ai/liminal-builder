@@ -2,19 +2,21 @@
 
 ## Context
 
-Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). The server manages CLI agent processes via the ACP (Agent Client Protocol). Each CLI type (claude-code, codex) runs as a single child process, spawned on demand and monitored for health.
+Liminal Builder is an agentic IDE -- an organized, session-based interface for AI coding CLIs. The server manages CLI agent processes via the ACP (Agent Client Protocol). Story 2b runtime scope is `claude-code` only; Codex runtime is deferred to Story 6.
 
-Story 2a implemented the `AcpClient` (JSON-RPC protocol layer). Story 2b builds the `AgentManager` on top of it -- the process lifecycle layer. In prompt 2b.1, 10 tests were written and are currently failing. This prompt implements the full `AgentManager` class to make all 10 tests pass.
+Story 2a implemented the `AcpClient` (JSON-RPC protocol layer). Story 2b builds the `AgentManager` on top of it and completes WebSocket bridge routing/forwarding in `server/websocket.ts`. In prompt 2b.1, red tests were written and are currently failing. This prompt implements the Green behavior for both areas.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
 - `server/acp/agent-manager.ts` -- class skeleton with stubs (from prompt 2b.1)
-- `tests/server/agent-manager.test.ts` -- 10 failing tests (from prompt 2b.1)
+- `server/websocket.ts` -- bridge skeleton (from prompt 2b.1)
+- `tests/server/agent-manager.test.ts` -- failing red tests (from prompt 2b.1)
+- `tests/server/websocket.test.ts` -- failing red tests (from prompt 2b.1)
 - `server/acp/acp-client.ts` -- fully implemented AcpClient (from Story 2a)
 - `server/acp/acp-types.ts` -- protocol types (from Story 0)
 - `server/sessions/session-types.ts` -- CliType (from Story 0)
-- 17 tests passing (Story 1 + 2a), 10 failing (Story 2b)
+- Story dependency baseline: Story 0 + Story 2a complete (Story 1 may also be complete in the sequential pipeline); Story 2b red tests failing before implementation
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -28,6 +30,7 @@ Story 2a implemented the `AcpClient` (JSON-RPC protocol layer). Story 2b builds 
 | File | Action | Purpose |
 |------|--------|---------|
 | `server/acp/agent-manager.ts` | **Implement** | Replace all stubs with full implementation |
+| `server/websocket.ts` | **Implement** | Wire WS session message routing + outbound agent event forwarding |
 
 No other files should be modified.
 
@@ -67,6 +70,8 @@ disconnected --> starting : next ensureAgent/reconnect attempt
 export type CliType = 'claude-code' | 'codex';
 ```
 
+Keep this union type unchanged for forward compatibility. Story 2b implements only `claude-code` runtime behavior; Codex runtime/config is deferred to Story 6.
+
 ```typescript
 // server/acp/agent-manager.ts -- types to export
 
@@ -81,13 +86,20 @@ export interface AgentState {
 }
 ```
 
+Note: Story 2b Green adds `reconnectTimer` to `AgentState`. This field is intentionally not present in the Red skeleton and is added during Green implementation.
+
 ### ACP Adapter Commands
 
 ```typescript
-const ACP_COMMANDS: Record<CliType, { cmd: string; args: string[]; displayName: string }> = {
+const ACP_COMMANDS: Partial<Record<CliType, { cmd: string; args: string[]; displayName: string }>> = {
   'claude-code': { cmd: 'claude-code-acp', args: [], displayName: 'Claude Code' },
-  'codex': { cmd: 'codex-acp', args: [], displayName: 'Codex' },
+  // codex runtime entry deferred to Story 6
 };
+
+const cmdConfig = ACP_COMMANDS[cliType];
+if (!cmdConfig) {
+  throw new AppError('UNSUPPORTED_CLI', `CLI type not yet supported in Story 2b: ${cliType}`);
+}
 ```
 
 ### Dependency Injection Interface
@@ -115,15 +127,8 @@ constructor(emitter: EventEmitter, deps?: Partial<AgentManagerDeps>) {
   this.emitter = emitter;
   this.deps = { ...DEFAULT_DEPS, ...deps };
 
-  // Initialize both CLI types to idle
+  // Initialize Story 2b runtime CLI type to idle
   this.agents.set('claude-code', {
-    status: 'idle',
-    process: null,
-    client: null,
-    reconnectAttempts: 0,
-    reconnectTimer: null,
-  });
-  this.agents.set('codex', {
     status: 'idle',
     process: null,
     client: null,
@@ -152,6 +157,7 @@ constructor(emitter: EventEmitter, deps?: Partial<AgentManagerDeps>) {
 1. Set status to 'starting'
 2. Emit 'agent:status' { cliType, status: 'starting' }
 3. Look up command from ACP_COMMANDS
+   - If missing, throw `AppError('UNSUPPORTED_CLI', ...)`
 4. Try:
    a. Spawn process: deps.spawn([cmd, ...args], { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
    b. Create client: deps.createClient(proc.stdin, proc.stdout)
@@ -229,6 +235,30 @@ Return this.agents.get(cliType)?.status ?? 'idle'
 4. Wait for all shutdown operations to complete (Promise.all)
 ```
 
+#### 9. WebSocket Bridge (`server/websocket.ts`)
+
+Implement Story 2b bridge behavior:
+
+```
+Inbound routing:
+  - session:create -> ensureAgent('claude-code') -> client.sessionNew(...)
+  - session:open   -> ensureAgent('claude-code') -> client.sessionLoad(...)
+  - session:send   -> ensureAgent('claude-code') -> client.sessionPrompt(...)
+  - session:cancel -> ensureAgent('claude-code') -> client.sessionCancel(...)
+
+Outbound forwarding:
+  - AgentManager 'agent:status' event -> WS message type 'agent:status'
+  - AgentManager 'error' event -> WS message type 'error'
+
+Request correlation:
+  - Extract optional `requestId` from inbound WS messages
+  - Include `requestId` in correlated responses/errors (`session:created`, `session:history`, `error`) so concurrent requests can be matched reliably
+
+Scope constraints:
+  - No Codex runtime command/config wiring in Story 2b
+  - Keep existing WS payload contracts stable; only add/finish missing routing/forwarding logic
+```
+
 ### Complete Implementation Template
 
 ```typescript
@@ -236,6 +266,7 @@ Return this.agents.get(cliType)?.status ?? 'idle'
 
 import { EventEmitter } from 'events';
 import type { CliType } from '../sessions/session-types';
+import { AppError } from '../errors';
 import { AcpClient } from './acp-client';
 
 export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | 'reconnecting';
@@ -253,9 +284,9 @@ export interface AgentManagerDeps {
   createClient: (stdin: any, stdout: any) => AcpClient;
 }
 
-const ACP_COMMANDS: Record<CliType, { cmd: string; args: string[]; displayName: string }> = {
+const ACP_COMMANDS: Partial<Record<CliType, { cmd: string; args: string[]; displayName: string }>> = {
   'claude-code': { cmd: 'claude-code-acp', args: [], displayName: 'Claude Code' },
-  'codex': { cmd: 'codex-acp', args: [], displayName: 'Codex' },
+  // codex runtime entry deferred to Story 6
 };
 
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -277,16 +308,14 @@ export class AgentManager {
     this.emitter = emitter;
     this.deps = { ...DEFAULT_DEPS, ...deps };
 
-    // Initialize both CLI types to idle
-    for (const cliType of ['claude-code', 'codex'] as CliType[]) {
-      this.agents.set(cliType, {
-        status: 'idle',
-        process: null,
-        client: null,
-        reconnectAttempts: 0,
-        reconnectTimer: null,
-      });
-    }
+    // Initialize Story 2b runtime CLI type to idle
+    this.agents.set('claude-code', {
+      status: 'idle',
+      process: null,
+      client: null,
+      reconnectAttempts: 0,
+      reconnectTimer: null,
+    });
   }
 
   async ensureAgent(cliType: CliType): Promise<AcpClient> {
@@ -366,6 +395,9 @@ export class AgentManager {
   private async spawnAgent(cliType: CliType): Promise<AcpClient> {
     const state = this.agents.get(cliType)!;
     const cmdConfig = ACP_COMMANDS[cliType];
+    if (!cmdConfig) {
+      throw new AppError('UNSUPPORTED_CLI', `CLI type not yet supported in Story 2b: ${cliType}`);
+    }
 
     // Transition: -> starting
     state.status = 'starting';
@@ -493,11 +525,11 @@ export class AgentManager {
 
 ## Constraints
 
-- Only modify `server/acp/agent-manager.ts`
+- Only modify `server/acp/agent-manager.ts` and `server/websocket.ts`
 - Prefer not to modify tests; if a Red test has a clear invalid assumption, make the smallest fix that preserves TC intent and document it.
 - Do NOT modify `server/acp/acp-client.ts`, `server/acp/acp-types.ts`, or `shared/types.ts`
-- Do NOT create any WebSocket handler code
-- Do NOT implement beyond AgentManager scope
+- Implement only Story 2b WS bridge behavior (`session:create/open/send/cancel` routing, `requestId` pass-through, and `agent:status/error` forwarding)
+- Do NOT implement Codex runtime command/config (`ACP_COMMANDS` codex entry, dual CLI process runtime) in Story 2b
 - The implementation must work with the mock dependency injection from the tests
 - Use `EventEmitter` from Node's `events` module (available in Bun)
 
@@ -512,17 +544,24 @@ export class AgentManager {
 
 Run:
 ```bash
-bun test tests/server/agent-manager.test.ts
+bun run test -- tests/server/agent-manager.test.ts
 ```
 
 **Expected output:** 10 tests, all PASSING.
 
 Run:
 ```bash
-bun test
+bun run test -- tests/server/websocket.test.ts
 ```
 
-**Expected output:** 27 total tests, all PASSING (9 Story 1 + 8 Story 2a + 10 Story 2b).
+**Expected output:** WebSocket bridge tests PASS (`session:create/open/send/cancel` routing + `agent:status/error` forwarding + `requestId` correlation checks).
+
+Run:
+```bash
+bun run test
+```
+
+**Expected output:** All server Vitest tests PASS (including Story 2b agent-manager + websocket coverage).
 
 Run:
 ```bash
@@ -534,8 +573,12 @@ bun run typecheck
 ## Done When
 
 - [ ] `server/acp/agent-manager.ts` fully implemented (no more NotImplementedError)
-- [ ] `bun test tests/server/agent-manager.test.ts` -- 10 tests pass
-- [ ] `bun test` -- 27 total tests pass (no regressions)
+- [ ] `server/websocket.ts` routes `session:create/open/send/cancel` through AgentManager/AcpClient
+- [ ] `server/websocket.ts` forwards AgentManager `agent:status` and `error` as WS `agent:status` / `error`
+- [ ] `server/websocket.ts` preserves `requestId` correlation for `session:created`, `session:history`, and `error` responses
+- [ ] `bun run test -- tests/server/agent-manager.test.ts` -- tests pass
+- [ ] `bun run test -- tests/server/websocket.test.ts` -- tests pass
+- [ ] `bun run test` -- total server tests pass (no regressions)
 - [ ] `bun run typecheck` -- zero errors
 - [ ] AgentManager correctly:
   - Spawns agent on first `ensureAgent()` call (idle -> starting -> connected)
@@ -547,4 +590,4 @@ bun run typecheck
   - Reports handshake failure as "Could not connect" error
   - Shuts down all agents gracefully (close stdin, wait, SIGKILL)
   - Emits status events via EventEmitter for all transitions
-  - Agent state is independent of WebSocket connections
+- [ ] Codex runtime behavior remains deferred to Story 6 (type-only compatibility retained)

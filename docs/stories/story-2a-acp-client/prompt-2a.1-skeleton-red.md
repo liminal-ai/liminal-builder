@@ -4,7 +4,7 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). The stack is Bun + Fastify server with vanilla HTML/JS client, communicating via WebSocket. The server bridges browser WebSocket connections to CLI agent processes via the ACP (Agent Client Protocol), which uses JSON-RPC 2.0 over stdio.
 
-Story 2a isolates the ACP protocol layer. The `AcpClient` class wraps stdin/stdout of a child process and implements the JSON-RPC 2.0 protocol for communicating with ACP agent adapters. This prompt creates the test file with 8 tests covering all ACP protocol operations, plus ensures the AcpClient class skeleton is ready for them. New tests should fail meaningfully against unimplemented behavior at this stage.
+Story 2a isolates the ACP protocol layer. The `AcpClient` class wraps stdin/stdout of a child process and implements the JSON-RPC 2.0 protocol for communicating with ACP agent adapters. This prompt creates the test file with 9 tests covering all ACP protocol operations, plus ensures the AcpClient class skeleton is ready for them. New tests should fail meaningfully against unimplemented behavior at this stage.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
@@ -14,7 +14,7 @@ Story 2a isolates the ACP protocol layer. The `AcpClient` class wraps stdin/stdo
 - `server/errors.ts` -- NotImplementedError, AppError (from Story 0)
 - `shared/types.ts` -- ChatEntry discriminated union (from Story 0)
 - `tests/fixtures/acp-messages.ts` -- Mock ACP responses (from Story 0)
-- 9 tests passing from Story 1
+- Story 1 is optional for Story 2a execution; if Story 1 is complete there are 9 prior server tests, otherwise baseline may be Story 0 only
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -27,7 +27,7 @@ Story 2a isolates the ACP protocol layer. The `AcpClient` class wraps stdin/stdo
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `tests/server/acp-client.test.ts` | **Create** | 8 tests covering ACP protocol correctness |
+| `tests/server/acp-client.test.ts` | **Create** | 9 tests covering ACP protocol correctness |
 | `server/acp/acp-client.ts` | **Verify/Update** | Ensure class skeleton matches interface below |
 | `tests/fixtures/acp-messages.ts` | **Update** | Add mock stdio helpers for test setup |
 
@@ -170,7 +170,6 @@ export class AcpClient {
     this.stdout = stdout;
     // NOTE: Do NOT start reading stdout in the constructor.
     // Reading starts in initialize() to keep construction synchronous.
-    throw new NotImplementedError('AcpClient.constructor');
   }
 
   /** Send initialize handshake, negotiate capabilities.
@@ -382,12 +381,12 @@ export function mockJsonRpcError(id: number, code: number, message: string) {
 
 ### Test File
 
-Create `tests/server/acp-client.test.ts` with 8 tests. Each test uses the mock stdio helper to simulate an ACP agent process.
+Create `tests/server/acp-client.test.ts` with 9 tests. Each test uses the mock stdio helper to simulate an ACP agent process.
 
 ```typescript
 // tests/server/acp-client.test.ts
 
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AcpClient } from '../../server/acp/acp-client';
 import {
   createMockStdio,
@@ -410,7 +409,7 @@ describe('AcpClient', () => {
     client = new AcpClient(mock.stdin, mock.stdout);
   });
 
-  test('initialize sends correct protocol version and capabilities', async () => {
+  it('initialize sends correct protocol version and capabilities', async () => {
     // Queue the initialize response (agent will respond to request id 1)
     mock.pushMessage(mockInitializeResponse(1));
 
@@ -446,7 +445,7 @@ describe('AcpClient', () => {
     expect(client.canLoadSession).toBe(true);
   });
 
-  test('sessionNew sends cwd parameter and returns sessionId', async () => {
+  it('sessionNew sends cwd parameter and returns sessionId', async () => {
     // Initialize first
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -468,7 +467,7 @@ describe('AcpClient', () => {
     expect(result.sessionId).toBe('sess-abc123');
   });
 
-  test('sessionLoad collects replayed history from update notifications', async () => {
+  it('sessionLoad collects replayed history from update notifications', async () => {
     // Initialize
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -516,7 +515,7 @@ describe('AcpClient', () => {
     });
   });
 
-  test('sessionPrompt fires onEvent for each update notification', async () => {
+  it('sessionPrompt fires onEvent for each update notification', async () => {
     // Initialize
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -557,7 +556,7 @@ describe('AcpClient', () => {
     expect(result.stopReason).toBe('end_turn');
   });
 
-  test('sessionPrompt resolves with stopReason on completion', async () => {
+  it('sessionPrompt resolves with stopReason on completion', async () => {
     // Initialize
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -570,7 +569,7 @@ describe('AcpClient', () => {
     expect(result).toEqual({ stopReason: 'max_tokens' });
   });
 
-  test('handleAgentRequest auto-approves permission requests', async () => {
+  it('handleAgentRequest auto-approves permission requests', async () => {
     // Initialize
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -598,7 +597,7 @@ describe('AcpClient', () => {
     expect((approvalResponse as any).result).toMatchObject({ approved: true });
   });
 
-  test('handles JSON-RPC error responses', async () => {
+  it('handles JSON-RPC error responses', async () => {
     // Initialize
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
@@ -611,29 +610,44 @@ describe('AcpClient', () => {
     ).rejects.toThrow('Invalid session parameters');
   });
 
-  test('close sends stdin close and waits for exit', async () => {
+  it('sessionCancel sends a JSON-RPC notification (no id field)', async () => {
+    // Initialize
+    mock.pushMessage(mockInitializeResponse(1));
+    await client.initialize();
+
+    client.sessionCancel('sess-123');
+
+    const sent = mock.getSentMessages();
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toMatchObject({
+      jsonrpc: '2.0',
+      method: 'session/cancel',
+      params: { sessionId: 'sess-123' },
+    });
+    expect(sent[1]).not.toHaveProperty('id');
+  });
+
+  it('close sends stdin close and cleans up pending state', async () => {
     // Initialize first
     mock.pushMessage(mockInitializeResponse(1));
     await client.initialize();
 
-    // close() should close stdin. The mock tracks this.
-    await client.close(100);
+    const closeSpy = vi.spyOn(mock.stdin as { close: () => void }, 'close');
 
-    // Verify stdin was closed (the mock's close method was called)
-    // The specific assertion depends on mock implementation,
-    // but at minimum, close should not throw and should complete.
-    // After close, further operations should fail or be no-ops.
+    // close() should close stdin.
+    await client.close(100);
+    expect(closeSpy).toHaveBeenCalledTimes(1);
   });
 });
 ```
 
 ### Implementation Requirements
 
-1. **Create `tests/server/acp-client.test.ts`** with the exact 8 tests shown above. Adjust import paths if the project uses path aliases, but keep the test logic identical.
+1. **Create `tests/server/acp-client.test.ts`** with the exact 9 tests shown above. Adjust import paths if the project uses path aliases, but keep the test logic identical.
 
 2. **Update `tests/fixtures/acp-messages.ts`** to add the `createMockStdio` function and all mock response factories shown above. If the file already has content from Story 0, append to it -- do not remove existing exports.
 
-3. **Verify `server/acp/acp-client.ts`** has the class skeleton shown above. If Story 0 created a different stub shape, update it to match the interface. All methods except `canLoadSession` should throw `NotImplementedError`. The constructor should store `stdin` and `stdout` but also throw `NotImplementedError` (or alternatively, NOT throw in the constructor but throw in all methods -- pick whichever approach allows the tests to instantiate the class but fail on method calls).
+3. **Verify `server/acp/acp-client.ts`** has the class skeleton shown above. If Story 0 created a different stub shape, update it to match the interface. All methods except `canLoadSession` should throw `NotImplementedError`. The constructor should store `stdin` and `stdout` and must NOT throw.
 
 **Important constructor note:** The tests need to instantiate `AcpClient(mock.stdin, mock.stdout)` in `beforeEach`. If the constructor throws, every test fails before reaching the method under test. Therefore, the constructor should NOT throw. Instead, it should store the stdin/stdout references. The `NotImplementedError` should be thrown only in the methods (`initialize`, `sessionNew`, etc.).
 
@@ -642,13 +656,13 @@ describe('AcpClient', () => {
 - Do NOT implement any AcpClient methods (that is prompt 2a.2)
 - Do NOT modify files outside the specified list
 - Do NOT create WebSocket or browser-related code
-- Do NOT modify `server/acp/acp-types.ts` -- use types as-is from Story 0
-- Use Bun's built-in test runner (`bun:test`) -- no external test framework
+- Use `server/acp/acp-types.ts` as-is from Story 0. If any types listed in this prompt are missing, add them and note the addition.
+- Use Vitest (`import { ... } from 'vitest'`) for all tests
+- Use Vitest mock APIs (`vi.fn()`, `vi.mock()`, `vi.spyOn()`) for mocks/spies
 - Use exact type names from the tech design
 
 ## If Blocked or Uncertain
 
-- If `server/acp/acp-types.ts` is missing types listed above, add them to that file and note the addition
 - If `tests/fixtures/acp-messages.ts` does not exist yet, create it with the full content shown
 - If the mock stdio approach needs adjustment for Bun's stream types, adapt the mock but preserve the test logic
 - Resolve straightforward inconsistencies with feature spec + tech design and continue; ask only for hard blockers.
@@ -657,17 +671,17 @@ describe('AcpClient', () => {
 
 Run:
 ```bash
-bun test tests/server/acp-client.test.ts
+bunx vitest run tests/server/acp-client.test.ts
 ```
 
-**Expected output:** 8 tests run; new Story 2a assertions fail meaningfully against the current skeleton (exact error shape may vary).
+**Expected output:** 9 tests run; new Story 2a assertions fail meaningfully against the current skeleton (exact error shape may vary).
 
 Run:
 ```bash
-bun test
+bun run test
 ```
 
-**Expected output:** 17 total tests. 9 passing (Story 1), 8 failing (Story 2a).
+**Expected output:** Prior Story 1 tests still passing (if Story 1 is present); 9 new Story 2a tests failing (against unimplemented stubs).
 
 Run:
 ```bash
@@ -678,9 +692,9 @@ bun run typecheck
 
 ## Done When
 
-- [ ] `tests/server/acp-client.test.ts` exists with 8 tests
+- [ ] `tests/server/acp-client.test.ts` exists with 9 tests
 - [ ] `tests/fixtures/acp-messages.ts` has `createMockStdio` and all mock factories
 - [ ] `server/acp/acp-client.ts` has the class skeleton (constructor does NOT throw, methods throw NotImplementedError)
 - [ ] `bun run typecheck` passes
-- [ ] `bun test tests/server/acp-client.test.ts` runs 8 tests with failing outcomes attributable to unimplemented Story 2a behavior
-- [ ] `bun test` shows 9 pass + 8 fail = 17 total
+- [ ] `bunx vitest run tests/server/acp-client.test.ts` runs 9 tests with failing outcomes attributable to unimplemented Story 2a behavior
+- [ ] `bun run test` shows prior tests passing (if present) and 9 new tests failing

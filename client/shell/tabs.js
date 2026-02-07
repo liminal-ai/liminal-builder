@@ -8,5 +8,5 @@
  * Initialize the tab bar.
  */
 export function initTabs() {
-  console.log('[tabs] Initialized (stub)');
+	console.log("[tabs] Initialized (stub)");
 }

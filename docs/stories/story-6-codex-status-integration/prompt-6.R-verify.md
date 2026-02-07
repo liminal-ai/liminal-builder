@@ -4,7 +4,7 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio JSON-RPC.
 
-This is the FINAL verification prompt for the entire Liminal Builder MVP. Story 6 is the last story. This prompt validates: all 78 tests pass, typecheck is clean, all acceptance criteria trace to test cases, all test cases trace to implementations, and the manual verification checklist is ready for human execution.
+This is the FINAL verification prompt for the entire Liminal Builder MVP. Story 6 is the last story. This prompt validates: all 79 tests pass, typecheck is clean, all acceptance criteria trace to test cases, all test cases trace to implementations, and the manual verification checklist is ready for human execution.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
@@ -23,29 +23,34 @@ This is the FINAL verification prompt for the entire Liminal Builder MVP. Story 
 ### Step 1: Run ALL Tests
 
 ```bash
-bun test
+bun run test && bun run test:client && bun run test:integration
 ```
 
-**Expected:** 78 tests PASS, zero failures.
+**Expected:** All tests PASS, zero failures.
 
 Verify the complete breakdown across all 10 test files:
 
 | Test File | # Tests | Story | TCs Covered |
 |-----------|---------|-------|-------------|
 | `tests/server/project-store.test.ts` | 5 | Story 1 | TC-1.1a, TC-1.2a, TC-1.2b, TC-1.2d, TC-1.3a |
-| `tests/server/acp-client.test.ts` | 8 | Story 2a | Protocol correctness (init, session/new, load, prompt, permission, error, close) |
+| `tests/server/acp-client.test.ts` | 9 | Story 2a | Protocol correctness (init, session/new, load, prompt, permission, error, sessionCancel, close) |
 | `tests/server/agent-manager.test.ts` | 10 | Story 2b | TC-5.1a-b, TC-5.2a-d, TC-5.3a, TC-5.5a-b, TC-5.6b |
 | `tests/server/session-manager.test.ts` | 10 | Story 4 | TC-2.1a-c, TC-2.2a, TC-2.2f, TC-2.3a, TC-2.4a, TC-2.4c, TC-2.5a-b |
-| `tests/server/websocket.test.ts` | 6 | Story 6 | Integration round-trips, TC-1.3b, TC-2.2f, TC-3.7b |
+| `tests/server/websocket.test.ts` | 6 | Story 6 | Integration round-trips (`project:add`, `session:create`, `session:send`, `session:cancel`, `project:remove`, `session:create` failure), TC-2.2f, TC-3.7b |
 | `tests/client/sidebar.test.ts` | 7 | Stories 1+4 | TC-1.1b, TC-1.2c, TC-1.4a, TC-1.4b, TC-2.2b, TC-2.2c, TC-2.4b |
 | `tests/client/chat.test.ts` | 9 | Story 3 | TC-3.2a-b, TC-3.3a-c, TC-3.4a, TC-3.6a-c |
 | `tests/client/input.test.ts` | 5 | Story 3 | TC-3.1b, TC-3.5a, TC-3.5b, TC-3.7a, TC-3.7c |
 | `tests/client/portlet.test.ts` | 3 | Story 3 | TC-3.1a, TC-5.4a, TC-3.7b |
 | `tests/client/tabs.test.ts` | 15 | Stories 5+6 | TC-4.1a-b, TC-4.2a, TC-4.3a-b, TC-4.4a-c, TC-4.5a-b, TC-4.6a-b, TC-4.7a, TC-2.3b, TC-5.6a |
 
-**Total: 78 tests**
+**Total: 79 tests**
 
-**Action:** Count the actual test numbers from each file. If the total does not match 78, report which files have unexpected counts.
+**Action:** Count the actual test numbers from each file. If the total does not match 79, report which files have unexpected counts.
+
+Traceability notes:
+- AC-5.2 UI behaviors (status dot rendering, disabled input, reconnect button visibility) are validated manually in Gorilla testing for Story 6.
+- TC-2.2e (Codex end-to-end) is manual/Gorilla. Automated Story 6 integration tests use `cliType: 'claude-code'`; Codex differs in `ACP_COMMANDS` binary lookup.
+- TC-2.2f intentionally has dual coverage: Story 4 unit (`tests/server/session-manager.test.ts`) plus Story 6 integration (`tests/server/websocket.test.ts`).
 
 ### Step 2: Run Typecheck
 
@@ -54,6 +59,15 @@ bun run typecheck
 ```
 
 **Expected:** zero errors.
+
+### Step 2.5: Run Canonical Verify Gates
+
+```bash
+bun run verify
+bun run verify-all
+```
+
+**Expected:** both commands pass.
 
 ### Step 3: FULL Traceability Matrix
 
@@ -70,7 +84,7 @@ This is the complete AC-to-TC-to-Implementation mapping for the entire MVP. Veri
 | AC-1.2 | TC-1.2c | `tests/client/sidebar.test.ts` | `client/shell/sidebar.js` |
 | AC-1.2 | TC-1.2d | `tests/server/project-store.test.ts` | `server/projects/project-store.ts` |
 | AC-1.3 | TC-1.3a | `tests/server/project-store.test.ts` | `server/projects/project-store.ts` |
-| AC-1.3 | TC-1.3b | `tests/server/websocket.test.ts` | `server/websocket.ts` |
+| AC-1.3 | TC-1.3b | Manual/Gorilla (remove project with open tabs) | `client/shell/sidebar.js` + `client/shell/tabs.js` + `server/websocket.ts` |
 | AC-1.4 | TC-1.4a | `tests/client/sidebar.test.ts` | `client/shell/sidebar.js` |
 | AC-1.4 | TC-1.4b | `tests/client/sidebar.test.ts` | `client/shell/sidebar.js` |
 
@@ -141,16 +155,18 @@ This is the complete AC-to-TC-to-Implementation mapping for the entire MVP. Veri
 |----|-----|-----------|-------------------|
 | AC-5.1 | TC-5.1a | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
 | AC-5.1 | TC-5.1b | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
-| AC-5.2 | TC-5.2a | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
-| AC-5.2 | TC-5.2b | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
-| AC-5.2 | TC-5.2c | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
-| AC-5.2 | TC-5.2d | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
+| AC-5.2 | TC-5.2a | `tests/server/agent-manager.test.ts` + Manual/Gorilla UI check | `server/acp/agent-manager.ts` + `client/portlet/portlet.js` |
+| AC-5.2 | TC-5.2b | `tests/server/agent-manager.test.ts` + Manual/Gorilla UI check | `server/acp/agent-manager.ts` + `client/portlet/portlet.js` + `client/portlet/input.js` + `client/shell/sidebar.js` |
+| AC-5.2 | TC-5.2c | `tests/server/agent-manager.test.ts` + Manual/Gorilla UI check | `server/acp/agent-manager.ts` + `client/portlet/portlet.js` + `client/portlet/input.js` |
+| AC-5.2 | TC-5.2d | `tests/server/agent-manager.test.ts` + Manual/Gorilla UI check | `server/acp/agent-manager.ts` + `client/shell/sidebar.js` |
 | AC-5.3 | TC-5.3a | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
 | AC-5.4 | TC-5.4a | `tests/client/portlet.test.ts` | `client/portlet/portlet.js` |
 | AC-5.5 | TC-5.5a | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
 | AC-5.5 | TC-5.5b | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
 | AC-5.6 | TC-5.6a | `tests/client/tabs.test.ts` | `client/shell/tabs.js` + `client/shell/shell.js` |
 | AC-5.6 | TC-5.6b | `tests/server/agent-manager.test.ts` | `server/acp/agent-manager.ts` |
+
+Manual-only note for Story 6: there are no dedicated automated client tests for AC-5.2 UI rendering details (status-dot class, disconnected input disable, reconnect button visibility). Validate those via Gorilla checklist.
 
 **Action:** For each row, verify the TC ID appears in the test file's test descriptions. Report any missing TC IDs.
 
@@ -188,11 +204,11 @@ Verify these critical implementations exist and are not stubs:
 
 This is the full manual verification checklist from the tech design (15 items). This checklist is for human execution after all automated tests pass. Document it here for the verifier.
 
-**Prerequisites:** Server running (`bun run dev`), browser open at `http://localhost:3000`
+**Prerequisites:** Server running (`bun run start`), browser open at `http://localhost:3000`
 
 | # | Step | Expected Result | AC |
 |---|------|----------------|-----|
-| 1 | Start server: `bun run server/index.ts` | Server starts, logs listening port | Infrastructure |
+| 1 | Start server: `bun run start` | Server starts, logs listening port | Infrastructure |
 | 2 | Open browser: `http://localhost:3000` | Shell page loads with sidebar, tab bar, empty portlet area | Infrastructure |
 | 3 | Add a project directory | Project appears in sidebar | AC-1.2 |
 | 4 | Create a Claude Code session, send a message | Streaming response renders: user turn, assistant turn with markdown, tool calls with status, thinking blocks | AC-2.2, TC-2.2d |
@@ -218,14 +234,14 @@ Verify the running totals match the plan:
 |-------|------------|---------------|
 | Story 0 | 0 | 0 |
 | Story 1 | 9 | 9 |
-| Story 2a | 8 | 17 |
+| Story 2a | 9 | 18 |
 | Story 2b | 10 | 27 |
-| Story 3 | 17 | 44 |
-| Story 4 | 13 | 57 |
-| Story 5 | 14 | 71 |
-| Story 6 | 7 | **78** |
+| Story 3 | 17 | 45 |
+| Story 4 | 13 | 58 |
+| Story 5 | 14 | 72 |
+| Story 6 | 7 | **79** |
 
-**Action:** Run `bun test` and count the total. It must be exactly 78.
+**Action:** Use Step 1 script outputs (`bun run test && bun run test:client && bun run test:integration`) to confirm total is exactly 79.
 
 ## Constraints
 
@@ -237,7 +253,7 @@ Verify the running totals match the plan:
 
 ## If Blocked or Uncertain
 
-- If test count does not match 78, report the actual count and identify which tests are missing or extra
+- If test count does not match 79, report the actual count and identify which tests are missing or extra
 - If any AC has no corresponding TC in a test file, report it as a traceability gap
 - If any implementation file still has stubs, report which functions are not implemented
 
@@ -245,19 +261,22 @@ Verify the running totals match the plan:
 
 This IS the final verification prompt. Success criteria:
 
-1. `bun test` -- 78 tests, zero failures
+1. `bun run test && bun run test:client && bun run test:integration` -- 79 tests, zero failures
 2. `bun run typecheck` -- zero errors
-3. Full traceability matrix verified -- all ACs have TCs, all TCs appear in test files
-4. All 18 implementation completeness checks pass (no remaining stubs)
-5. Manual verification checklist documented and ready for human execution
-6. Test count reconciliation matches the plan (78 total)
+3. `bun run verify` and `bun run verify-all` -- pass
+4. Full traceability matrix verified -- all ACs have TCs, all TCs appear in test files
+5. All 18 implementation completeness checks pass (no remaining stubs)
+6. Manual verification checklist documented and ready for human execution
+7. Test count reconciliation matches the plan (79 total)
 
 ## Done When
 
-- [ ] 78 tests PASS, zero failures
+- [ ] 79 tests PASS, zero failures
 - [ ] `bun run typecheck` passes with zero errors
+- [ ] `bun run verify` passes
+- [ ] `bun run verify-all` passes
 - [ ] All 5 flows traced: AC -> TC -> test file -> implementation file
 - [ ] No remaining stubs (all functions implemented)
 - [ ] Manual verification checklist documented (15 items)
-- [ ] Test count reconciliation confirmed: 78 total across 10 test files
+- [ ] Test count reconciliation confirmed: 79 total across 10 test files
 - [ ] **The Liminal Builder MVP is COMPLETE**

@@ -78,22 +78,26 @@ The JSON store (`json-store.ts`) IS fully implemented in this story because it i
   "scripts": {
     "dev": "bun run --watch server/index.ts",
     "start": "bun run server/index.ts",
-    "typecheck": "bun x tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "typescheck": "bun run typecheck",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",
     "lint:fix": "biome lint --write .",
-    "test": "vitest --project service --project ui --passWithNoTests",
-    "test:integration": "vitest --project integration --passWithNoTests",
+    "test": "vitest run tests/server --passWithNoTests",
+    "test:client": "vitest run tests/client --passWithNoTests",
+    "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:e2e": "echo \"No e2e tests configured yet\"",
     "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test",
-    "verify-all": "bun run verify && bun run test:integration && bun run test:e2e"
+    "verify-all": "bun run verify && bun run test:client && bun run test:integration && bun run test:e2e"
   },
   "dependencies": {
     "fastify": "^5.0.0",
+    "@fastify/sensible": "^6.0.0",
     "@fastify/websocket": "^11.0.0",
     "@fastify/static": "^8.0.0",
+    "zod": "^3.25.0",
+    "fastify-type-provider-zod": "^4.0.0",
     "marked": "^15.0.0",
     "dompurify": "^3.2.0",
     "highlight.js": "^11.11.0"
@@ -149,7 +153,7 @@ The JSON store (`json-store.ts`) IS fully implemented in this story because it i
 ```typescript
 /**
  * Thrown by stub methods that are not yet implemented.
- * Used during TDD Red phase -- tests expect this error from stubs.
+ * Used in Story 0 scaffolding -- verification expects this error from stubs.
  */
 export class NotImplementedError extends Error {
   constructor(methodName: string) {
@@ -533,6 +537,7 @@ All methods throw `NotImplementedError`. Will be implemented in Story 4.
 import { NotImplementedError } from '../errors';
 import type { JsonStore } from '../store/json-store';
 import type { SessionMeta, SessionListItem, CliType } from './session-types';
+import type { ProjectStore } from '../projects/project-store';
 import type { AgentManager } from '../acp/agent-manager';
 import type { AcpUpdateEvent, AcpPromptResult } from '../acp/acp-types';
 import type { ChatEntry } from '../../shared/types';
@@ -550,14 +555,20 @@ import type { ChatEntry } from '../../shared/types';
 export class SessionManager {
   private store: JsonStore<SessionMeta[]>;
   private agentManager: AgentManager;
+  private projectStore: ProjectStore;
 
-  constructor(store: JsonStore<SessionMeta[]>, agentManager: AgentManager) {
+  constructor(
+    store: JsonStore<SessionMeta[]>,
+    agentManager: AgentManager,
+    projectStore: ProjectStore
+  ) {
     this.store = store;
     this.agentManager = agentManager;
+    this.projectStore = projectStore;
   }
 
   /** Create session via ACP session/new and record local metadata. */
-  async createSession(projectId: string, cliType: CliType, projectPath: string): Promise<string> {
+  async createSession(projectId: string, cliType: CliType): Promise<string> {
     throw new NotImplementedError('SessionManager.createSession');
   }
 
@@ -800,7 +811,8 @@ import fastifyStatic from '@fastify/static';
 import { join } from 'path';
 import { handleWebSocket } from './websocket';
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.LIMINAL_PORT) || 3000;
+const HOST = process.env.LIMINAL_HOST || '127.0.0.1';
 const CLIENT_DIR = join(import.meta.dir, '..', 'client');
 
 async function main() {
@@ -821,8 +833,8 @@ async function main() {
   });
 
   // Start server
-  await app.listen({ port: PORT, host: '0.0.0.0' });
-  console.log(`Liminal Builder running at http://localhost:${PORT}`);
+  await app.listen({ port: PORT, host: HOST });
+  console.log(`Liminal Builder running at http://${HOST}:${PORT}`);
 }
 
 main().catch((err) => {
@@ -1582,7 +1594,7 @@ export function makeRpcError(id: number, code: number, message: string): JsonRpc
 After creating all files, run these commands:
 
 1. `cd /Users/leemoore/code/liminal-builder && bun install` -- Install all dependencies
-2. `bun run verify` -- Verify format check, lint, typecheck, and service mock tests
+2. `bun run verify` -- Verify format check, lint, typecheck, and `test` script
 
 ## Constraints
 
@@ -1604,7 +1616,7 @@ After creating all files, run these commands:
 After creating all files and running `bun install`:
 
 ```bash
-# 1. Verify must pass (format, lint, typecheck, service mock tests)
+# 1. Verify must pass (format, lint, typecheck, test)
 bun run verify
 # Expected: No errors. Exit code 0.
 

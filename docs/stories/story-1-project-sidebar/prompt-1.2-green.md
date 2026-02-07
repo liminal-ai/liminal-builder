@@ -109,13 +109,14 @@ Browser (sidebar.js -> tabs.js) -> Server (websocket.ts -> project-store.ts)
 
 1. **`server/projects/project-store.ts`** -- Replace stubs with full CRUD implementation
 2. **`server/websocket.ts`** -- Add `project:add`, `project:remove`, `project:list` message handlers
-3. **`client/shell/sidebar.js`** -- Full sidebar rendering and interaction
-4. **`client/shell/shell.css`** -- Add project item and session list styles (if needed)
+3. **`server/index.ts`** -- Wire `ProjectStore` instance and pass it as `WebSocketDeps`
+4. **`client/shell/sidebar.js`** -- Full sidebar rendering and interaction
+5. **`client/shell/shell.css`** -- Add project item and session list styles (if needed)
 
 ### May Also Need to Modify
 
-5. **`tests/server/project-store.test.ts`** -- Minor adjustments if test setup needs path mocking
-6. **`tests/client/sidebar.test.ts`** -- Minor adjustments if import paths or DOM setup needs tweaking
+6. **`tests/server/project-store.test.ts`** -- Minor adjustments if test setup needs path mocking
+7. **`tests/client/sidebar.test.ts`** -- Minor adjustments if import paths or DOM setup needs tweaking
 
 ### Implementation Requirements
 
@@ -126,8 +127,7 @@ Browser (sidebar.js -> tabs.js) -> Server (websocket.ts -> project-store.ts)
 Replace the stub class with a working implementation.
 
 **`addProject(path: string): Promise<Project>`**
-- Validate the path exists on the filesystem with `fs.promises.stat()` (or `access`) and ensure it is a directory.
-- Recommended approach: Use `import { stat } from 'fs/promises'` and check `stats.isDirectory()`. If it fails (ENOENT), throw `AppError('INVALID_PATH', 'Directory does not exist: <path>')`.
+- Validate the path exists on the filesystem with `Bun.file(path).exists()`. If it does not exist, throw `AppError('INVALID_PATH', 'Directory does not exist: <path>')`.
 - Check for duplicates: read current projects, check if any have the same `path`. If so, throw `AppError('DUPLICATE_PROJECT', 'Project already added')`.
 - Generate ID with `crypto.randomUUID()`.
 - Derive name from `path.split('/').pop()` (the directory basename). Use Node's `basename` from `path` module.
@@ -148,7 +148,6 @@ Replace the stub class with a working implementation.
 import { AppError } from '../errors';
 import { JsonStore } from '../store/json-store';
 import type { Project } from './project-types';
-import { stat } from 'fs/promises';
 import { basename } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -160,14 +159,9 @@ export class ProjectStore {
   }
 
   async addProject(path: string): Promise<Project> {
-    // Validate path exists and is a directory
-    try {
-      const stats = await stat(path);
-      if (!stats.isDirectory()) {
-        throw new AppError('INVALID_PATH', `Not a directory: ${path}`);
-      }
-    } catch (err: any) {
-      if (err instanceof AppError) throw err;
+    // Validate path exists
+    const exists = await Bun.file(path).exists();
+    if (!exists) {
       throw new AppError('INVALID_PATH', `Directory does not exist: ${path}`);
     }
 
@@ -302,36 +296,24 @@ async function routeMessage(
 }
 ```
 
-**Also update `server/index.ts`** to create the ProjectStore and pass it to the WebSocket handler:
+#### 3. `server/index.ts` -- Wire `ProjectStore` into `handleWebSocket`
+
+Create the `ProjectStore` in server bootstrap and pass it into the WebSocket handler dependencies.
 
 ```typescript
-// In server/index.ts, add imports and create store instances:
 import { JsonStore } from './store/json-store';
-import type { Project } from './projects/project-types';
 import { ProjectStore } from './projects/project-store';
-import { handleWebSocket, type WebSocketDeps } from './websocket';
-import { join } from 'path';
-import { homedir } from 'os';
+import { handleWebSocket } from './websocket';
 
-// In the main() function, before registering routes:
-const DATA_DIR = join(homedir(), '.liminal-builder');
-const projectJsonStore = new JsonStore<Project[]>(
-  { filePath: join(DATA_DIR, 'projects.json'), writeDebounceMs: 500 },
-  []
-);
-const projectStore = new ProjectStore(projectJsonStore);
+const projectsStore = new JsonStore<Project[]>({ filePath: projectsFile, writeDebounceMs: 500 }, []);
+const projectStore = new ProjectStore(projectsStore);
 
-const deps: WebSocketDeps = { projectStore };
-
-// Update the WebSocket route:
-app.get('/ws', { websocket: true }, (socket, _req) => {
-  handleWebSocket(socket, deps);
+fastify.get('/ws', { websocket: true }, (socket) => {
+  handleWebSocket(socket, { projectStore });
 });
 ```
 
----
-
-#### 3. `client/shell/sidebar.js` -- Full Implementation
+#### 4. `client/shell/sidebar.js` -- Full Implementation
 
 Replace the stub with a working sidebar module. The sidebar must export the following functions (which the tests expect):
 
@@ -520,15 +502,39 @@ function getCollapsedState() {
 
 ---
 
-#### 4. Test Adjustments
+#### 5. `client/shell/shell.css` -- Minimal Sidebar Styles
+
+Add minimal styles so project rows, selection, and session visibility are clear.
+
+```css
+.project-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.project-item.selected {
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.session-list {
+  margin-left: 20px;
+}
+```
+
+If you render project rows with `.project-header`/`.project-group`, either reuse these selectors or add `.project-item` on the clickable row for consistency.
+
+#### 6. Test Adjustments
 
 The tests from prompt 1.1 may need minor adjustments to work with the actual implementation. Here are known areas to check and adjust:
 
 **`tests/server/project-store.test.ts`:**
-- TC-1.2a and TC-1.1a: The test calls `addProject` with a path. For these tests to pass, the path must exist on the filesystem (since the implementation validates with `stat`). You need to either:
-  - (a) Create actual temp directories for each test, or
-  - (b) Mock `fs/promises.stat` using `Bun.mock` or `mock.module`
-  - **Recommended:** Create actual temp directories using `mkdtempSync`. The test already creates a temp dir -- use sub-directories within it as "project paths."
+- If the Red prompt was followed as written (temp directories + `join(tempDir, ...)`), no path setup changes should be needed.
+- If local Red tests still use hardcoded paths, convert them to temp directories under `tempDir` so `Bun.file(path).exists()` checks remain deterministic.
 - TC-1.2b: The path must NOT exist. Use a path like `join(tempDir, 'nonexistent-subdir')`.
 - TC-1.2d: First add must succeed (path must exist), second add must throw duplicate.
 - TC-1.3a: Must create a real directory for the add to succeed.
@@ -566,7 +572,7 @@ Then update paths in tests to use `join(tempDir, 'project-alpha')` etc.
 - Do NOT modify files outside the specified list, except minimal test corrections required to align Red tests with AC/TC intent.
 - WebSocket handlers for `session:*` messages should remain as the default case (return "not implemented" error).
 - Use `crypto.randomUUID()` for project IDs (Bun supports this natively).
-- Use `fs/promises.stat()` for directory validation (not `Bun.file`).
+- Use `Bun.file(path).exists()` for directory validation.
 - Keep `writeDebounceMs: 0` in tests for immediate persistence.
 - Sidebar is vanilla JS -- no TypeScript, no build step.
 
@@ -579,35 +585,28 @@ Then update paths in tests to use `join(tempDir, 'project-alpha')` etc.
 ## Verification
 
 ```bash
-# All 9 tests must pass
-bun test
+# Server tests (5) must pass
+bun run test
 
-# Expected output:
-# tests/server/project-store.test.ts:
-#   TC-1.1a: projects returned in insertion order ... PASS
-#   TC-1.2a: add valid directory creates project ... PASS
-#   TC-1.2b: add nonexistent directory throws ... PASS
-#   TC-1.2d: add duplicate directory throws ... PASS
-#   TC-1.3a: remove project retains session mappings ... PASS
-# tests/client/sidebar.test.ts:
-#   TC-1.1b: empty state prompt rendered ... PASS
-#   TC-1.2c: cancel add project sends no message ... PASS
-#   TC-1.4a: collapse hides sessions ... PASS
-#   TC-1.4b: collapse state persists in localStorage ... PASS
-#
-# 9 pass, 0 fail
+# Client tests (4) must pass
+bun run test:client
+
+# Expected: all tests pass across both suites
 
 # Typecheck must still pass
 bun run typecheck
 # Expected: Exit code 0, no errors
+
+# Full quality gate
+bun run verify
 ```
 
 ## Done When
 
 - [ ] `server/projects/project-store.ts` has full CRUD implementation (no more `NotImplementedError`)
 - [ ] `server/websocket.ts` routes `project:add`, `project:remove`, `project:list` messages
-- [ ] `server/index.ts` creates `ProjectStore` and passes it to the WebSocket handler
+- [ ] `server/index.ts` wires `ProjectStore` into `handleWebSocket` deps
 - [ ] `client/shell/sidebar.js` renders projects, handles add/remove/collapse
-- [ ] All 9 tests pass (`bun test`)
-- [ ] `bun run typecheck` passes
+- [ ] All server tests pass (`bun run test`) and all client tests pass (`bun run test:client`)
+- [ ] `bun run verify` passes
 - [ ] No regressions (there are no prior tests to regress)

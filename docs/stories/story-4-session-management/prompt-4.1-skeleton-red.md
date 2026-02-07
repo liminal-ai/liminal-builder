@@ -10,6 +10,8 @@ In this Skeleton + Red phase, you will update the existing `SessionManager` stub
 
 **Important architecture note:** SessionManager must resolve project working directories through ProjectStore. This removes hidden dependencies where `openSession` needs `cwd` but no dependency provides it.
 
+**Source-of-truth override:** Use the canonical SessionManager contract (`constructor(store, agentManager, projectStore)`, `createSession(projectId, cliType)`). Session listing is local-only (no ACP join), titles derive from the first user message, and tests run with Vitest (not `bun:test`).
+
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
@@ -181,6 +183,8 @@ No ACP calls required for listing. This is fast and works even when agent proces
 | { type: 'session:list'; projectId: string }
 | { type: 'session:create'; projectId: string; cliType: 'claude-code' | 'codex' }
 | { type: 'session:open'; sessionId: string }
+| { type: 'session:send'; sessionId: string; content: string }
+| { type: 'session:cancel'; sessionId: string }
 | { type: 'session:archive'; sessionId: string }
 ```
 
@@ -190,8 +194,13 @@ No ACP calls required for listing. This is fast and works even when agent proces
 | { type: 'session:list'; projectId: string; sessions: SessionListItem[] }
 | { type: 'session:created'; sessionId: string; projectId: string; requestId?: string }
 | { type: 'session:history'; sessionId: string; entries: ChatEntry[]; requestId?: string }
+| { type: 'session:update'; sessionId: string; entry: ChatEntry }              // Story 3 scope: streaming
+| { type: 'session:chunk'; sessionId: string; entryId: string; content: string } // Story 3 scope: streaming
+| { type: 'session:complete'; sessionId: string; entryId: string }             // Story 3 scope: streaming
+| { type: 'session:cancelled'; sessionId: string; entryId: string }            // Story 3 scope: cancel response
 | { type: 'session:archived'; sessionId: string; requestId?: string }
 | { type: 'session:title-updated'; sessionId: string; title: string }
+| { type: 'error'; requestId?: string; message: string }
 ```
 
 ### Title Derivation
@@ -292,11 +301,13 @@ Session titles are derived from the first user message content, truncated to ~50
 
 ### Test Structure Guidance
 
+**Vitest import convention:** `import { describe, it, expect, vi } from 'vitest'` -- use `it` not `test`, include `vi` for mocking.
+
 **`session-manager.test.ts`:**
 - Import SessionManager, JsonStore, and mock the AgentManager + AcpClient
 - Create a real JsonStore with a temp file (or mock the store's read/write)
-- Use `describe('SessionManager', () => { ... })` with individual `test(...)` blocks
-- Each test name must include the TC ID (e.g., `test('TC-2.1a: local sessions listed with metadata', ...)`)
+- Use `describe('SessionManager', () => { ... })` with individual `it(...)` blocks
+- Each test name must include the TC ID (e.g., `it('TC-2.1a: local sessions listed with metadata', ...)`)
 - Mock data should use the SessionMeta shape exactly as defined above
 - Tests should fail because the SessionManager methods throw NotImplementedError
 
@@ -362,20 +373,20 @@ Run the following commands:
 # Typecheck should pass
 bun run typecheck
 
-# All prior tests should still pass (44 tests)
-bun test tests/server/project-store.test.ts tests/server/acp-client.test.ts tests/server/agent-manager.test.ts tests/client/sidebar.test.ts tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts
+# Full suite (mixed RED expected: prior stories pass, new Story 4 tests fail)
+bun run test && bun run test:client
 
-# New tests should exist and fail against unimplemented Story 4 behavior
-bun test tests/server/session-manager.test.ts
-# And the 3 new sidebar tests should also fail
-bun test tests/client/sidebar.test.ts
+# Isolate new Story 4 server tests (should fail against unimplemented behavior)
+bun run test -- tests/server/session-manager.test.ts
+# Isolate new Story 4 client tests (the 3 new tests should fail)
+bun run test:client -- tests/client/sidebar.test.ts
 ```
 
 **Expected outcome:**
 - `bun run typecheck`: 0 errors
-- Prior tests: 44 pass, 0 fail
-- New session-manager tests: failing outcomes attributable to unimplemented SessionManager behavior
-- Sidebar tests: prior tests pass; new Story 4 tests fail against stubs
+- Full suite shows mixed RED results: ~44 passes (prior stories) and 13 failures/errors (new Story 4 tests)
+- Isolated `session-manager` run shows failures attributable to unimplemented SessionManager behavior
+- Isolated `sidebar` run shows the 3 new Story 4 tests failing against stubs
 
 ## Done When
 

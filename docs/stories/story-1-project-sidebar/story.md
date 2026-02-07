@@ -45,6 +45,7 @@ This story follows a strict TDD cycle: Red (write failing tests against stubs) t
 |------|---------|
 | `server/projects/project-store.ts` | Full CRUD implementation (replace stubs) |
 | `server/websocket.ts` | Add `project:add`, `project:remove`, `project:list` handlers |
+| `server/index.ts` | Wire `ProjectStore` instance and pass it into `WebSocketDeps` |
 | `client/shell/sidebar.js` | Full sidebar rendering, add/remove/collapse |
 | `client/shell/shell.css` | Project/session list styles |
 
@@ -58,7 +59,7 @@ This story follows a strict TDD cycle: Red (write failing tests against stubs) t
 | TC-1.2a | TC-1.2a: add valid directory creates project | Mock path exists, project returned with ID |
 | TC-1.2b | TC-1.2b: add nonexistent directory throws | Mock path not exists, validation error |
 | TC-1.2d | TC-1.2d: add duplicate directory throws | Add same path twice, duplicate error |
-| TC-1.3a | TC-1.3a: remove project retains session mappings | Remove project, session data unaffected |
+| TC-1.3a | TC-1.3a: removeProject deletes project (session data untouched -- verified by store separation, full re-add flow in Story 4) | Remove project, session data unaffected |
 
 ### `tests/client/sidebar.test.ts` -- 4 tests
 
@@ -68,6 +69,10 @@ This story follows a strict TDD cycle: Red (write failing tests against stubs) t
 | TC-1.2c | TC-1.2c: cancel add project sends no message | Open dialog, cancel, no WS message |
 | TC-1.4a | TC-1.4a: collapse hides sessions | Click collapse, sessions hidden in DOM |
 | TC-1.4b | TC-1.4b: collapse state persists in localStorage | Set collapsed, reload, still collapsed |
+
+### Deferred TCs
+
+- TC-1.3b is deferred to integration testing (requires tab management from Story 5). See `docs/tech-design-mvp.md:624`.
 
 ### Running Totals
 
@@ -86,6 +91,9 @@ This story follows a strict TDD cycle: Red (write failing tests against stubs) t
 
 ## Exit Criteria
 
-- 9 tests PASS (`bun test`)
+- 5 server tests PASS (`bun run test`)
+- 4 client tests PASS (`bun run test:client`)
+- All tests pass: `bun run test && bun run test:client`
+- `bun run verify` passes
 - `bun run typecheck` passes with zero errors
 - Manual: can add/remove projects in browser, collapse/expand works, state persists

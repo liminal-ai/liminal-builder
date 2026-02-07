@@ -34,7 +34,7 @@ Run all verification checks for Story 1. Fix any issues found.
 #### Step 1: All Tests Pass
 
 ```bash
-bun test
+bun run test && bun run test:client
 ```
 
 **Expected:**
@@ -43,14 +43,14 @@ bun test
   - TC-1.2a: add valid directory creates project
   - TC-1.2b: add nonexistent directory throws
   - TC-1.2d: add duplicate directory throws
-  - TC-1.3a: remove project retains session mappings
+  - TC-1.3a: removeProject deletes project (session data untouched -- verified by store separation, full re-add flow in Story 4)
 - `tests/client/sidebar.test.ts`: 4 tests PASS
   - TC-1.1b: empty state prompt rendered when no projects
   - TC-1.2c: cancel add project sends no WebSocket message
   - TC-1.4a: collapse hides sessions
   - TC-1.4b: collapse state persists in localStorage across reload
 
-**Total: 9 pass, 0 fail**
+**Total: 9 pass, 0 fail (5 server + 4 client)**
 
 If any tests fail, investigate and fix. Common issues:
 - Path validation in project-store tests (need real directories or proper mocking)
@@ -70,7 +70,32 @@ If there are type errors:
 - Check that `project-store.ts` imports are correct
 - Check that `index.ts` properly types the `WebSocketDeps` parameter
 
-#### Step 3: No Regressions on Story 0
+#### Step 3: Primary Quality Gate
+
+```bash
+bun run verify
+```
+
+**Expected:** Exit code 0. This is the primary quality gate and runs:
+- format check
+- lint
+- typecheck
+- Vitest-backed `bun run test`
+
+#### Step 4: Explicit Server + Client Test Execution
+
+Run both suites directly to verify coverage across project boundaries:
+
+```bash
+bun run test
+bun run test:client
+```
+
+**Expected:**
+- `tests/server/project-store.test.ts`: 5 PASS
+- `tests/client/sidebar.test.ts`: 4 PASS
+
+#### Step 5: No Regressions on Story 0
 
 There are no Story 0 tests (Story 0 had zero tests). But verify that Story 0 infrastructure still works:
 
@@ -98,7 +123,7 @@ echo "WebSocket status: $WS_CODE"
 kill $SERVER_PID
 ```
 
-#### Step 4: ProjectStore Integration Check
+#### Step 6: ProjectStore Integration Check
 
 Verify the ProjectStore works end-to-end with a real JSON store:
 
@@ -153,7 +178,7 @@ rmSync(tempDir, { recursive: true, force: true });
 
 **Expected:** All 5 checks print `PASS`.
 
-#### Step 5: Sidebar Module Exports Check
+#### Step 7: Sidebar Module Exports Check
 
 Verify the sidebar module exports the expected functions:
 
@@ -209,19 +234,20 @@ bun run dev
 
 All steps above pass:
 
-1. `bun test` -- 9 tests pass, 0 fail
+1. `bun run test && bun run test:client` -- all tests pass, 0 fail
 2. `bun run typecheck` -- exit code 0
-3. Server starts and serves shell HTML (HTTP 200), WebSocket connects (HTTP 101)
-4. ProjectStore integration check -- 5/5 PASS
-5. Sidebar module exports -- 4/4 PASS
+3. `bun run verify` -- exit code 0
+4. `bun run test` and `bun run test:client` -- both pass independently
+5. Server starts and serves shell HTML (HTTP 200), WebSocket connects (HTTP 101)
+6. ProjectStore integration check -- 5/5 PASS
+7. Sidebar module exports -- 4/4 PASS
 
 ## Done When
 
-- [ ] All 9 tests pass
-- [ ] `bun run typecheck` passes with zero errors
+- [ ] All tests pass (`bun run test && bun run test:client`)
+- [ ] `bun run verify` passes
 - [ ] Server starts and serves content correctly
 - [ ] ProjectStore integration works (add, list, duplicate, remove, invalid path)
 - [ ] Sidebar module exports all required functions
 - [ ] Manual smoke test items checked (if browser available)
 - [ ] No regressions on Story 0 infrastructure
-- [ ] Running test total: 9 (0 from Story 0 + 9 from Story 1)

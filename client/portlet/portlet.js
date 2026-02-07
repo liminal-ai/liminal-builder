@@ -4,4 +4,4 @@
  * Will be implemented in Story 3.
  */
 
-console.log('[portlet] Initialized (stub)');
+console.log("[portlet] Initialized (stub)");

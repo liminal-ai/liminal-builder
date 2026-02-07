@@ -13,11 +13,11 @@ This is the GREEN phase of Story 6 -- the final implementation story of the MVP.
 - `tests/client/tabs.test.ts` -- 1 new test spec for TC-5.6a (failing)
 - Connection status stubs in `client/portlet/portlet.js` and `client/shell/sidebar.js`
 - Connection status CSS in `client/portlet/portlet.css`
-- 71 previous tests passing, 7 new tests failing
+- 72 previous tests passing, 7 new tests failing
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
-- Tech Design: `docs/tech-design-mvp.md` (WebSocket Lifecycle State Machine, lines ~225-244; Story 6 breakdown, lines ~2086-2115; Agent Manager, lines ~1054-1107)
+- Tech Design: `docs/tech-design-mvp.md` (WebSocket Lifecycle State Machine, lines ~225-244; Story 6 breakdown, lines ~2228-2260; Agent Manager, lines ~1054-1107)
 - Feature Spec: `docs/feature-spec-mvp.md` (AC-5.2 Connection Status, AC-5.6 Browser Refresh)
 
 ## Task
@@ -154,13 +154,23 @@ function resyncState() {
   // Re-fetch project list
   wsSend({ type: 'project:list' });
 
-  // For each expanded project in the sidebar, re-fetch session list
-  // The sidebar module tracks which projects are expanded via localStorage
-  // (liminal:collapsed). On resync, we request session lists for all
-  // non-collapsed projects.
-  const collapsedState = JSON.parse(localStorage.getItem('liminal:collapsed') || '{}');
-  // Note: project IDs are needed -- the sidebar will request session lists
-  // as project:list response arrives and sidebar renders
+  // Delegation pattern for remaining reconnect duties:
+  // 1) session:list for expanded projects
+  requestSessionListsForExpandedProjects();
+  // 2) session:open for restored tabs
+  reopenRestoredTabs();
+}
+
+function requestSessionListsForExpandedProjects() {
+  // Existing sidebar render flow should consume this and send session:list
+  // for projects that are not collapsed.
+  window.dispatchEvent(new CustomEvent('liminal:resync-sessions'));
+}
+
+function reopenRestoredTabs() {
+  // Existing tab-restore flow should consume this and send session:open
+  // for every restored tab from liminal:tabs.
+  window.dispatchEvent(new CustomEvent('liminal:resync-open-tabs'));
 }
 
 function updateWSStatusUI(state) {
@@ -178,6 +188,8 @@ function wsSend(message) {
   }
 }
 ```
+
+Implementation note: if your shell already triggers `session:list` during sidebar render and `session:open` during tab restore, keep that delegation and document it inline. Do not leave reconnect behavior as comment-only placeholders.
 
 #### 3. Connection Status Indicators (`client/portlet/portlet.js`)
 
@@ -299,38 +311,114 @@ Implement the 6 integration test bodies. Each test needs a real Fastify server w
 **Server setup for integration tests:**
 
 ```typescript
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
-import Fastify from 'fastify';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyWebsocket from '@fastify/websocket';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { mkdtempSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-// Import your server setup modules
+import { JsonStore } from '../../server/store/json-store';
+import { ProjectStore } from '../../server/projects/project-store';
+import { SessionManager } from '../../server/sessions/session-manager';
+import { AgentManager } from '../../server/acp/agent-manager';
+import { handleWebSocket } from '../../server/websocket';
+import { makeRpcResponse, makeRpcError, MOCK_INIT_RESULT, MOCK_CREATE_RESULT, MOCK_PROMPT_RESULT } from '../fixtures/acp-messages';
+import type { Project } from '../../server/projects/project-types';
+import type { SessionMeta } from '../../server/sessions/session-types';
 
 describe('WebSocket Integration: Round-Trip Message Flow', () => {
-  let app: ReturnType<typeof Fastify>;
+  let app: FastifyInstance;
   let port: number;
   let ws: WebSocket;
   let tempRoot: string;
+  let dataRoot: string;
+  let shouldFailCreate = false;
+
+  function createMockAcpProcess(opts: { failCreate?: boolean } = {}) {
+    const stdin = new PassThrough();
+    const stdout = new PassThrough();
+    const stderr = new PassThrough();
+    let resolveExited: (code: number) => void = () => {};
+    const exited = new Promise<number>((resolve) => {
+      resolveExited = resolve;
+    });
+
+    stdin.on('data', (chunk) => {
+      const lines = chunk
+        .toString('utf-8')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+
+      for (const line of lines) {
+        const req = JSON.parse(line) as { id?: number; method?: string; params?: any };
+        if (req.method === 'initialize' && req.id != null) {
+          stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_INIT_RESULT)) + '\n');
+        } else if (req.method === 'session/new' && req.id != null) {
+          if (opts.failCreate) {
+            stdout.write(JSON.stringify(makeRpcError(req.id, -32001, 'Mock session/create failure')) + '\n');
+          } else {
+            stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_CREATE_RESULT)) + '\n');
+          }
+        } else if (req.method === 'session/prompt' && req.id != null) {
+          stdout.write(
+            JSON.stringify({
+              jsonrpc: '2.0',
+              method: 'session/update',
+              params: {
+                sessionId: req.params?.sessionId ?? 'acp-session-xyz',
+                update: {
+                  type: 'agent_message_chunk',
+                  content: [{ type: 'text', text: 'Mock streamed response chunk' }],
+                },
+              },
+            }) + '\n'
+          );
+          stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_PROMPT_RESULT)) + '\n');
+        } else if (req.method === 'session/load' && req.id != null) {
+          stdout.write(JSON.stringify(makeRpcResponse(req.id, { loaded: true })) + '\n');
+        }
+      }
+    });
+
+    return {
+      stdin,
+      stdout,
+      stderr,
+      exited,
+      kill: () => resolveExited(0),
+    };
+  }
 
   beforeAll(async () => {
-    // Create Fastify instance with mocked ACP
-    // 1. Create a mock ACP client that responds to JSON-RPC calls
-    // 2. Create an AgentManager that uses the mock
-    // 3. Set up the WebSocket handler with real routing
-    // 4. Start listening on a random port
+    dataRoot = mkdtempSync(join(tmpdir(), 'liminal-story6-data-'));
+    const projectsStore = new JsonStore<Project[]>({ filePath: join(dataRoot, 'projects.json'), writeDebounceMs: 0 }, []);
+    const sessionsStore = new JsonStore<SessionMeta[]>({ filePath: join(dataRoot, 'sessions.json'), writeDebounceMs: 0 }, []);
+    const projectStore = new ProjectStore(projectsStore);
+    const sessionManager = new SessionManager(sessionsStore);
+
+    const emitter = new EventEmitter();
+    const agentManager = new AgentManager(emitter, {
+      spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
+    });
 
     app = Fastify();
-    // ... register plugins, websocket handler, etc.
-    // ... inject mock agent manager
+    await app.register(fastifyWebsocket);
+    app.get('/ws', { websocket: true }, (socket) => {
+      handleWebSocket(socket, { projectStore, sessionManager, agentManager });
+    });
 
-    await app.listen({ port: 0 }); // Random port
+    await app.listen({ port: 0, host: '127.0.0.1' });
     const address = app.server.address();
-    port = typeof address === 'object' ? address!.port : parseInt(address!);
+    port = typeof address === 'object' && address ? address.port : Number(String(address).split(':').pop());
   });
 
   afterAll(async () => {
     ws?.close();
     await app?.close();
+    rmSync(dataRoot, { recursive: true, force: true });
   });
 
   beforeEach(async () => {
@@ -342,6 +430,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
   });
 
   afterEach(() => {
+    shouldFailCreate = false;
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -450,7 +539,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     expect(cancelResp.sessionId).toBe(sessionId);
   });
 
-  test('TC-1.3b: remove project sends project:removed', async () => {
+  test('project:remove WebSocket round-trip — sends project:remove, receives project:removed', async () => {
     // Add a project first
     const projectPath = makeProjectDir('project-remove');
     const addResp = await sendAndReceive(ws, {
@@ -471,10 +560,8 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
   });
 
   test('TC-2.2f: session creation failure sends error', async () => {
-    // Configure mock ACP to fail on session/new
-    // This test requires the mock to be configurable per-test
-    // One approach: use a special project path that triggers failure
-    // Another: set a flag on the mock before the test
+    // Configure mock ACP to fail on session/new for this test only
+    shouldFailCreate = true;
 
     const projectPath = makeProjectDir('project-fail');
     const projectResp = await sendAndReceive(ws, {
@@ -565,23 +652,23 @@ test('TC-5.6a: tabs restore after browser refresh — tabs restored from localSt
 
 Run:
 ```bash
-bun test
+bun run test && bun run test:client
 ```
 
 Expected:
-- All 78 tests PASS
+- All tests PASS
 - Zero failures
 
 Run:
 ```bash
-bun run typecheck
+bun run verify
 ```
 
-Expected: zero errors
+Expected: quality gate passes (format:check, lint, typecheck, test)
 
 ## Done When
 
-- [ ] All 78 tests PASS (71 previous + 7 new)
+- [ ] All 79 tests PASS (72 previous + 7 new)
 - [ ] `bun run typecheck` passes with zero errors
 - [ ] Codex CLI command configured in `server/acp/agent-manager.ts`
 - [ ] WebSocket reconnection implemented in `client/shell/shell.js` with exponential backoff (500ms, 1s, 2s, 4s, cap 5s)

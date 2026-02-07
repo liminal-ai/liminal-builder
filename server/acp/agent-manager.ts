@@ -1,9 +1,14 @@
-import { NotImplementedError } from '../errors';
-import type { CliType } from '../sessions/session-types';
-import type { AcpClient } from './acp-client';
-import { EventEmitter } from 'events';
+import { NotImplementedError } from "../errors";
+import type { CliType } from "../sessions/session-types";
+import type { AcpClient } from "./acp-client";
+import type { EventEmitter } from "node:events";
 
-export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | 'reconnecting';
+export type AgentStatus =
+	| "idle"
+	| "starting"
+	| "connected"
+	| "disconnected"
+	| "reconnecting";
 
 /**
  * Manages ACP agent process lifecycle for all CLI types.
@@ -13,29 +18,25 @@ export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | '
  *         AC-5.5 (start failure)
  */
 export class AgentManager {
-  private emitter: EventEmitter;
+	constructor(public emitter: EventEmitter) {}
 
-  constructor(emitter: EventEmitter) {
-    this.emitter = emitter;
-  }
+	/** Get or spawn agent for CLI type. Emits status events. */
+	async ensureAgent(_cliType: CliType): Promise<AcpClient> {
+		throw new NotImplementedError("AgentManager.ensureAgent");
+	}
 
-  /** Get or spawn agent for CLI type. Emits status events. */
-  async ensureAgent(cliType: CliType): Promise<AcpClient> {
-    throw new NotImplementedError('AgentManager.ensureAgent');
-  }
+	/** Get current status for a CLI type */
+	getStatus(_cliType: CliType): AgentStatus {
+		throw new NotImplementedError("AgentManager.getStatus");
+	}
 
-  /** Get current status for a CLI type */
-  getStatus(cliType: CliType): AgentStatus {
-    throw new NotImplementedError('AgentManager.getStatus');
-  }
+	/** User-initiated reconnect */
+	async reconnect(_cliType: CliType): Promise<void> {
+		throw new NotImplementedError("AgentManager.reconnect");
+	}
 
-  /** User-initiated reconnect */
-  async reconnect(cliType: CliType): Promise<void> {
-    throw new NotImplementedError('AgentManager.reconnect');
-  }
-
-  /** Shutdown all agents gracefully */
-  async shutdownAll(): Promise<void> {
-    throw new NotImplementedError('AgentManager.shutdownAll');
-  }
+	/** Shutdown all agents gracefully */
+	async shutdownAll(): Promise<void> {
+		throw new NotImplementedError("AgentManager.shutdownAll");
+	}
 }

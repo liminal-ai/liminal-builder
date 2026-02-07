@@ -8,5 +8,5 @@
  * Initialize the sidebar.
  */
 export function initSidebar() {
-  console.log('[sidebar] Initialized (stub)');
+	console.log("[sidebar] Initialized (stub)");
 }

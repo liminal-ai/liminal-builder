@@ -21,7 +21,7 @@ In this Skeleton + Red phase, you will update the existing portlet/chat/input st
 - `client/shared/constants.js` -- CLI types, status values
 - `shared/types.ts` -- ChatEntry, ClientMessage, ServerMessage types
 - `tests/fixtures/sessions.ts` -- mock session data
-- All 27 prior tests pass
+- All 28 prior tests pass
 
 ## Reference Documents
 
@@ -66,6 +66,34 @@ type PortletToShell =
   | { type: 'portlet:ready' }
   | { type: 'portlet:title'; title: string }
 ```
+
+### postMessage to WebSocket Contract Mapping (Canonical)
+
+WebSocket contracts are canonical and require fields that are not always present in iframe `postMessage` payloads. The iframe sends minimal UI events; the parent shell enriches those events before forwarding to `server/websocket.ts`.
+
+```typescript
+// Canonical WebSocket client -> server
+type WsClientMessage =
+  | { type: 'session:send'; sessionId: string; content: string }
+  | { type: 'session:cancel'; sessionId: string };
+
+// Canonical WebSocket server -> client (subset relevant to Story 3)
+type WsServerMessage =
+  | { type: 'session:cancelled'; sessionId: string; entryId: string }
+  | { type: 'agent:status'; cliType: string; status: 'starting' | 'connected' | 'disconnected' | 'reconnecting' };
+```
+
+Required translation rules:
+
+| Direction | Incoming Payload | Outgoing Payload | Rule |
+|-----------|------------------|------------------|------|
+| Portlet -> Shell -> WS | `{ type: 'session:send', content }` | `{ type: 'session:send', sessionId, content, requestId? }` | Shell must inject `sessionId` from active session context. Shell may inject `requestId` for response correlation. |
+| Portlet -> Shell -> WS | `{ type: 'session:cancel' }` | `{ type: 'session:cancel', sessionId }` | Shell must inject `sessionId` from active session context. |
+| WS -> Shell -> Portlet | `{ type: 'session:cancelled', sessionId, entryId }` | `{ type: 'session:cancelled', entryId }` | Shell routes by `sessionId` and forwards to the matching iframe. |
+| WS -> Shell -> Portlet | `{ type: 'agent:status', cliType, status }` | `{ type: 'agent:status', status }` | Shell preserves `cliType` for routing/logging and forwards UI-relevant status to portlet. |
+| WS -> Shell -> Portlet | `{ type: 'error', requestId?, message }` | `{ type: 'session:error', message }` | Shell routes errors by `requestId` correlation or broadcasts to active portlet. |
+
+`sessionId` is never sourced from the iframe in Story 3. Parent-shell enrichment is mandatory before any WS send.
 
 ### Message Reconciliation Rules
 
@@ -166,8 +194,8 @@ scrollToBottomBtn.addEventListener('click', () => {
    - A `sessionState` variable tracking `'idle' | 'sending' | 'launching'`
    - Functions: `handleShellMessage(msg)`, `handleAgentStatus(status)`, `sendMessage(content)`, `cancelResponse()`
    - Each function body should throw `new Error('NotImplementedError')` (since this is client JS, not TS, use `Error` with the message 'NotImplementedError')
-   - The `sendMessage` function should post `{ type: 'session:send', content }` to parent
-   - The `cancelResponse` function should post `{ type: 'session:cancel' }` to parent
+   - Design intent (implemented in Green, not Red): `sendMessage` posts `{ type: 'session:send', content }` to parent (parent later enriches with `sessionId` before WS send)
+   - Design intent (implemented in Green, not Red): `cancelResponse` posts `{ type: 'session:cancel' }` to parent (parent later enriches with `sessionId` before WS send)
    - Export or expose: `handleShellMessage`, `sendMessage`, `cancelResponse`, `getSessionState`, `getEntries`
 
 2. **`client/portlet/chat.js`** -- Update the existing stub to include:
@@ -211,18 +239,21 @@ scrollToBottomBtn.addEventListener('click', () => {
 6. **`tests/client/portlet.test.ts`** -- 3 tests using jsdom:
 
    ```
-   TC-3.1a: sent message appears immediately -- simulate sending a message via portlet, assert user entry rendered in DOM
+   TC-3.1a: sent message appears immediately -- simulate sending a message via portlet, assert user entry rendered in DOM before any `session:update` round-trip
    TC-5.4a: launching indicator shown on agent starting -- send agent:status { status: 'starting' } via postMessage, assert loading/launching indicator shown
    TC-3.7b: cancel stops response and re-enables input -- simulate streaming state, send session:cancelled, assert partial content visible and input re-enabled
    ```
 
+   Note: `session:history` reconciliation is implemented in Story 3 portlet logic but not directly tested in Story 3 Red; it is covered by Story 4 session-open testing.
+
 ### Test Structure Guidance
 
 Each test file should:
+- Use the Vitest import convention: `import { describe, it, expect, vi } from 'vitest'` (use `it` not `test`, include `vi` for mocking)
 - Import `jsdom` (or use Bun's happy-dom/jsdom environment)
 - Set up a minimal DOM with the required HTML structure before each test
 - Import the module under test
-- Use `describe` and `test` (or `it`) blocks with TC IDs in the test name
+- Use `describe` and `it` blocks with TC IDs in the test name
 - Tests should currently fail against stubbed behavior, while preserving clear assertions for Green.
 
 **Chat container HTML structure expected by chat.js:**
@@ -268,7 +299,7 @@ Each test file should:
 - Do NOT modify files outside the specified list
 - Use exact type names and field names from the inlined definitions above
 - All functions in the client stubs should throw `new Error('NotImplementedError')`
-- Tests must reference TC IDs in their test names (e.g., `test('TC-3.2a: streaming renders incrementally', ...)`)
+- Tests must reference TC IDs in their test names (e.g., `it('TC-3.2a: streaming renders incrementally', ...)`)
 - Keep the existing exports/API surface of the stubs -- only add, do not remove
 
 ## If Blocked or Uncertain
@@ -284,11 +315,12 @@ Run the following commands:
 # Typecheck should pass
 bun run typecheck
 
-# All prior tests should still pass (27 tests)
-bun test tests/server/ tests/client/sidebar.test.ts
+# Prior story tests should still pass
+bun run test
+bunx vitest run tests/client/sidebar.test.ts --passWithNoTests
 
 # New tests should exist and fail against current stubs
-bun test tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts
+bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts --passWithNoTests
 ```
 
 **Expected outcome:**
@@ -304,6 +336,6 @@ bun test tests/client/chat.test.ts tests/client/input.test.ts tests/client/portl
 - [ ] `tests/client/chat.test.ts` exists with 9 tests, initially failing against Story 3 stubs
 - [ ] `tests/client/input.test.ts` exists with 5 tests, initially failing against Story 3 stubs
 - [ ] `tests/client/portlet.test.ts` exists with 3 tests, initially failing against Story 3 stubs
-- [ ] All 27 prior tests still pass
+- [ ] All 28 prior tests still pass
 - [ ] `bun run typecheck` passes
 - [ ] No server files modified

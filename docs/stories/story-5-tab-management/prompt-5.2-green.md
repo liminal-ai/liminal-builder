@@ -13,7 +13,7 @@ The tab system manages portlet iframes for open sessions. Key behaviors: CSS dis
 **Prerequisites complete:**
 - `client/shell/tabs.js` -- skeleton with all function stubs (from Prompt 5.1)
 - `tests/client/tabs.test.ts` -- 14 failing tests (from Prompt 5.1)
-- 57 previous tests passing
+- 58 previous tests passing
 - All types and shared modules from Stories 0-4
 
 ## Reference Documents
@@ -34,13 +34,17 @@ The tab system manages portlet iframes for open sessions. Key behaviors: CSS dis
 
 #### 1. `init(tabBarEl, containerEl, emptyStateEl)`
 
-Store DOM references. Set up dragover/drop handlers on the tab bar. Call `restoreTabState()` to recover tabs from localStorage on startup.
+Store DOM references. This function must be backward-compatible with Story 0 `shell.js`, which calls `initTabs()` with no arguments. If args are omitted, fallback to `document.getElementById(...)` lookups. Set up dragover/drop handlers on the tab bar. Call `restoreTabState()` to recover tabs from localStorage on startup.
 
 ```javascript
 export function init(tabBarEl, containerEl, emptyStateEl) {
-  tabBar = tabBarEl;
-  portletContainer = containerEl;
-  emptyState = emptyStateEl;
+  tabBar = tabBarEl ?? document.getElementById('tab-bar');
+  portletContainer = containerEl ?? document.getElementById('portlet-container');
+  emptyState = emptyStateEl ?? document.getElementById('empty-state');
+
+  if (!tabBar || !portletContainer || !emptyState) {
+    throw new Error('tabs.init: required DOM elements missing');
+  }
 
   // Set up tab bar as drop target for drag-and-drop reorder
   tabBar.addEventListener('dragover', (e) => {
@@ -528,11 +532,12 @@ Add these styles for the tab bar if not already present:
 ## Constraints
 
 - Prefer not to modify tests; if a Red test has an invalid assumption, make the smallest TC-preserving correction and document it.
-- Do NOT modify files outside `client/shell/tabs.js` and `client/shell/shell.css`
+- If a TC-preserving test correction is required, you MAY edit `tests/client/tabs.test.ts` only.
+- Do NOT modify files outside `client/shell/tabs.js`, `client/shell/shell.css`, and (if needed) `tests/client/tabs.test.ts`
 - Do NOT add new dependencies
 - The tab system is purely client-side -- no WebSocket messages for tab operations
 - localStorage key MUST be `liminal:tabs`
-- localStorage format MUST include `{ openTabs: string[], activeTab: string | null, tabOrder: string[] }` (plus `tabMeta` for restore)
+- localStorage format MUST include `{ openTabs: string[], activeTab: string | null, tabOrder: string[], tabMeta: Record<string, { title: string, cliType: string }> }`
 
 ## If Blocked or Uncertain
 
@@ -544,11 +549,11 @@ Add these styles for the tab bar if not already present:
 
 Run:
 ```bash
-bun test
+bun run test && bun run test:client
 ```
 
 Expected:
-- All 71 tests PASS (57 previous + 14 new)
+- All tests PASS (previous + 14 new)
 - Zero failures
 
 Run:
@@ -558,11 +563,19 @@ bun run typecheck
 
 Expected: zero errors
 
+Run:
+```bash
+bun run verify
+```
+
+Expected: passes (format check, lint, typecheck, Vitest server suite).
+
 ## Done When
 
 - [ ] All 14 tests in `tests/client/tabs.test.ts` PASS
-- [ ] All 57 previous tests still PASS
+- [ ] All 58 previous tests still PASS
 - [ ] `bun run typecheck` passes with zero errors
+- [ ] `bun run verify` passes
 - [ ] `client/shell/tabs.js` fully implements: openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init (and `initTabs` compatibility export)
 - [ ] Iframe lifecycle works: create on open, CSS toggle on switch, remove on close
 - [ ] Deduplication works: opening already-tabbed session activates existing tab

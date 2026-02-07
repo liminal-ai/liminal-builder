@@ -9,5 +9,5 @@
  * @param {object} entry - ChatEntry object
  */
 export function renderEntry(entry) {
-  console.log('[chat] renderEntry stub:', entry.type);
+	console.log("[chat] renderEntry stub:", entry.type);
 }

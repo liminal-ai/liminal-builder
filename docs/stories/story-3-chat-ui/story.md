@@ -6,14 +6,16 @@ Story 3 implements the chat interface inside the portlet iframe. This is the cor
 
 The portlet maintains a local list of `ChatEntry` objects keyed by `entryId` and renders them as the conversation thread. During streaming, raw text is displayed; on completion, full markdown rendering is applied via `marked` + `DOMPurify`. Tool calls transition through running/complete/error states. Thinking blocks render with muted, collapsible styling.
 
+Story 3 uses Story 2b's real agent pipeline for send/stream/cancel message routing, while keeping temporary/mock session management paths so the chat flow can run end-to-end before full session lifecycle plumbing lands in Story 4.
+
 ## Prerequisites
 
 - Working directory: `/Users/leemoore/code/liminal-builder`
 - Story 0 complete (all stubs, types, HTML scaffolding exist)
 - Story 1 complete (project sidebar functional, 9 tests pass)
-- Story 2a complete (ACP client protocol layer, 17 tests pass)
+- Story 2a complete (ACP client protocol layer, 18 tests pass)
 - Story 2b complete (agent manager + WebSocket bridge, 27 tests pass)
-- All 27 existing tests pass
+- All 28 existing tests pass
 - `bun run typecheck` passes
 
 ## ACs Covered
@@ -35,6 +37,7 @@ The portlet maintains a local list of `ChatEntry` objects keyed by `entryId` and
 
 | File | Changes |
 |------|---------|
+| `server/websocket.ts` | Route `session:send`/`session:cancel`, stream back `session:update`/`session:chunk`/`session:complete` |
 | `client/portlet/portlet.js` | Full postMessage handler, session state coordination |
 | `client/portlet/chat.js` | Entry rendering by type, streaming, auto-scroll, markdown |
 | `client/portlet/input.js` | Textarea, send/cancel, disabled state, working indicator |
@@ -58,11 +61,16 @@ The portlet maintains a local list of `ChatEntry` objects keyed by `entryId` and
 
 **Story 3 test count: 17**
 
+**Deferred / Cross-Story Coverage Notes**
+
+- `session:history` handling is implemented in Story 3 portlet logic and verified in Story 4 session-open coverage.
+- Story 3 introduces `server/websocket.ts` bridge changes, but adds no new server test files; regression coverage is provided by existing Stories 2a/2b server test suites and Story 3 verification checks.
+
 | Cumulative | Tests |
 |------------|-------|
 | Story 0 | 0 |
 | Story 1 | 9 |
-| Story 2a | 17 |
+| Story 2a | 18 |
 | Story 2b | 27 |
 | **Story 3** | **44** |
 
@@ -71,12 +79,13 @@ The portlet maintains a local list of `ChatEntry` objects keyed by `entryId` and
 | Prompt | Phase | Description |
 |--------|-------|-------------|
 | `prompt-3.1-skeleton-red.md` | Skeleton + Red | Portlet/chat/input stubs with postMessage handler structure, 17 failing tests |
-| `prompt-3.2-green.md` | Green | Full implementation: rendering, streaming, markdown, auto-scroll, cancel |
-| `prompt-3.R-verify.md` | Verify | All 44 tests pass, typecheck, smoke test checklist |
+| `prompt-3.2-green.md` | Green | Full implementation: websocket routing, rendering, streaming, markdown, auto-scroll, cancel |
+| `prompt-3.R-verify.md` | Verify | All 45 tests pass, typecheck, smoke test checklist |
 
 ## Exit Criteria
 
-- 44 tests pass (27 prior + 17 new)
+- 45 tests pass (28 prior + 17 new)
+- `bun run verify` passes
 - `bun run typecheck` passes with zero errors
 - Manual: can chat with Claude Code through the app
 - Streaming responses render incrementally

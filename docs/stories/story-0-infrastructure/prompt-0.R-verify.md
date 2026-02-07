@@ -64,15 +64,15 @@ package.json
 tsconfig.json
 ```
 
-Run: `find server shared client tests -type f | sort` and compare against the list above.
+Run: `{ find server shared client tests -type f; printf "%s\n" package.json tsconfig.json; } | sort` and compare against the list above.
 
-#### Step 2: Verification Script
+#### Step 2: Run Canonical Verify Script
 
 ```bash
 bun run verify
 ```
 
-**Expected:** Exit code 0, no errors.
+**Expected:** Exit code 0, no errors. Treat any non-zero exit as a failed verification that must be fixed before continuing.
 
 If there are errors, fix them. Common issues:
 - Missing imports
@@ -129,43 +129,66 @@ curl -s -o /dev/null -w "%{http_code}" \
 kill $SERVER_PID
 ```
 
-#### Step 6: Stub Methods Throw NotImplementedError
+#### Step 6: ALL Story 0 Stubs Throw NotImplementedError
 
-Create a quick verification script and run it:
+Create and run a verification script that checks every Story 0 stub method (except `JsonStore`, `SessionManager.toCanonical`, and `SessionManager.fromCanonical`):
 
 ```bash
 bun eval '
 import { ProjectStore } from "./server/projects/project-store";
+import { SessionManager } from "./server/sessions/session-manager";
+import { AgentManager } from "./server/acp/agent-manager";
+import { AcpClient } from "./server/acp/acp-client";
 import { JsonStore } from "./server/store/json-store";
+import { EventEmitter } from "events";
 
-const store = new JsonStore({ filePath: "/tmp/test.json", writeDebounceMs: 500 }, []);
-const ps = new ProjectStore(store);
-
-try {
-  await ps.addProject("/test");
-  console.log("FAIL: addProject did not throw");
-} catch (e) {
-  if (e.name === "NotImplementedError") {
-    console.log("PASS: addProject throws NotImplementedError");
-  } else {
-    console.log("FAIL: addProject threw wrong error:", e.message);
+const expectNotImplemented = async (name, fn) => {
+  try {
+    await fn();
+    console.log("FAIL:", name, "did not throw");
+  } catch (e) {
+    if (e?.name === "NotImplementedError") {
+      console.log("PASS:", name);
+    } else {
+      console.log("FAIL:", name, "threw wrong error:", e?.message ?? e);
+    }
   }
-}
+};
 
-try {
-  await ps.listProjects();
-  console.log("FAIL: listProjects did not throw");
-} catch (e) {
-  if (e.name === "NotImplementedError") {
-    console.log("PASS: listProjects throws NotImplementedError");
-  } else {
-    console.log("FAIL: listProjects threw wrong error:", e.message);
-  }
-}
+const projectStoreBacking = new JsonStore({ filePath: "/tmp/story0-projects.json", writeDebounceMs: 20 }, []);
+const sessionStoreBacking = new JsonStore({ filePath: "/tmp/story0-sessions.json", writeDebounceMs: 20 }, []);
+const projectStore = new ProjectStore(projectStoreBacking);
+const agentManager = new AgentManager(new EventEmitter());
+const sessionManager = new SessionManager(sessionStoreBacking, agentManager, projectStore);
+const acpClient = new AcpClient(new WritableStream(), new ReadableStream());
+
+await expectNotImplemented("ProjectStore.addProject", () => projectStore.addProject("/tmp"));
+await expectNotImplemented("ProjectStore.removeProject", () => projectStore.removeProject("p1"));
+await expectNotImplemented("ProjectStore.listProjects", () => projectStore.listProjects());
+
+await expectNotImplemented("SessionManager.createSession", () => sessionManager.createSession("p1", "codex"));
+await expectNotImplemented("SessionManager.openSession", () => sessionManager.openSession("codex:abc"));
+await expectNotImplemented("SessionManager.listSessions", () => Promise.resolve(sessionManager.listSessions("p1")));
+await expectNotImplemented("SessionManager.archiveSession", () => Promise.resolve(sessionManager.archiveSession("codex:abc")));
+await expectNotImplemented("SessionManager.sendMessage", () => sessionManager.sendMessage("codex:abc", "hi", () => {}));
+await expectNotImplemented("SessionManager.updateTitle", () => Promise.resolve(sessionManager.updateTitle("codex:abc", "title")));
+
+await expectNotImplemented("AcpClient.initialize", () => acpClient.initialize());
+await expectNotImplemented("AcpClient.sessionNew", () => acpClient.sessionNew({ cwd: "/tmp" }));
+await expectNotImplemented("AcpClient.sessionLoad", () => acpClient.sessionLoad("abc", "/tmp"));
+await expectNotImplemented("AcpClient.sessionPrompt", () => acpClient.sessionPrompt("abc", "hello", () => {}));
+await expectNotImplemented("AcpClient.sessionCancel", () => Promise.resolve(acpClient.sessionCancel("abc")));
+await expectNotImplemented("AcpClient.close", () => acpClient.close());
+await expectNotImplemented("AcpClient.onError", () => Promise.resolve(acpClient.onError(() => {})));
+
+await expectNotImplemented("AgentManager.ensureAgent", () => agentManager.ensureAgent("codex"));
+await expectNotImplemented("AgentManager.getStatus", () => Promise.resolve(agentManager.getStatus("codex")));
+await expectNotImplemented("AgentManager.reconnect", () => agentManager.reconnect("codex"));
+await expectNotImplemented("AgentManager.shutdownAll", () => agentManager.shutdownAll());
 '
 ```
 
-**Expected:** Both print `PASS`.
+**Expected:** Every check prints `PASS`.
 
 #### Step 7: JsonStore Works (Infrastructure Validation)
 
@@ -197,6 +220,14 @@ try { unlinkSync(testFile); } catch {}
 
 **Expected:** Both print `PASS`.
 
+#### Step 8: Full Verify Gate
+
+```bash
+bun run verify-all
+```
+
+**Expected:** Exit code 0. In Story 0 the integration and e2e suites are placeholder/no-op, so this confirms the pipeline is wired correctly.
+
 ### Manual Smoke Test Checklist
 
 If you have access to a browser:
@@ -224,7 +255,7 @@ If you have access to a browser:
 
 ## Verification
 
-All 7 steps above pass. Specifically:
+All 8 steps above pass. Specifically:
 
 1. All files exist in the correct locations
 2. `bun run verify` exits with code 0
@@ -233,6 +264,7 @@ All 7 steps above pass. Specifically:
 5. WebSocket endpoint accepts connections (HTTP 101)
 6. Stub methods throw `NotImplementedError`
 7. `JsonStore` read/write operations work correctly
+8. `bun run verify-all` exits with code 0
 
 ## Done When
 

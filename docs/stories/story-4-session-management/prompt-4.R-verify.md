@@ -24,21 +24,10 @@ Story 4 implemented session CRUD, listing, persistence, and archive: the Session
 ### 1. Run All Tests
 
 ```bash
-bun test
+bun run test && bun run test:client
 ```
 
-**Expected:** 57 tests pass, 0 fail.
-
-Breakdown:
-- `tests/server/project-store.test.ts`: 5 tests (Story 1)
-- `tests/client/sidebar.test.ts`: 7 tests (Story 1: 4, Story 4: +3)
-- `tests/server/acp-client.test.ts`: 8 tests (Story 2a)
-- `tests/server/agent-manager.test.ts`: 10 tests (Story 2b)
-- `tests/client/chat.test.ts`: 9 tests (Story 3)
-- `tests/client/input.test.ts`: 5 tests (Story 3)
-- `tests/client/portlet.test.ts`: 3 tests (Story 3)
-- `tests/server/session-manager.test.ts`: 10 tests (Story 4) -- NEW
-- `tests/client/sidebar.test.ts`: +3 tests (Story 4) -- NEW (added to existing file)
+**Expected:** All tests pass, 0 fail. This includes all prior story tests plus 13 new Story 4 tests.
 
 ### 2. Run Typecheck
 
@@ -48,29 +37,37 @@ bun run typecheck
 
 **Expected:** 0 errors.
 
-### 3. Verify No Regressions
+### 3. Run Quality Gate
+
+```bash
+bun run verify
+```
+
+**Expected:** `format:check`, lint, typecheck, and `bun run test` all pass.
+
+### 4. Verify No Regressions
 
 Run each prior story's tests in isolation:
 
 ```bash
 # Story 1 tests
-bun test tests/server/project-store.test.ts
+bun run test -- tests/server/project-store.test.ts
 
 # Story 2a tests
-bun test tests/server/acp-client.test.ts
+bun run test -- tests/server/acp-client.test.ts
 
 # Story 2b tests
-bun test tests/server/agent-manager.test.ts
+bun run test -- tests/server/agent-manager.test.ts
 
 # Story 3 tests
-bun test tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts
+bun run test:client -- tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts
 ```
 
 **Expected:** All pass individually.
 
-### 4. Verify Test Coverage by TC ID
+### 5. Verify Test Coverage by Story 4-Owned TC ID
 
-Confirm each TC is covered by checking test names contain the TC ID:
+Confirm each Story 4-owned TC is covered by checking test names contain the TC ID:
 
 | TC ID | Test File | Expected Test Name Contains |
 |-------|-----------|---------------------------|
@@ -88,7 +85,11 @@ Confirm each TC is covered by checking test names contain the TC ID:
 | TC-2.5a | `tests/server/session-manager.test.ts` | "TC-2.5a" |
 | TC-2.5b | `tests/server/session-manager.test.ts` | "TC-2.5b" |
 
-### 5. Verify Canonical ID Helpers
+Deferred from Story 4 automated coverage:
+- TC-2.2d and TC-2.2e are manual/Gorilla checks deferred to Story 6 integration.
+- TC-2.3b is deferred to Story 5 (tab deduplication).
+
+### 6. Verify Canonical ID Helpers
 
 Run a quick sanity check on the static ID helpers:
 
@@ -114,7 +115,7 @@ console.log('All canonical ID checks passed');
 "
 ```
 
-### 6. Verify Session List Assembly
+### 7. Verify Session List Assembly
 
 Confirm the list assembly algorithm works correctly by examining the test output for TC-2.1a and TC-2.1b:
 
@@ -123,7 +124,7 @@ Confirm the list assembly algorithm works correctly by examining the test output
 - Archived sessions are excluded
 - Sessions for other projects are excluded
 
-### 7. Verify Project Path Resolution Contract
+### 8. Verify Project Path Resolution Contract
 
 Confirm SessionManager resolves `cwd` through ProjectStore rather than requiring callers to pass `projectPath` through WebSocket layers:
 
@@ -131,8 +132,10 @@ Confirm SessionManager resolves `cwd` through ProjectStore rather than requiring
 - [ ] `createSession(projectId, cliType)` resolves project path internally before `session/new`
 - [ ] `openSession(sessionId)` resolves project path from `session.projectId` before `session/load`
 - [ ] WebSocket `session:create` calls SessionManager without passing projectPath
+- [ ] No `SessionManager.createSession` signature includes `projectPath` (tech design + implementation)
+- [ ] No WebSocket inbound session handler expects or forwards a `projectPath` field
 
-### 8. Smoke Test Checklist (Manual)
+### 9. Smoke Test Checklist (Manual)
 
 If the server is runnable (`bun run dev`), perform these manual checks:
 
@@ -151,7 +154,7 @@ If the server is runnable (`bun run dev`), perform these manual checks:
 - [ ] Open a previously created session -- full conversation history loads from ACP agent
 - [ ] Verify session list shows relative timestamps (e.g., "2m", "1h", "2d")
 
-### 9. File Inventory Check
+### 10. File Inventory Check
 
 Verify the following files exist and were modified in this story:
 
@@ -176,22 +179,24 @@ ls -la tests/server/session-manager.test.ts tests/client/sidebar.test.ts
 
 This entire prompt IS the verification. The expected outcomes are:
 
-1. `bun test` -- 57 tests pass, 0 fail
+1. `bun run test && bun run test:client` -- all tests pass, 0 fail
 2. `bun run typecheck` -- 0 errors
-3. No regressions in prior story tests (Stories 0-3)
-4. All 13 TC IDs present in test names
-5. Canonical ID helpers work correctly (including edge cases with colons)
-6. Session list assembly produces correct sorted, filtered output
-7. Project path resolution contract is consistent (SessionManager owns cwd resolution)
-8. Smoke test checklist completed (if server is runnable)
-9. All required files exist
+3. `bun run verify` -- quality gate passes
+4. No regressions in prior story tests (Stories 0-3)
+5. All 13 Story 4-owned TC IDs present in test names
+6. Canonical ID helpers work correctly (including edge cases with colons)
+7. Session list assembly produces correct sorted, filtered output
+8. Project path resolution contract is consistent (SessionManager owns cwd resolution, no `projectPath` signatures/forwarding)
+9. Smoke test checklist completed (if server is runnable)
+10. All required files exist
 
 ## Done When
 
-- [ ] 57 tests pass (44 prior + 13 new)
+- [ ] All tests pass (prior stories + 13 new Story 4 tests)
 - [ ] `bun run typecheck` passes with 0 errors
+- [ ] `bun run verify` passes
 - [ ] No regressions in Stories 0-3 tests
-- [ ] All 13 TC IDs confirmed present in test names
+- [ ] All 13 Story 4-owned TC IDs confirmed present in test names
 - [ ] Canonical ID helpers verified (including colon edge case)
 - [ ] Project path resolution contract verified
 - [ ] Smoke test checklist completed (or noted as blocked with reason)

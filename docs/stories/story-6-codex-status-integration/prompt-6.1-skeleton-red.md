@@ -4,7 +4,7 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio JSON-RPC.
 
-This is Story 6, the final story of the MVP build. Stories 0-5 have delivered the full stack: project management, session CRUD, ACP protocol, agent lifecycle, chat UI with streaming/tool-calls/thinking, and tab management. 71 tests are currently passing.
+This is Story 6, the final story of the MVP build. Stories 0-5 have delivered the full stack: project management, session CRUD, ACP protocol, agent lifecycle, chat UI with streaming/tool-calls/thinking, and tab management. 72 tests are currently passing.
 
 Story 6 adds: (1) Codex CLI command config, (2) connection status indicators, (3) WebSocket browser-side reconnection with backoff, (4) browser refresh recovery, and (5) WebSocket integration tests verifying full message round-trips.
 
@@ -21,11 +21,11 @@ The RED phase creates 7 new failing tests: 6 integration tests in `tests/server/
 - `client/portlet/portlet.js` -- postMessage handler for session messages
 - `client/portlet/portlet.css` -- Chat and input styles
 - `client/shell/sidebar.js` -- Project/session list rendering
-- 71 tests passing
+- 72 tests passing
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
-- Tech Design: `docs/tech-design-mvp.md` (Story 6 breakdown, lines ~2086-2115; WebSocket Lifecycle State Machine, lines ~225-244; WebSocket handler mapping, lines ~518-561; Integration test mapping, lines ~1709-1719)
+- Tech Design: `docs/tech-design-mvp.md` (Story 6 breakdown, lines ~2228-2260; WebSocket Lifecycle State Machine, lines ~225-244; WebSocket handler mapping, lines ~518-561; Integration test mapping, lines ~1709-1719)
 - Feature Spec: `docs/feature-spec-mvp.md` (AC-5.2 Connection Status, lines ~496-513; AC-5.6 Browser Refresh, lines ~540-549)
 
 ## Task
@@ -49,10 +49,20 @@ The integration tests verify full round-trip message flow: WebSocket client send
 The key architectural insight: integration tests need a real Fastify server with WebSocket support, but with a mocked ACP layer. The ACP client is the mock boundary (as per the Critical Mocking Rule from the tech design). Tests create a real WebSocket connection to the running Fastify server.
 
 ```typescript
-import { describe, test, expect, beforeAll, afterAll, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyWebsocket from '@fastify/websocket';
+import { EventEmitter } from 'node:events';
 import { mkdtempSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
+import { JsonStore } from '../../server/store/json-store';
+import { ProjectStore } from '../../server/projects/project-store';
+import { SessionManager } from '../../server/sessions/session-manager';
+import { AgentManager } from '../../server/acp/agent-manager';
+import { handleWebSocket } from '../../server/websocket';
+import type { Project } from '../../server/projects/project-types';
+import type { SessionMeta } from '../../server/sessions/session-types';
 
 // Integration test: real Fastify server, real WebSocket, mocked ACP
 
@@ -123,21 +133,80 @@ function makeProjectDir(rootDir: string, name: string): string {
 The ACP layer needs to be mocked at the process spawn boundary. The integration tests should mock `Bun.spawn` (or the agent-manager's spawn method) to return a mock process with controllable stdin/stdout. This allows us to simulate ACP responses without running real CLI processes.
 
 ```typescript
-// Mock ACP process for integration tests
-function createMockAcpProcess() {
-  // Create readable/writable streams that simulate stdio
-  // The mock process responds to JSON-RPC requests with predefined responses
-  // Key responses needed:
-  //   initialize → { protocolVersion: 1, agentInfo: {...}, agentCapabilities: {...} }
-  //   session/new → { sessionId: 'test-session-123' }
-  //   session/prompt → streams session/update notifications, then returns { stopReason: 'end_turn' }
-  //   session/cancel → triggers cancelled stopReason
+import { PassThrough } from 'node:stream';
+import { makeRpcResponse, makeRpcError, MOCK_INIT_RESULT, MOCK_CREATE_RESULT, MOCK_PROMPT_RESULT } from '../fixtures/acp-messages';
+
+type MockAcpProcess = {
+  stdin: PassThrough;
+  stdout: PassThrough;
+  stderr: PassThrough;
+  exited: Promise<number>;
+  kill: (signal?: string) => void;
+};
+
+function createMockAcpProcess(opts: { failCreate?: boolean } = {}): MockAcpProcess {
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  let resolveExited: (code: number) => void = () => {};
+  const exited = new Promise<number>((resolve) => {
+    resolveExited = resolve;
+  });
+
+  stdin.on('data', (chunk) => {
+    const lines = chunk
+      .toString('utf-8')
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    for (const line of lines) {
+      const req = JSON.parse(line) as { id?: number; method?: string; params?: any };
+
+      if (req.method === 'initialize' && req.id != null) {
+        stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_INIT_RESULT)) + '\n');
+      } else if (req.method === 'session/new' && req.id != null) {
+        if (opts.failCreate) {
+          stdout.write(JSON.stringify(makeRpcError(req.id, -32001, 'Mock session/create failure')) + '\n');
+        } else {
+          stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_CREATE_RESULT)) + '\n');
+        }
+      } else if (req.method === 'session/prompt' && req.id != null) {
+        stdout.write(
+          JSON.stringify({
+            jsonrpc: '2.0',
+            method: 'session/update',
+            params: {
+              sessionId: req.params?.sessionId ?? 'acp-session-xyz',
+              update: {
+                type: 'agent_message_chunk',
+                content: [{ type: 'text', text: 'Mock streamed response chunk' }],
+              },
+            },
+          }) + '\n'
+        );
+        stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_PROMPT_RESULT)) + '\n');
+      } else if (req.method === 'session/cancel') {
+        // Notification in ACP; no JSON-RPC response required.
+      } else if (req.method === 'session/load' && req.id != null) {
+        stdout.write(JSON.stringify(makeRpcResponse(req.id, { loaded: true })) + '\n');
+      }
+    }
+  });
+
+  return {
+    stdin,
+    stdout,
+    stderr,
+    exited,
+    kill: () => resolveExited(0),
+  };
 }
 ```
 
 **Test specs (6 integration tests):**
 
-Add these to the existing `tests/server/websocket.test.ts` file. If the file already has tests (TC-1.3b, TC-2.2f from earlier stories), add the new tests alongside them.
+Add these to the existing `tests/server/websocket.test.ts` file. `TC-2.2f` is intentionally covered here as integration coverage in addition to Story 4 unit coverage.
 
 ```typescript
 describe('WebSocket Integration: Round-Trip Message Flow', () => {
@@ -147,10 +216,28 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
   let port: number;
   let ws: WebSocket;
   let tempRoot: string;
+  let shouldFailCreate = false;
 
   beforeAll(async () => {
-    // Start server with mocked ACP layer
-    // ...
+    const dataRoot = mkdtempSync(join(tmpdir(), 'liminal-story6-data-'));
+    const projectsStore = new JsonStore<Project[]>({ filePath: join(dataRoot, 'projects.json'), writeDebounceMs: 0 }, []);
+    const sessionsStore = new JsonStore<SessionMeta[]>({ filePath: join(dataRoot, 'sessions.json'), writeDebounceMs: 0 }, []);
+    const projectStore = new ProjectStore(projectsStore);
+    const sessionManager = new SessionManager(sessionsStore);
+
+    const emitter = new EventEmitter();
+    const agentManager = new AgentManager(emitter, {
+      spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
+    });
+
+    server = Fastify();
+    await server.register(fastifyWebsocket);
+    server.get('/ws', { websocket: true }, (socket) => {
+      handleWebSocket(socket, { projectStore, sessionManager, agentManager });
+    });
+    await server.listen({ port: 0, host: '127.0.0.1' });
+    const addr = server.server.address();
+    port = typeof addr === 'object' && addr ? addr.port : Number(String(addr).split(':').pop());
   });
 
   afterAll(async () => {
@@ -165,6 +252,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
   });
 
   afterEach(() => {
+    shouldFailCreate = false;
     rmSync(tempRoot, { recursive: true, force: true });
   });
 
@@ -253,7 +341,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     expect(response.sessionId).toBe(sessionId);
   });
 
-  test('TC-1.3b: remove project sends project:removed', async () => {
+  test('project:remove WebSocket round-trip — sends project:remove, receives project:removed', async () => {
     // Given: project added
     const projectPath = makeProjectDir(tempRoot, 'project-remove');
     const addResp = await sendAndReceive(ws, { type: 'project:add', path: projectPath, requestId: 'req-8' }, 'project:added');
@@ -271,7 +359,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
 
   test('TC-2.2f: session creation failure sends error', async () => {
     // Given: ACP mock configured to fail on session/new
-    // (Configure mock before this test to reject session creation)
+    shouldFailCreate = true;
     const projectPath = makeProjectDir(tempRoot, 'project-fail');
     const addResp = await sendAndReceive(
       ws,
@@ -404,9 +492,10 @@ export function updateAgentStatus(cliType, status) {
 - Do NOT implement full Story 6 logic in this phase; placeholders are allowed but must not break existing passing tests.
 - Do NOT modify the implementations of existing passing functions
 - New Story 6 tests should fail against currently unimplemented behavior (RED phase)
-- All 71 previous tests MUST still pass
+- All 72 previous tests MUST still pass
 - Integration tests have real assertions that should fail meaningfully (FAIL/ERROR) because full Story 6 behavior is not implemented yet
 - The connection status CSS can be fully written (it is presentational, not logic)
+- AC-5.2 UI rendering checks (status dot class, disabled input, reconnect button visibility) are manual-only in Story 6; they are validated in Gorilla checklist steps and not added as new automated client tests in this prompt.
 
 ## If Blocked or Uncertain
 
@@ -418,13 +507,13 @@ export function updateAgentStatus(cliType, status) {
 
 Run:
 ```bash
-bun test
+bun run test
 ```
 
 Expected:
-- 71 previous tests: PASS
+- 72 previous tests: PASS
 - 7 new tests: failing outcomes (FAIL/ERROR) against unimplemented Story 6 behavior
-- Total: 78 tests, 7 failing
+- Total: 79 tests, 7 failing
 
 Run:
 ```bash
@@ -441,5 +530,5 @@ Expected: zero errors
 - [ ] Connection status CSS added to `client/portlet/portlet.css`
 - [ ] Reconnect button stub added to `client/shell/sidebar.js`
 - [ ] New Story 6 tests fail in RED for implementation-relevant reasons
-- [ ] All 71 previous tests still pass
+- [ ] All 72 previous tests still pass
 - [ ] `bun run typecheck` passes with zero errors

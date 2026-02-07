@@ -8,6 +8,6 @@
  * Initialize the input bar.
  * @param {(content: string) => void} onSend - Callback when user sends a message
  */
-export function initInput(onSend) {
-  console.log('[input] initInput stub');
+export function initInput(_onSend) {
+	console.log("[input] initInput stub");
 }

@@ -11,7 +11,7 @@ Story 3 implemented the chat interface inside the portlet iframe: message render
 **Prerequisites complete:**
 - Story 3 Green phase complete (portlet.js, chat.js, input.js, markdown.js implemented)
 - 17 new tests written across 3 test files
-- 27 prior tests from Stories 0-2b
+- 28 prior tests from Stories 0-2b
 
 ## Reference Documents
 
@@ -21,24 +21,28 @@ Story 3 implemented the chat interface inside the portlet iframe: message render
 
 ## Task
 
-### 1. Run All Tests
+### 1. Run Quality Gate
 
 ```bash
-bun test
+bun run verify
 ```
 
-**Expected:** 44 tests pass, 0 fail.
+**Expected:** format/lint/typecheck/server tests all pass.
+
+### 2. Run Story 3 Client Tests
+
+```bash
+bun run test:client
+```
+
+**Expected:** Story 3 client tests pass within the client suite. Total client count may exceed 17 when prior client tests are present.
 
 Breakdown:
-- `tests/server/project-store.test.ts`: 5 tests (Story 1)
-- `tests/client/sidebar.test.ts`: 4 tests (Story 1)
-- `tests/server/acp-client.test.ts`: 8 tests (Story 2a)
-- `tests/server/agent-manager.test.ts`: 10 tests (Story 2b)
 - `tests/client/chat.test.ts`: 9 tests (Story 3) -- NEW
 - `tests/client/input.test.ts`: 5 tests (Story 3) -- NEW
 - `tests/client/portlet.test.ts`: 3 tests (Story 3) -- NEW
 
-### 2. Run Typecheck
+### 3. Run Typecheck
 
 ```bash
 bun run typecheck
@@ -46,24 +50,54 @@ bun run typecheck
 
 **Expected:** 0 errors.
 
-### 3. Verify No Regressions
+### 4. Verify No Regressions
 
-Run the prior story tests in isolation to confirm nothing broke:
+Run regression suites, then optionally isolate prior-story tests if needed:
 
 ```bash
-# Story 1 tests
-bun test tests/server/project-store.test.ts tests/client/sidebar.test.ts
+# Server regression suite (Stories 1/2a/2b)
+bun run test
 
-# Story 2a tests
-bun test tests/server/acp-client.test.ts
+# Client regression suite (includes Story 1 sidebar + Story 3 client tests)
+bun run test:client
 
-# Story 2b tests
-bun test tests/server/agent-manager.test.ts
+# Optional targeted Story 2b isolation
+bunx vitest run tests/server/agent-manager.test.ts --passWithNoTests
 ```
 
-**Expected:** All pass individually.
+**Expected:** All commands pass.
 
-### 4. Verify Test Coverage by TC ID
+### 5. Verify Server-Side WS Bridge Coverage
+
+Story 3 modifies `server/websocket.ts` for `session:send`/`session:cancel` and stream fan-out. Verify these changes through existing server regression coverage plus targeted websocket inspection:
+
+```bash
+# Server regression suite (already included in bun run verify, rerun if needed)
+bun run test
+
+# Focused server bridge tests (if a file has no cases yet, passWithNoTests avoids false failures)
+bunx vitest run tests/server/websocket.test.ts tests/server/agent-manager.test.ts --passWithNoTests
+```
+
+If `tests/server/websocket.test.ts` has no cases, treat this as a follow-up test gap and rely on Step 8 manual smoke validation for bridge behavior.
+
+### 6. Verify Contract Translation Parity (postMessage <-> WS)
+
+Confirm bridge contracts preserve canonical required fields and apply explicit postMessage translation:
+
+- `session:send` reaches WS with `sessionId` + `content`
+- `session:cancel` reaches WS with `sessionId`
+- `session:cancelled` from WS includes `sessionId` + `entryId`
+- `agent:status` from WS includes `cliType` + `status`
+- Parent-shell translation forwards only iframe-required shape after routing by `sessionId`
+
+Suggested inspection command:
+
+```bash
+rg -n "session:send|session:cancel|session:cancelled|agent:status|sessionId|entryId|cliType" server/websocket.ts client/shell/shell.js client/portlet/portlet.js
+```
+
+### 7. Verify Test Coverage by TC ID
 
 Confirm each TC is covered by checking test names contain the TC ID:
 
@@ -87,7 +121,7 @@ Confirm each TC is covered by checking test names contain the TC ID:
 | TC-3.7c | `tests/client/input.test.ts` | "TC-3.7c" |
 | TC-5.4a | `tests/client/portlet.test.ts` | "TC-5.4a" |
 
-### 5. Smoke Test Checklist (Manual)
+### 8. Smoke Test Checklist (Manual)
 
 If the server is runnable (`bun run dev`), perform these manual checks:
 
@@ -106,7 +140,7 @@ If the server is runnable (`bun run dev`), perform these manual checks:
 - [ ] Empty input -- send button is disabled
 - [ ] Agent status "starting" -- launching indicator appears
 
-### 6. File Inventory Check
+### 9. File Inventory Check
 
 Verify the following files exist and were modified in this story:
 
@@ -131,18 +165,25 @@ ls -la tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet
 
 This entire prompt IS the verification. The expected outcomes are:
 
-1. `bun test` -- 44 tests pass, 0 fail
-2. `bun run typecheck` -- 0 errors
-3. No regressions in prior story tests
-4. All 17 TC IDs present in test names
-5. Smoke test checklist completed (if server is runnable)
-6. All required files exist
+1. `bun run test` + `bun run test:client` -- 45 tests pass, 0 fail
+2. `bun run verify` -- pass
+3. `bun run test:client` -- Story 3 tests pass within the client suite (total may include prior client tests)
+4. `bun run typecheck` -- 0 errors
+5. Server-side websocket bridge coverage validated (existing server tests and/or noted gap)
+6. No regressions in prior story tests
+7. Contract translation parity validated (postMessage <-> WS)
+8. All 17 TC IDs present in test names
+9. Smoke test checklist completed (if server is runnable)
+10. All required files exist
 
 ## Done When
 
-- [ ] 44 tests pass (27 prior + 17 new)
+- [ ] `bun run verify` passes
+- [ ] Story 3 client tests pass (17 total)
 - [ ] `bun run typecheck` passes with 0 errors
+- [ ] Story 3 server-side websocket bridge changes validated (or explicitly reported as coverage gap)
 - [ ] No regressions in Stories 0-2b tests
+- [ ] Contract translation parity validated (postMessage <-> WS)
 - [ ] All 17 TC IDs confirmed present in test names
 - [ ] Smoke test checklist completed (or noted as blocked with reason)
 - [ ] All required files exist and were modified

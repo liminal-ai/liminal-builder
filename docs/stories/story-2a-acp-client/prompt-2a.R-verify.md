@@ -4,14 +4,14 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs. Story 2a implemented the `AcpClient` class, which provides JSON-RPC 2.0 communication over stdio with ACP agent processes.
 
-This verification prompt confirms that Story 2a is complete: all tests pass, typecheck is clean, no regressions from Story 1, and the implementation matches the spec.
+This verification prompt confirms that Story 2a is complete: all tests pass, typecheck is clean, Story 1 regressions are checked when Story 1 is present, and the implementation matches the spec.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
 - `server/acp/acp-client.ts` -- fully implemented (from prompt 2a.2)
-- `tests/server/acp-client.test.ts` -- 8 tests (from prompt 2a.1)
-- All Story 0 and Story 1 files in place
+- `tests/server/acp-client.test.ts` -- 9 tests (from prompt 2a.1)
+- Story 0 files in place (Story 1 may already be complete or may be in parallel)
 
 ## Reference Documents
 (For human traceability)
@@ -25,22 +25,22 @@ Run the following verification checks and report results. Do NOT modify any file
 ### 1. Full Test Suite
 
 ```bash
-bun test
+bun run test
 ```
 
-**Expected:** 17 total tests, all passing.
-- 9 from Story 1 (project-store, sidebar)
-- 8 from Story 2a (acp-client)
+**Expected:** Test totals depend on branch state:
+- If Story 1 is complete: 18 total tests, all passing (9 Story 1 + 9 Story 2a)
+- If Story 1 is not complete: 9 total Story 2a tests, all passing
 
 If any test fails, diagnose and fix. Report what was wrong and what you changed.
 
 ### 2. ACP Client Tests Only
 
 ```bash
-bun test tests/server/acp-client.test.ts
+bunx vitest run tests/server/acp-client.test.ts
 ```
 
-**Expected:** 8 tests, all passing:
+**Expected:** 9 tests, all passing:
 1. initialize sends correct protocol version and capabilities
 2. sessionNew sends cwd parameter and returns sessionId
 3. sessionLoad collects replayed history from update notifications
@@ -48,7 +48,8 @@ bun test tests/server/acp-client.test.ts
 5. sessionPrompt resolves with stopReason on completion
 6. handleAgentRequest auto-approves permission requests
 7. handles JSON-RPC error responses
-8. close sends stdin close and waits for exit
+8. sessionCancel sends a JSON-RPC notification (no `id` field) with method `session/cancel`
+9. close sends stdin close and cleans up pending requests
 
 ### 3. Type Check
 
@@ -58,15 +59,31 @@ bun run typecheck
 
 **Expected:** Zero errors.
 
-### 4. No Regressions
+### 4. Quality Gate
 
 ```bash
-bun test tests/server/project-store.test.ts
+bun run verify
 ```
 
-**Expected:** All Story 1 server tests still passing.
+**Expected:** All checks pass (format:check, lint, typecheck, and server tests).
 
-### 5. Implementation Audit
+### 5. Full Gate
+
+```bash
+bun run verify-all
+```
+
+**Expected:** `bun run verify` plus integration and e2e checks all pass.
+
+### 6. No Regressions
+
+```bash
+bunx vitest run tests/server/project-store.test.ts
+```
+
+**Expected:** If Story 1 is present in this branch, all Story 1 server tests still pass; otherwise report N/A.
+
+### 7. Implementation Audit
 
 Verify the following by reading `server/acp/acp-client.ts`:
 
@@ -85,7 +102,7 @@ Verify the following by reading `server/acp/acp-client.ts`:
 - [ ] `onError()` stores error handler for broken pipe / parse errors
 - [ ] No WebSocket or browser code present
 
-### 6. Smoke Test Checklist
+### 8. Smoke Test Checklist
 
 These are conceptual checks -- verify by reading the implementation:
 
@@ -116,28 +133,36 @@ Report results in this format:
 ## Verification Results
 
 ### 1. Full Test Suite: PASS/FAIL
-- Total: X tests
-- Passing: X
-- Failing: X
+- Total: [actual] tests
+- Passing: [actual]
+- Failing: [actual]
 - Details: ...
 
 ### 2. ACP Client Tests: PASS/FAIL
-- 8/8 passing
+- 9/9 passing
 - Details: ...
 
 ### 3. Type Check: PASS/FAIL
 - Errors: X
 - Details: ...
 
-### 4. No Regressions: PASS/FAIL
-- Story 1 tests: X/X passing
+### 4. Quality Gate: PASS/FAIL
+- `bun run verify`: PASS/FAIL
 - Details: ...
 
-### 5. Implementation Audit: PASS/FAIL
+### 5. Full Gate: PASS/FAIL
+- `bun run verify-all`: PASS/FAIL
+- Details: ...
+
+### 6. No Regressions: PASS/FAIL
+- Story 1 tests: X/X passing (or N/A if Story 1 is not yet in this branch)
+- Details: ...
+
+### 7. Implementation Audit: PASS/FAIL
 - Checklist: X/X items verified
 - Issues: ...
 
-### 6. Smoke Test Checklist: PASS/FAIL
+### 8. Smoke Test Checklist: PASS/FAIL
 - Checklist: X/X items verified
 - Issues: ...
 
@@ -146,8 +171,10 @@ Report results in this format:
 
 ## Done When
 
-- [ ] All 17 tests pass
+- [ ] All expected tests pass (18 with Story 1 complete, otherwise 9 for Story 2a-only track)
 - [ ] Typecheck clean (zero errors)
+- [ ] `bun run verify` passes
+- [ ] `bun run verify-all` passes
 - [ ] No regressions in Story 1 tests
 - [ ] Implementation audit checklist complete
 - [ ] Smoke test checklist complete

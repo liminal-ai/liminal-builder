@@ -113,14 +113,14 @@ export interface StoreConfig {
 
 #### File 1: `tests/server/project-store.test.ts`
 
-This tests `ProjectStore` methods directly. Use a real `JsonStore` instance pointed at a temp file, so persistence is tested too. Use real temp directories for valid-path cases and a missing temp subdirectory for invalid-path cases so tests stay aligned with `fs/promises.stat` directory validation. Each test should use a fresh temp file to avoid state leakage between tests.
+This tests `ProjectStore` methods directly. Use a real `JsonStore` instance pointed at a temp file, so persistence is tested too. Use real temp directories for valid-path cases and a missing temp subdirectory for invalid-path cases so tests stay aligned with `Bun.file(path).exists()` directory validation. Each test should use a fresh temp file to avoid state leakage between tests.
 
 ```typescript
-import { describe, test, expect, beforeEach, afterEach, mock } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { ProjectStore } from '../../server/projects/project-store';
 import { JsonStore } from '../../server/store/json-store';
 import type { Project } from '../../server/projects/project-types';
-import { mkdtempSync, rmSync } from 'fs';
+import { mkdtempSync, mkdirSync, rmSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
 
@@ -128,10 +128,19 @@ describe('ProjectStore', () => {
   let store: JsonStore<Project[]>;
   let projectStore: ProjectStore;
   let tempDir: string;
+  let projectAlphaPath: string;
+  let projectBetaPath: string;
+  let myAppPath: string;
 
   beforeEach(() => {
     // Create a unique temp directory for each test
     tempDir = mkdtempSync(join(tmpdir(), 'liminal-test-'));
+    projectAlphaPath = join(tempDir, 'project-alpha');
+    projectBetaPath = join(tempDir, 'project-beta');
+    myAppPath = join(tempDir, 'my-app');
+    mkdirSync(projectAlphaPath);
+    mkdirSync(projectBetaPath);
+    mkdirSync(myAppPath);
     const filePath = join(tempDir, 'projects.json');
     store = new JsonStore<Project[]>({ filePath, writeDebounceMs: 0 }, []);
     projectStore = new ProjectStore(store);
@@ -142,62 +151,61 @@ describe('ProjectStore', () => {
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  test('TC-1.1a: projects returned in insertion order', async () => {
+  it('TC-1.1a: projects returned in insertion order', async () => {
     // Setup: Add two projects in order
-    // Use real temp directories for valid paths (created in test setup)
+    // Use real temp directories for valid paths
     // For now, stubs will throw NotImplementedError
 
-    const projectA = await projectStore.addProject('/Users/test/code/project-alpha');
-    const projectB = await projectStore.addProject('/Users/test/code/project-beta');
+    const projectA = await projectStore.addProject(projectAlphaPath);
+    const projectB = await projectStore.addProject(projectBetaPath);
 
     const projects = await projectStore.listProjects();
 
     // Assert: returned in insertion order (A before B)
     expect(projects).toHaveLength(2);
-    expect(projects[0].path).toBe('/Users/test/code/project-alpha');
-    expect(projects[1].path).toBe('/Users/test/code/project-beta');
+    expect(projects[0].path).toBe(projectAlphaPath);
+    expect(projects[1].path).toBe(projectBetaPath);
     expect(projects[0].name).toBe('project-alpha');
     expect(projects[1].name).toBe('project-beta');
   });
 
-  test('TC-1.2a: add valid directory creates project', async () => {
-    // Setup: Path exists on filesystem (will need mock in Green phase)
-    const project = await projectStore.addProject('/Users/test/code/my-app');
+  it('TC-1.2a: add valid directory creates project', async () => {
+    // Setup: Path exists on filesystem
+    const project = await projectStore.addProject(myAppPath);
 
     // Assert: Project returned with all required fields
     expect(project.id).toBeDefined();
     expect(typeof project.id).toBe('string');
     expect(project.id.length).toBeGreaterThan(0);
-    expect(project.path).toBe('/Users/test/code/my-app');
+    expect(project.path).toBe(myAppPath);
     expect(project.name).toBe('my-app');
     expect(project.addedAt).toBeDefined();
     // addedAt should be a valid ISO 8601 string
     expect(new Date(project.addedAt).toISOString()).toBe(project.addedAt);
   });
 
-  test('TC-1.2b: add nonexistent directory throws', async () => {
+  it('TC-1.2b: add nonexistent directory throws', async () => {
     // Setup: Path does NOT exist on filesystem
-    // In Green phase, the path check will be mocked to return false
 
     // Assert: Throws an error for invalid path
     await expect(
-      projectStore.addProject('/Users/test/code/does-not-exist')
+      projectStore.addProject(join(tempDir, 'does-not-exist'))
     ).rejects.toThrow();
   });
 
-  test('TC-1.2d: add duplicate directory throws', async () => {
+  it('TC-1.2d: add duplicate directory throws', async () => {
     // Setup: Add a project, then try to add the same path again
-    await projectStore.addProject('/Users/test/code/my-app');
+    await projectStore.addProject(myAppPath);
 
     // Assert: Second add throws a duplicate error
     await expect(
-      projectStore.addProject('/Users/test/code/my-app')
+      projectStore.addProject(myAppPath)
     ).rejects.toThrow(/already added|duplicate/i);
   });
 
-  test('TC-1.3a: remove project retains session mappings', async () => {
+  it('TC-1.3a: removeProject deletes project (session data untouched -- verified by store separation, full re-add flow in Story 4)', async () => {
     // Setup: Add a project, then remove it
-    const project = await projectStore.addProject('/Users/test/code/my-app');
+    const project = await projectStore.addProject(myAppPath);
     await projectStore.removeProject(project.id);
 
     // Assert: Project is no longer in the list
@@ -225,7 +233,7 @@ The sidebar module will export functions that:
 For jsdom testing, we simulate the DOM and mock the WebSocket `sendMessage` function.
 
 ```typescript
-import { describe, test, expect, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 
 // Minimal DOM setup for client-side testing
 function setupDOM() {
@@ -259,7 +267,7 @@ describe('Sidebar', () => {
     localStorage.clear();
   });
 
-  test('TC-1.1b: empty state prompt rendered when no projects', async () => {
+  it('TC-1.1b: empty state prompt rendered when no projects', async () => {
     // Setup: No projects configured
     // Import sidebar module and call render with empty project list
     // The sidebar should render an empty state message in #project-list
@@ -281,7 +289,7 @@ describe('Sidebar', () => {
     expect(emptyState!.textContent).toMatch(/add a project/i);
   });
 
-  test('TC-1.2c: cancel add project sends no WebSocket message', async () => {
+  it('TC-1.2c: cancel add project sends no WebSocket message', async () => {
     // Setup: Import sidebar, simulate opening add dialog then cancelling
 
     const { renderProjects, handleAddProject } = await import('../../client/shell/sidebar.js');
@@ -294,7 +302,7 @@ describe('Sidebar', () => {
     expect(sentMessages).toHaveLength(0);
   });
 
-  test('TC-1.4a: collapse hides sessions', async () => {
+  it('TC-1.4a: collapse hides sessions', async () => {
     // Setup: Render projects with sessions, then click collapse
 
     const { renderProjects, toggleCollapse } = await import('../../client/shell/sidebar.js');
@@ -321,7 +329,7 @@ describe('Sidebar', () => {
     expect((sessionList as HTMLElement).hidden).toBe(true);
   });
 
-  test('TC-1.4b: collapse state persists in localStorage across reload', async () => {
+  it('TC-1.4b: collapse state persists in localStorage across reload', async () => {
     // Setup: Set collapsed state in localStorage, then "reload" (re-render)
 
     const COLLAPSED_KEY = 'liminal:collapsed';
@@ -353,13 +361,13 @@ describe('Sidebar', () => {
 **Important notes for the test file:**
 - Import `client/shell/sidebar.js` with `await import(...)` from the TypeScript tests (ESM-safe in this repo).
 - The sidebar module currently only exports `initSidebar()`. The tests expect it to also export: `renderProjects`, `handleAddProject`, `toggleCollapse`. These will be added in the Green phase. During Red, the imports will fail or throw.
-- `localStorage` and `document` are available via Bun's built-in jsdom support (or we configure the test environment). If Bun's test runner doesn't provide DOM globals by default, we'll need to set `jsdom` in the test's environment config. This may require adding `"dom"` to the environment or using a setup file. The tests should include a comment noting this requirement.
+- `localStorage` and `document` are available via Vitest jsdom configuration. If DOM globals are not available by default, set `environment: 'jsdom'` in Vitest config or use a setup file with minimal polyfills.
 
 ## Constraints
 
 - Do NOT implement any production code. Only write test files.
 - Do NOT modify `server/projects/project-store.ts`, `server/websocket.ts`, or `client/shell/sidebar.js`.
-- Do NOT modify any other existing files.
+- Do NOT modify any other existing files (exception: Vitest config if jsdom setup is required per the If Blocked section).
 - Tests MUST include the TC ID in the test name (e.g., `TC-1.1a: ...`).
 - Each test must be independent -- no shared mutable state between tests.
 - Use real `JsonStore` instances with temp files for server tests (not mocked stores).
@@ -367,24 +375,24 @@ describe('Sidebar', () => {
 
 ## If Blocked or Uncertain
 
-- If Bun's test runner doesn't support DOM globals (`document`, `localStorage`) out of the box, add a note about what configuration is needed, and use a setup function within the test file to polyfill minimally.
+- If Vitest doesn't expose DOM globals (`document`, `localStorage`) for this suite, configure jsdom for the client test project and add a minimal setup polyfill only if needed.
 - If the sidebar module import path doesn't resolve, keep ESM import semantics (`await import(...)`) and correct the relative path.
 - If you encounter inconsistencies, resolve straightforward cases using the feature spec + tech design as source of truth; ask only for true blockers.
 
 ## Verification
 
 ```bash
-bun test
+# Server tests (5 tests, all should fail against stubs)
+bun run test
+
+# Client tests (4 tests, all should fail until sidebar is implemented)
+bun run test:client
 ```
 
 **Expected output:**
-- 9 tests run
-- New Story 1 tests should fail against current stubs/unimplemented behavior (exact error shape may vary)
+- `bun run test`: 5 server tests run (all fail against unimplemented stubs)
+- `bun run test:client`: 4 client tests run (all fail until sidebar behavior is implemented)
 - The new Story 1 tests should fail meaningfully against current stubs; exact pass/fail split is less important than asserting intended behavior.
-
-The specific expected outcome:
-- `tests/server/project-store.test.ts`: 5 tests should fail against unimplemented stubs
-- `tests/client/sidebar.test.ts`: 4 tests should fail until sidebar behavior is implemented
 
 ```bash
 bun run typecheck
@@ -396,7 +404,7 @@ bun run typecheck
 
 - [ ] `tests/server/project-store.test.ts` exists with 5 tests (TC-1.1a, TC-1.2a, TC-1.2b, TC-1.2d, TC-1.3a)
 - [ ] `tests/client/sidebar.test.ts` exists with 4 tests (TC-1.1b, TC-1.2c, TC-1.4a, TC-1.4b)
-- [ ] `bun test` runs all 9 tests
+- [ ] `bun run test` runs the 5 server tests; `bun run test:client` runs the 4 client tests
 - [ ] New Story 1 tests fail against current stubs, with clear assertions for Green
 - [ ] `bun run typecheck` still passes
 - [ ] No production code was modified

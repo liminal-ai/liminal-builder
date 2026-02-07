@@ -2,16 +2,18 @@
 
 ## Context
 
-Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs. Story 2b implemented the `AgentManager` class, which manages the lifecycle of ACP agent processes: spawning, monitoring, reconnection with exponential backoff, and graceful shutdown.
+Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs. Story 2b implemented the `AgentManager` class (agent lifecycle) and the Story 2b WebSocket bridge routing/forwarding in `server/websocket.ts`.
 
-This verification prompt confirms that Story 2b is complete: all tests pass, typecheck is clean, no regressions from Stories 1 and 2a, and the implementation matches the spec.
+This verification prompt confirms that Story 2b is complete: all tests pass, typecheck is clean, no regressions from Story 2a (and Story 1 when present in the branch baseline), and the implementation matches the spec.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
 - `server/acp/agent-manager.ts` -- fully implemented (from prompt 2b.2)
+- `server/websocket.ts` -- WS bridge routing + forwarding implemented (from prompt 2b.2)
 - `tests/server/agent-manager.test.ts` -- 10 tests (from prompt 2b.1)
-- All Story 0, Story 1, and Story 2a files in place
+- `tests/server/websocket.test.ts` -- Story 2b WS bridge tests (from prompt 2b.1)
+- Story dependency baseline present: Story 0 + Story 2a files in place (Story 1 may also be present in the sequential pipeline)
 
 ## Reference Documents
 (For human traceability)
@@ -25,20 +27,20 @@ Run the following verification checks and report results. Do NOT modify any file
 ### 1. Full Test Suite
 
 ```bash
-bun test
+bun run test
 ```
 
-**Expected:** 27 total tests, all passing.
-- 9 from Story 1 (project-store, sidebar)
-- 8 from Story 2a (acp-client)
-- 10 from Story 2b (agent-manager)
+**Expected:** all server Vitest tests passing.
+- Story 2a baseline tests (8 in the standard shard)
+- Story 1 tests if present in the current branch baseline
+- Story 2b coverage for agent-manager + websocket bridge
 
 If any test fails, diagnose and fix. Report what was wrong and what you changed.
 
 ### 2. Agent Manager Tests Only
 
 ```bash
-bun test tests/server/agent-manager.test.ts
+bun run test -- tests/server/agent-manager.test.ts
 ```
 
 **Expected:** 10 tests, all passing:
@@ -56,18 +58,19 @@ bun test tests/server/agent-manager.test.ts
 ### 3. No Regressions -- Story 2a
 
 ```bash
-bun test tests/server/acp-client.test.ts
+bun run test -- tests/server/acp-client.test.ts
 ```
 
-**Expected:** 8 tests, all passing.
+**Expected:** 9 tests, all passing.
 
-### 4. No Regressions -- Story 1
+### 4. No Regressions -- Story 1 (if present in branch baseline)
 
 ```bash
-bun test tests/server/project-store.test.ts
+bun run test -- tests/server/project-store.test.ts
+bun run test:client
 ```
 
-**Expected:** All Story 1 server tests still passing.
+**Expected:** If Story 1 tests are present, Story 1 server tests and client sidebar tests pass. If Story 1 tests are not present in this branch baseline, mark this check N/A.
 
 ### 5. Type Check
 
@@ -77,7 +80,15 @@ bun run typecheck
 
 **Expected:** Zero errors.
 
-### 6. Implementation Audit
+### 6. Quality Gate
+
+```bash
+bun run verify
+```
+
+**Expected:** pass (`format:check`, `lint`, `typecheck`, `test`).
+
+### 7. Implementation Audit
 
 Verify the following by reading `server/acp/agent-manager.ts`:
 
@@ -87,7 +98,8 @@ Verify the following by reading `server/acp/agent-manager.ts`:
 - [ ] `AgentState` interface with: status, process, client, reconnectAttempts, reconnectTimer
 - [ ] `AgentManagerDeps` interface for dependency injection (spawn, createClient)
 - [ ] Constructor accepts `EventEmitter` and optional `AgentManagerDeps`
-- [ ] Both CLI types initialized to idle in constructor
+- [ ] Story 2b runtime initialization covers `claude-code`; Codex runtime remains deferred to Story 6
+- [ ] `ACP_COMMANDS` is `Partial<Record<CliType, ...>>` with runtime guard for unsupported CLI (`AppError('UNSUPPORTED_CLI', ...)`)
 
 **State machine (verify transitions):**
 - [ ] idle -> starting: on `ensureAgent()` call
@@ -129,7 +141,19 @@ Verify the following by reading `server/acp/agent-manager.ts`:
 - [ ] `ensureAgent` returns existing client when status is 'connected'
 - [ ] No new spawn when agent already running
 
-### 7. Smoke Test Checklist
+### 8. WebSocket Bridge Verification
+
+Verify the following by reading `server/websocket.ts` and related tests:
+
+- [ ] Inbound WS `session:create` routes through `AgentManager.ensureAgent('claude-code')` and calls `AcpClient.sessionNew`
+- [ ] Inbound WS `session:open` routes through `AgentManager.ensureAgent('claude-code')` and calls `AcpClient.sessionLoad`
+- [ ] Inbound WS `session:send` routes through `AgentManager.ensureAgent('claude-code')` and calls `AcpClient.sessionPrompt`
+- [ ] Inbound WS `session:cancel` routes through `AgentManager.ensureAgent('claude-code')` and calls `AcpClient.sessionCancel`
+- [ ] `AgentManager` `agent:status` event is forwarded as WS `agent:status`
+- [ ] `AgentManager` `error` event is forwarded as WS `error`
+- [ ] `requestId` is propagated from inbound request to correlated outbound responses/errors (`session:created`, `session:history`, `error`)
+
+### 9. Smoke Test Checklist
 
 These are conceptual checks -- verify by reading the implementation:
 
@@ -138,9 +162,9 @@ These are conceptual checks -- verify by reading the implementation:
 - [ ] If `reconnect()` is called while an auto-retry timer is pending, the timer is cancelled and a fresh attempt starts
 - [ ] The backoff delays are correct: attempt 1 = 1s, attempt 2 = 2s, attempt 3 = 4s, attempt 4 = 8s, attempt 5 = 16s
 - [ ] `getStatus()` for an uninitialized CLI type returns 'idle' (not undefined)
-- [ ] Agent state for 'claude-code' is independent of agent state for 'codex'
+- [ ] Concurrent inbound WS requests with different `requestId` values preserve correlation on outbound responses
 
-### 8. AC Traceability
+### 10. AC Traceability
 
 Verify acceptance criteria coverage:
 
@@ -169,9 +193,9 @@ Report results in this format:
 ## Verification Results
 
 ### 1. Full Test Suite: PASS/FAIL
-- Total: X tests
-- Passing: X
-- Failing: X
+- Total: [actual] tests
+- Passing: [actual]
+- Failing: [actual]
 - Details: ...
 
 ### 2. Agent Manager Tests: PASS/FAIL
@@ -187,15 +211,22 @@ Report results in this format:
 ### 5. Type Check: PASS/FAIL
 - Errors: X
 
-### 6. Implementation Audit: PASS/FAIL
+### 6. Quality Gate (`bun run verify`): PASS/FAIL
+- Details: ...
+
+### 7. Implementation Audit: PASS/FAIL
 - Checklist: X/X items verified
 - Issues: ...
 
-### 7. Smoke Test Checklist: PASS/FAIL
+### 8. WebSocket Bridge Verification: PASS/FAIL
 - Checklist: X/X items verified
 - Issues: ...
 
-### 8. AC Traceability: PASS/FAIL
+### 9. Smoke Test Checklist: PASS/FAIL
+- Checklist: X/X items verified
+- Issues: ...
+
+### 10. AC Traceability: PASS/FAIL
 - AC-5.1: covered/not covered
 - AC-5.3: covered/not covered
 - AC-5.5: covered/not covered
@@ -205,10 +236,12 @@ Report results in this format:
 
 ## Done When
 
-- [ ] All 27 tests pass
+- [ ] `bun run test` passes
+- [ ] `bun run verify` passes
 - [ ] Typecheck clean (zero errors)
-- [ ] No regressions in Story 1 or Story 2a tests
+- [ ] No regressions in Story 2a tests and Story 1 tests when present in the branch baseline
 - [ ] Implementation audit checklist complete
+- [ ] WebSocket bridge verification complete
 - [ ] Smoke test checklist complete
 - [ ] AC traceability verified
 - [ ] Verification summary reported

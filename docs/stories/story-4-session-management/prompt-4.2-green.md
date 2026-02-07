@@ -295,11 +295,11 @@ static fromCanonical(canonicalId: string): { cliType: CliType; acpId: string } {
 
    **Archive action:**
    - When `session:archived` is received via WebSocket: remove the session from the sidebar list
-   - Close any associated tab (coordinate with tabs.js if available; if not wired yet, just remove from sidebar)
+   - Always call `closeTab(tabId)` for any associated tab (this is a no-op stub in Story 4; Story 5 implements full tab behavior)
 
-   **`session:title-updated` handler:**
-   - When received, update the session title in the sidebar list
-   - This handler is in shell.js (routes to sidebar.js)
+   **`session:title-updated` event (server -> client):**
+   - Emit from server when the first user message derives a non-default title
+   - Client receives it and updates the session title in the sidebar list (shell.js routes to sidebar.js)
 
    **Relative timestamp helper:**
    ```javascript
@@ -350,21 +350,21 @@ Run the following commands:
 # Typecheck should pass
 bun run typecheck
 
-# ALL tests should pass (44 prior + 13 new = 57 total)
-bun test
+# ALL tests should pass (prior + 13 new Story 4 tests)
+bun run test && bun run test:client
 
-# Or run specifically:
-bun test tests/server/session-manager.test.ts tests/client/sidebar.test.ts
+# Full quality gate
+bun run verify
 ```
 
 **Expected outcome:**
 - `bun run typecheck`: 0 errors
-- `bun test`: 57 tests pass, 0 fail
+- All server and client tests pass, 0 fail
 
 ## Done When
 
 - [ ] `server/sessions/session-manager.ts` fully implements all methods
-- [ ] `server/websocket.ts` handles session:list, session:create, session:open, session:archive, session:title-updated
+- [ ] `server/websocket.ts` handles session:list, session:create, session:open, session:archive, and emits `session:title-updated` (server -> client)
 - [ ] `client/shell/sidebar.js` renders session lists, CLI picker, archive action
 - [ ] All 10 session-manager tests pass
 - [ ] All 7 sidebar tests pass (4 prior + 3 new)

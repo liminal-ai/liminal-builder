@@ -531,7 +531,7 @@ The `websocket.ts` message router dispatches incoming client messages to the app
 | `session:send` | session-manager.sendMessage() | Send user message to agent |
 | `session:cancel` | acp-client.sessionCancel() | Cancel in-progress response |
 | `session:archive` | session-manager.archiveSession() | Archive a session |
-| `session:reconnect` | agent-manager.manualReconnect(cliType) | Manually reconnect a disconnected agent |
+| `session:reconnect` | agent-manager.reconnect(cliType) | Manually reconnect a disconnected agent |
 
 **Server → Client (ServerMessages):**
 
@@ -553,7 +553,7 @@ The `websocket.ts` message router dispatches incoming client messages to the app
 | `error` | Any handler | Error message with context |
 
 **`session:reconnect` flow:** When the client sends `session:reconnect { cliType }`, the server:
-1. Calls `agentManager.manualReconnect(cliType)`
+1. Calls `agentManager.reconnect(cliType)`
 2. Sends `agent:status { cliType, status: 'reconnecting' }`
 3. On success: sends `agent:status { cliType, status: 'connected' }`
 4. On failure: sends `agent:status { cliType, status: 'disconnected' }` plus `error { message }` with failure details
@@ -621,7 +621,7 @@ sequenceDiagram
 | TC-1.2c | Cancel add project | `sidebar.test.ts` (jsdom) | Open add dialog, cancel | No WebSocket message sent |
 | TC-1.2d | Add duplicate directory | `project-store.test.ts` | Add same path twice | Throws duplicate error |
 | TC-1.3a | Remove project retains mappings | `project-store.test.ts` + `session-manager.test.ts` | Remove project, re-add same path | Session mappings still exist |
-| TC-1.3b | Remove project with open tabs | Integration: `websocket.test.ts` | Remove project that has tabbed sessions | `project:removed` triggers tab close in browser |
+| TC-1.3b | Remove project with open tabs | Manual/Gorilla (shell + tabs + websocket flow) | Remove project that has tabbed sessions | `project:removed` triggers tab close in browser |
 | TC-1.4a | Collapse hides sessions | `sidebar.test.ts` (jsdom) | Click collapse on expanded project | Sessions hidden in DOM |
 | TC-1.4b | Collapse persists across restart | `sidebar.test.ts` (jsdom) | Set collapsed in localStorage, reload | Project still collapsed |
 
@@ -1067,7 +1067,7 @@ class AgentManager {
   private async reconnect(cliType: CliType, attempt: number): Promise<void>;
 
   // Manual reconnect (from user clicking Reconnect button)
-  async manualReconnect(cliType: CliType): Promise<void>;
+  async reconnect(cliType: CliType): Promise<void>;
 
   // Graceful shutdown all agents
   async shutdownAll(): Promise<void>;
@@ -1132,7 +1132,7 @@ process.on('SIGINT', async () => {
 | TC-5.2a | Connected state | `agent-manager.test.ts` | Agent running | Status is 'connected' |
 | TC-5.2b | Disconnected state | `agent-manager.test.ts` | Kill agent process | Status is 'disconnected', emits status event |
 | TC-5.2c | Reconnecting state | `agent-manager.test.ts` | Agent disconnects, auto-retry | Status transitions to 'reconnecting' |
-| TC-5.2d | Manual reconnect | `agent-manager.test.ts` | Agent disconnected, call manualReconnect | Spawns new process |
+| TC-5.2d | Manual reconnect | `agent-manager.test.ts` | Agent disconnected, call reconnect | Spawns new process |
 | TC-5.3a | Clean shutdown | `agent-manager.test.ts` | Agents running, call shutdownAll | All processes terminated |
 | TC-5.4a | Launching indicator | `portlet.test.ts` (jsdom) | Receive agent:status starting | Loading indicator shown |
 | TC-5.5a | CLI not installed | `agent-manager.test.ts` | Spawn fails (ENOENT) | Error with "Check that it's installed" |
@@ -1333,7 +1333,9 @@ classDiagram
     class SessionManager {
         -store: JsonStore~SessionMeta[]~
         -agentManager: AgentManager
-        +createSession(projectId: string, cliType: CliType, projectPath: string) Promise~string~
+        -projectStore: ProjectStore
+        +SessionManager(store: JsonStore~SessionMeta[]~, agentManager: AgentManager, projectStore: ProjectStore)
+        +createSession(projectId: string, cliType: CliType) Promise~string~
         +openSession(canonicalId: string) Promise~ChatEntry[]~
         +listSessions(projectId: string) SessionListItem[]
         +archiveSession(canonicalId: string) void
@@ -1466,11 +1468,11 @@ export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | '
  * Covers: AC-2.1-2.5 (session CRUD, listing, persistence)
  */
 export class SessionManager {
-  constructor(store: JsonStore<SessionMeta[]>, agentManager: AgentManager);
+  constructor(store: JsonStore<SessionMeta[]>, agentManager: AgentManager, projectStore: ProjectStore);
 
   /** Create session via ACP session/new and record local metadata.
    *  Title defaults to "New Session" until first user message. */
-  async createSession(projectId: string, cliType: CliType, projectPath: string): Promise<string>;
+  async createSession(projectId: string, cliType: CliType): Promise<string>;
 
   /** Open session via ACP session/load, collect replayed history.
    *  Does NOT update lastActiveAt (only message send/receive updates it). */
@@ -1709,7 +1711,7 @@ type ChatEntry =
 
 | TC | Test Name | Setup | Assert |
 |----|-----------|-------|--------|
-| TC-1.3b | TC-1.3b: remove project closes tabs | WS client, remove project with tabs | project:removed sent |
+| TC-1.3b | project:remove WebSocket round-trip | WS client sends project:remove | project:removed sent |
 | TC-2.2f | TC-2.2f: create failure sends error | Mock ACP fails | error message sent |
 | — | project:add round-trip | Send project:add | Receive project:added |
 | — | session:create round-trip | Send session:create | Receive session:created |
@@ -1946,7 +1948,7 @@ All external input boundaries must validate with Zod schemas and surface typed d
 
 ### Error Contract Additions (WebSocket)
 
-Add explicit machine-readable error codes to all `error` payloads.
+Define machine-readable error codes for internal error classification. MVP WebSocket `error` messages remain `{ type: 'error', message: string }`; codes are not required in the on-wire payload for this phase.
 
 | Code | Trigger | User-Facing Message |
 |------|---------|---------------------|
@@ -2069,7 +2071,7 @@ Add explicit machine-readable error codes to all `error` payloads.
 | `project-store.ts` | Full CRUD. Use `crypto.randomUUID()` for IDs. Validate path with `Bun.file(path).exists()`. |
 | `websocket.ts` | Handle `project:add`, `project:remove`, `project:list`. Route to project-store. |
 | `sidebar.js` | Render project list from `project:list` response. Add project dialog (text input for path). Collapse/expand with localStorage persistence. |
-| `json-store.ts` | Full implementation for Story 1 testing. |
+| `json-store.ts` | Implemented in Story 0 infrastructure; reused by Story 1 tests and runtime. |
 
 **Exit Criteria:** 9 tests PASS. Typecheck passes. Manual: can add/remove projects in browser.
 
@@ -2079,11 +2081,11 @@ Add explicit machine-readable error codes to all `error` payloads.
 
 ### Story 2a: ACP Client (Protocol Layer)
 
-**Scope:** JSON-RPC framing over stdio, request/response correlation, streaming notification handling. ACP method implementations: `initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`. Auto-approval of `request_permission`. Stdio spawning and piping. No WebSocket or browser integration — pure protocol plumbing.
+**Scope:** JSON-RPC framing over stdio, request/response correlation, streaming notification handling. ACP method implementations: `initialize`, `session/new`, `session/load`, `session/prompt`, `session/cancel`. Auto-approval of `request_permission`. Stdio framing, reading, and writing only (process spawning is handled in Story 2b). No WebSocket or browser integration — pure protocol plumbing.
 
 **Why split:** Story 2a isolates ACP protocol risk. The ACP protocol has unvalidated assumptions (Q3 auth, Q5 session/load support, Q6 auto-approve). If the protocol behaves differently than expected, the blast radius is contained to 2a. Story 2b can only start after 2a confirms the protocol works.
 
-**ACs:** AC-5.1 (partial — agent process spawning), AC-5.3 (partial — process termination)
+**ACs:** AC-5.1 (partial — ACP session RPC surface; process spawning deferred to Story 2b), AC-5.3 (partial — ACP close/cancel protocol behavior)
 
 #### TDD Red
 
@@ -2248,9 +2250,9 @@ Add explicit machine-readable error codes to all `error` payloads.
 | `shell.js` | WebSocket reconnection logic. Resync state on reconnect. |
 | `sidebar.js` | Reconnect button per CLI type when disconnected. |
 
-**Exit Criteria:** 78 tests PASS total. Manual: full app works with both CLIs, connection status visible, browser refresh recovers.
+**Exit Criteria:** 79 tests PASS total. Manual: full app works with both CLIs, connection status visible, browser refresh recovers.
 
-**Running total:** 78 tests
+**Running total:** 79 tests
 
 ---
 
@@ -2314,10 +2316,10 @@ Story 0 is the foundation. Story 1 and Story 2a can proceed in parallel after St
 
 ### Completeness
 
-- [x] Every TC from feature spec mapped to a test file (78 tests across 10 test files)
+- [x] Every TC from feature spec mapped to a test file (79 tests across 10 test files)
 - [x] All interfaces fully defined (types, class signatures, method signatures)
 - [x] Module boundaries clear (server: 7 modules, client: 6 modules)
-- [x] Story breakdown includes test count estimates (0 → 9 → 17 → 27 → 44 → 57 → 71 → 78) across 8 stories
+- [x] Story breakdown includes test count estimates (0 → 9 → 18 → 28 → 45 → 58 → 72 → 79) across 8 stories
 - [x] Skeleton stubs defined per story
 
 ### Richness (The Spiral Test)

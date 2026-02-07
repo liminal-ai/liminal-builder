@@ -10,7 +10,7 @@ All tab logic lives in `client/shell/tabs.js`. The iframe Map (`Map<sessionId, i
 
 ## Prerequisites
 
-- Stories 0-4 complete: 57 tests passing
+- Stories 0-4 complete: all prior tests passing (`bun run verify` exits 0)
 - Working directory: `/Users/leemoore/code/liminal-builder`
 - `client/shell/tabs.js` exists as a stub (from Story 0)
 - `client/shell/index.html` has tab bar and portlet container elements
@@ -85,10 +85,11 @@ Note: TC-4.2b (tab switch within 100ms) is a manual/performance test, not automa
 |--------|-------|-------------|
 | `prompt-5.1-skeleton-red.md` | Skeleton + Red | tabs.js stubs with iframe Map + 14 failing tests |
 | `prompt-5.2-green.md` | Green | Full tabs.js implementation |
-| `prompt-5.R-verify.md` | Verify | All 71 tests pass, typecheck clean, manual tab verification |
+| `prompt-5.R-verify.md` | Verify | All 72 tests pass, typecheck clean, manual tab verification |
 
 ## Exit Criteria
 
-- 71 tests PASS total (57 previous + 14 new)
+- 72 tests PASS total (58 previous + 14 new)
 - `bun run typecheck` passes with zero errors
+- `bun run verify` passes
 - tabs.js can: open tabs with iframes, switch via CSS toggle, deduplicate, close with adjacent activation, display title/CLI type, drag-and-drop reorder, persist/restore from localStorage

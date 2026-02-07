@@ -4,17 +4,17 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). The server bridges browser WebSocket connections to CLI agent processes via the ACP (Agent Client Protocol), which uses JSON-RPC 2.0 over stdio (newline-delimited JSON messages on stdin/stdout of a child process).
 
-Story 2a implements the `AcpClient` class -- the JSON-RPC 2.0 protocol layer. In the previous prompt (2a.1), 8 tests were written and are currently failing. This prompt implements the full `AcpClient` class to make all 8 tests pass.
+Story 2a implements the `AcpClient` class -- the JSON-RPC 2.0 protocol layer. In the previous prompt (2a.1), 9 tests were written and are currently failing. This prompt implements the full `AcpClient` class to make all 9 tests pass.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
 - `server/acp/acp-client.ts` -- class skeleton with stubs (from prompt 2a.1)
-- `tests/server/acp-client.test.ts` -- 8 failing tests (from prompt 2a.1)
+- `tests/server/acp-client.test.ts` -- 9 failing tests (from prompt 2a.1)
 - `tests/fixtures/acp-messages.ts` -- mock stdio helpers (from prompt 2a.1)
 - `server/acp/acp-types.ts` -- protocol types (from Story 0)
 - `shared/types.ts` -- ChatEntry type (from Story 0)
-- 9 tests passing from Story 1, 8 failing from Story 2a
+- Story 1 is optional for Story 2a execution. Baseline may be Story 0 only, or Story 0 + 1 if Story 1 is already complete.
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -248,7 +248,8 @@ For 'fs/read_text_file', 'fs/write_text_file', 'terminal/create', etc.:
 ```
 1. Close stdin writer
 2. Set a flag to stop the reading loop
-3. Wait up to timeoutMs for the reading loop to complete
+3. Reject any pending requests with a client-closed error
+4. No explicit read-loop wait is required in Story 2a; the loop exits naturally when the stream closes. Keep the timeout parameter for interface compatibility.
 ```
 
 **`onError(handler)`:**
@@ -556,7 +557,8 @@ export class AcpClient {
 
 ## If Blocked or Uncertain
 
-- If tests expect a different behavior than described here, the tests are the source of truth -- match what the tests assert
+- Priority rule: for implementation behavior (what the code does), tests are source of truth.
+- Priority rule: for architecture decisions (how the code is structured), feature spec + tech design are source of truth.
 - If the mock stdio helper's stream interface differs from what the implementation expects, adapt the implementation to work with the mock (the mock simulates a real child process's stdio)
 - If `crypto.randomUUID()` is not available, use a simple counter-based ID generator
 - Resolve routine inconsistencies using feature spec + tech design as source of truth; ask only when blocked by missing local context.
@@ -565,17 +567,24 @@ export class AcpClient {
 
 Run:
 ```bash
-bun test tests/server/acp-client.test.ts
+bunx vitest run tests/server/acp-client.test.ts
 ```
 
-**Expected output:** 8 tests, all PASSING.
+**Expected output:** 9 tests, all PASSING.
 
 Run:
 ```bash
-bun test
+bun run test
 ```
 
-**Expected output:** 17 total tests, all PASSING (9 from Story 1 + 8 from Story 2a).
+**Expected output:** All server tests PASSING (Story 2a adds 9 tests; Story 1 tests may also be present depending on branch state).
+
+Run:
+```bash
+bun run verify
+```
+
+**Expected output:** format check, lint, typecheck, and server tests all PASSING.
 
 Run:
 ```bash
@@ -587,7 +596,8 @@ bun run typecheck
 ## Done When
 
 - [ ] `server/acp/acp-client.ts` fully implemented (no more NotImplementedError)
-- [ ] `bun test tests/server/acp-client.test.ts` -- 8 tests pass
-- [ ] `bun test` -- 17 total tests pass (no regressions)
+- [ ] `bunx vitest run tests/server/acp-client.test.ts` -- 9 tests pass
+- [ ] `bun run test` -- all server tests pass (no regressions)
+- [ ] `bun run verify` -- quality gate passes
 - [ ] `bun run typecheck` -- zero errors
 - [ ] AcpClient correctly: initializes with protocol version and capabilities, creates sessions with cwd, loads sessions collecting replayed history, prompts with streaming event callbacks, auto-approves permission requests, handles JSON-RPC errors, closes gracefully

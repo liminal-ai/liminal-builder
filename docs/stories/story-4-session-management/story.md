@@ -6,15 +6,17 @@ Story 4 implements session CRUD, listing, persistence, and archive functionality
 
 This story implements the SessionManager class on the server (canonical ID management, title derivation, list assembly, archive) and extends the sidebar on the client (session list rendering, "New Session" button with CLI picker, archive action). SessionManager resolves project working directories through ProjectStore so `createSession` and `openSession` have a reliable `cwd` source.
 
+**Contract note (source of truth):** SessionManager is `constructor(store, agentManager, projectStore)` and `createSession(projectId, cliType)`. Session listing remains local-only (no ACP join), and titles derive from the first user message.
+
 ## Prerequisites
 
 - Working directory: `/Users/leemoore/code/liminal-builder`
 - Story 0 complete (all stubs, types, HTML scaffolding exist)
 - Story 1 complete (project sidebar functional, 9 tests pass)
-- Story 2a complete (ACP client protocol layer, 17 tests pass)
-- Story 2b complete (agent manager + WebSocket bridge, 27 tests pass)
-- Story 3 complete (chat session UI, 44 tests pass)
-- All 44 existing tests pass
+- Story 2a complete (ACP client protocol layer, 9 tests; running total: 18)
+- Story 2b complete (agent manager + WebSocket bridge, 10 tests; running total: 28)
+- Story 3 complete (chat session UI, 45 tests pass)
+- All 45 existing tests pass
 - `bun run typecheck` passes
 
 ## ACs Covered
@@ -34,7 +36,7 @@ This story implements the SessionManager class on the server (canonical ID manag
 | File | Changes |
 |------|---------|
 | `server/sessions/session-manager.ts` | Full implementation: CRUD, list assembly, canonical IDs, title derivation, archive, project path resolution via ProjectStore |
-| `server/websocket.ts` | Wire session:create, session:open, session:list, session:archive handlers |
+| `server/websocket.ts` | Preserve Story 2b routes; Story 4 adds `session:list` and `session:archive`, plus `session:title-updated` server-to-client emission |
 | `client/shell/sidebar.js` | Session list rendering, "New Session" button, CLI picker, archive action |
 
 ### Test Files Created/Modified
@@ -51,16 +53,21 @@ This story implements the SessionManager class on the server (canonical ID manag
 | `tests/server/session-manager.test.ts` | 10 | TC-2.1a, TC-2.1b, TC-2.1c, TC-2.2a, TC-2.2f, TC-2.3a, TC-2.4a, TC-2.4c, TC-2.5a, TC-2.5b |
 | `tests/client/sidebar.test.ts` | +3 | TC-2.2b, TC-2.2c, TC-2.4b |
 
+## Deferred TCs
+
+- TC-2.2d and TC-2.2e: Manual/Gorilla validation deferred to Story 6 integration.
+- TC-2.3b: Deferred to Story 5 (tab deduplication behavior).
+
 **Story 4 test count: 13**
 
 | Cumulative | Tests |
 |------------|-------|
 | Story 0 | 0 |
 | Story 1 | 9 |
-| Story 2a | 17 |
-| Story 2b | 27 |
-| Story 3 | 44 |
-| **Story 4** | **57** |
+| Story 2a | 18 |
+| Story 2b | 28 |
+| Story 3 | 45 |
+| **Story 4** | **58** |
 
 ## Prompts
 
@@ -68,11 +75,12 @@ This story implements the SessionManager class on the server (canonical ID manag
 |--------|-------|-------------|
 | `prompt-4.1-skeleton-red.md` | Skeleton + Red | SessionManager stubs with list assembly algorithm, 13 failing tests |
 | `prompt-4.2-green.md` | Green | Full implementation: canonical IDs, title derivation, session open sequence |
-| `prompt-4.R-verify.md` | Verify | All 57 tests pass, typecheck, smoke test checklist |
+| `prompt-4.R-verify.md` | Verify | All 58 tests pass, typecheck, smoke test checklist |
 
 ## Exit Criteria
 
-- 57 tests pass (44 prior + 13 new)
+- All tests pass: `bun run test && bun run test:client` (prior stories + 13 new)
+- `bun run verify` passes
 - `bun run typecheck` passes with zero errors
 - Manual: can create new sessions, browse existing ones, open with full history, archive sessions
 - Session list sorts by most recent activity

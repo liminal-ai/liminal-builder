@@ -10,7 +10,15 @@ This story has NO TDD cycle. There is no Red phase or Green phase. The work is s
 
 - Working directory: `/Users/leemoore/code/liminal-builder`
 - Bun runtime installed
-- No existing `src/`, `server/`, `client/`, or `tests/` directories
+- No existing `src/`, `server/`, `client/`, `shared/`, or `tests/` directories
+
+## Story 0 Baseline Reference
+
+- Canonical scripts:
+  - `test`: `vitest run tests/server --passWithNoTests`
+  - `verify`: `bun run format:check && bun run lint && bun run typecheck && bun run test`
+  - `verify-all`: `bun run verify && bun run test:integration && bun run test:e2e`
+- Baseline dependencies include: `@fastify/sensible`, `zod`, `fastify-type-provider-zod`
 
 ## ACs Covered
 
@@ -91,7 +99,7 @@ None directly. This is infrastructure-only. It enables all subsequent stories.
 
 ## Exit Criteria
 
-- `bun run verify` passes (format:check + lint + typecheck + service mock tests)
+- `bun run verify` passes (format:check + lint + typecheck + `test` script)
 - `bun run dev` starts the server and serves shell HTML at `http://localhost:3000`
 - WebSocket connects when shell page loads in browser
 - `bun run verify-all` is available and runs `verify` + integration + e2e hooks

@@ -2,11 +2,11 @@
 
 ## Context
 
-Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). The stack is Bun + Fastify server with vanilla HTML/JS client, communicating via WebSocket. The server bridges browser WebSocket connections to CLI agent processes via the ACP (Agent Client Protocol), which uses JSON-RPC 2.0 over stdio.
+Liminal Builder is an agentic IDE -- an organized, session-based interface for AI coding CLIs. The stack is Bun + Fastify server with vanilla HTML/JS client, communicating via WebSocket. The server bridges browser WebSocket connections to CLI agent processes via the ACP (Agent Client Protocol), which uses JSON-RPC 2.0 over stdio.
 
-Story 2a implemented the `AcpClient` class (JSON-RPC protocol layer over stdio). Story 2b builds on top of it: the `AgentManager` class manages the lifecycle of ACP agent processes -- spawning, monitoring, reconnection, and shutdown. Each CLI type (claude-code, codex) gets at most one process. The manager implements a state machine: idle -> starting -> connected -> disconnected -> reconnecting.
+Story 2a implemented the `AcpClient` class (JSON-RPC protocol layer over stdio). Story 2b builds on top of it: the `AgentManager` class manages the lifecycle of ACP agent processes -- spawning, monitoring, reconnection, and shutdown. Story 2b runtime scope is `claude-code` only (Codex runtime is deferred to Story 6). The manager implements a state machine: idle -> starting -> connected -> disconnected -> reconnecting.
 
-This prompt creates the test file with 10 tests covering all agent lifecycle operations, plus ensures the AgentManager class skeleton is ready. New tests should fail meaningfully against unimplemented behavior at this stage.
+This prompt creates Red tests/skeleton for both AgentManager lifecycle and WebSocket bridge routing. New tests should fail meaningfully against unimplemented behavior at this stage.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
@@ -16,7 +16,7 @@ This prompt creates the test file with 10 tests covering all agent lifecycle ope
 - `server/acp/acp-types.ts` -- ACP protocol types (from Story 0)
 - `server/sessions/session-types.ts` -- CliType (from Story 0)
 - `server/errors.ts` -- NotImplementedError, AppError (from Story 0)
-- 17 tests passing (9 from Story 1 + 8 from Story 2a)
+- Story dependency baseline: Story 0 + Story 2a complete (Story 1 may also be complete in the sequential pipeline, which commonly yields a 17-test pre-Story-2b baseline)
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -30,7 +30,9 @@ This prompt creates the test file with 10 tests covering all agent lifecycle ope
 | File | Action | Purpose |
 |------|--------|---------|
 | `tests/server/agent-manager.test.ts` | **Create** | 10 tests covering agent lifecycle |
+| `tests/server/websocket.test.ts` | **Create/Update** | Red tests for WS bridge routing + outbound forwarding |
 | `server/acp/agent-manager.ts` | **Verify/Update** | Ensure class skeleton matches interface below |
+| `server/websocket.ts` | **Verify/Update** | Ensure WS bridge skeleton routes through AgentManager APIs |
 
 ### Agent Lifecycle State Machine
 
@@ -68,6 +70,8 @@ stateDiagram-v2
 export type CliType = 'claude-code' | 'codex';
 ```
 
+For Story 2b, only `claude-code` runtime behavior is in scope. Keep the union type as-is for forward compatibility; Codex runtime tests/implementation are deferred to Story 6.
+
 ```typescript
 // server/acp/agent-manager.ts -- AgentManager class and related types
 
@@ -101,7 +105,7 @@ export class AgentManager {
 
   constructor(emitter: EventEmitter) {
     this.emitter = emitter;
-    // Initialize both CLI types to idle state
+    // Initialize Story 2b runtime state (claude-code)
     throw new NotImplementedError('AgentManager.constructor');
   }
 
@@ -154,10 +158,16 @@ export class AcpClient {
 
 ```typescript
 // These are the commands used to spawn ACP agent processes
-const ACP_COMMANDS: Record<CliType, { cmd: string; args: string[] }> = {
+// (AppError comes from server/errors.ts)
+const ACP_COMMANDS: Partial<Record<CliType, { cmd: string; args: string[] }>> = {
   'claude-code': { cmd: 'claude-code-acp', args: [] },
-  'codex': { cmd: 'codex-acp', args: [] },
+  // codex runtime entry is deferred to Story 6
 };
+
+const command = ACP_COMMANDS[cliType];
+if (!command) {
+  throw new AppError('UNSUPPORTED_CLI', `CLI type not yet supported in Story 2b: ${cliType}`);
+}
 ```
 
 ### Test File
@@ -172,10 +182,12 @@ Create `tests/server/agent-manager.test.ts` with 10 tests. Tests mock `Bun.spawn
 ```typescript
 // tests/server/agent-manager.test.ts
 
-import { describe, test, expect, beforeEach, mock, spyOn } from 'bun:test';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EventEmitter } from 'events';
 import { AgentManager, type AgentStatus } from '../../server/acp/agent-manager';
 import { AcpClient } from '../../server/acp/acp-client';
+
+const mock = vi.fn;
 
 // --- Mock Helpers ---
 
@@ -257,7 +269,7 @@ describe('AgentManager', () => {
     });
   });
 
-  test('TC-5.1a: first session spawns agent', async () => {
+  it('TC-5.1a: first session spawns agent', async () => {
     // Given: No process running for claude-code
     expect(manager.getStatus('claude-code')).toBe('idle');
 
@@ -277,7 +289,7 @@ describe('AgentManager', () => {
     expect(statusEvents[1].args[0]).toMatchObject({ cliType: 'claude-code', status: 'connected' });
   });
 
-  test('TC-5.1b: second session reuses process', async () => {
+  it('TC-5.1b: second session reuses process', async () => {
     // Given: Process already running
     await manager.ensureAgent('claude-code');
     const spawnCallCount = mockSpawn.mock.calls.length;
@@ -291,7 +303,7 @@ describe('AgentManager', () => {
     expect(manager.getStatus('claude-code')).toBe('connected');
   });
 
-  test('TC-5.2a: connected status after init', async () => {
+  it('TC-5.2a: connected status after init', async () => {
     // Given: Agent initialized
     await manager.ensureAgent('claude-code');
 
@@ -299,7 +311,7 @@ describe('AgentManager', () => {
     expect(manager.getStatus('claude-code')).toBe('connected');
   });
 
-  test('TC-5.2b: disconnected on process exit', async () => {
+  it('TC-5.2b: disconnected on process exit', async () => {
     // Given: Agent running
     const proc = createMockProcess();
     mockSpawn.mockImplementation(() => proc);
@@ -317,7 +329,7 @@ describe('AgentManager', () => {
     expect(statusEvents.some(e => e.args[0]?.status === 'disconnected')).toBe(true);
   });
 
-  test('TC-5.2c: reconnecting on auto-retry', async () => {
+  it('TC-5.2c: reconnecting on auto-retry', async () => {
     // Given: Agent running then crashes
     const proc = createMockProcess();
     mockSpawn.mockImplementation(() => proc);
@@ -338,7 +350,7 @@ describe('AgentManager', () => {
     expect(hasDisconnected || hasReconnecting).toBe(true);
   });
 
-  test('TC-5.2d: manual reconnect spawns new', async () => {
+  it('TC-5.2d: manual reconnect spawns new', async () => {
     // Given: Agent is disconnected
     const proc = createMockProcess();
     mockSpawn.mockImplementation(() => proc);
@@ -362,32 +374,24 @@ describe('AgentManager', () => {
     expect(statusEvents.some(e => e.args[0]?.status === 'connected')).toBe(true);
   });
 
-  test('TC-5.3a: shutdown terminates all', async () => {
-    // Given: Two agents running (claude-code and codex)
-    const proc1 = createMockProcess(1111);
-    const proc2 = createMockProcess(2222);
-    let spawnCount = 0;
-    mockSpawn.mockImplementation(() => {
-      spawnCount++;
-      return spawnCount === 1 ? proc1 : proc2;
-    });
+  it('TC-5.3a: shutdown terminates all', async () => {
+    // Given: claude-code agent running
+    const proc = createMockProcess(1111);
+    mockSpawn.mockImplementation(() => proc);
 
     await manager.ensureAgent('claude-code');
-    await manager.ensureAgent('codex');
 
     // When: shutdownAll called
-    // Make processes exit when stdin is closed
-    proc1.stdin.close = mock(() => { proc1._resolveExit(0); });
-    proc2.stdin.close = mock(() => { proc2._resolveExit(0); });
+    // Make process exit when stdin is closed
+    proc.stdin.close = mock(() => { proc._resolveExit(0); });
 
     await manager.shutdownAll();
 
-    // Then: Both processes had stdin closed (shutdown signal)
-    expect(proc1.stdin.close).toHaveBeenCalled();
-    expect(proc2.stdin.close).toHaveBeenCalled();
+    // Then: Process stdin closed (shutdown signal)
+    expect(proc.stdin.close).toHaveBeenCalled();
   });
 
-  test('TC-5.5a: ENOENT shows install message', async () => {
+  it('TC-5.5a: ENOENT shows install message', async () => {
     // Given: Spawn fails with ENOENT (CLI not installed)
     mockSpawn.mockImplementation(() => {
       const err = new Error('spawn claude-code-acp ENOENT') as any;
@@ -410,7 +414,7 @@ describe('AgentManager', () => {
     expect(errorEvents[0].args[0].message).toContain("Check that it's installed");
   });
 
-  test('TC-5.5b: handshake failure shows connect error', async () => {
+  it('TC-5.5b: handshake failure shows connect error', async () => {
     // Given: Spawn succeeds but initialize fails
     mockAcpInitialize.mockImplementation(() =>
       Promise.reject(new Error('Protocol version mismatch'))
@@ -430,7 +434,7 @@ describe('AgentManager', () => {
     expect(errorEvents[0].args[0].message).toContain('Could not connect');
   });
 
-  test('TC-5.6b: agent survives WS disconnect', async () => {
+  it('TC-5.6b: agent survives WS disconnect', async () => {
     // Given: Agent running
     await manager.ensureAgent('claude-code');
 
@@ -464,14 +468,32 @@ interface AgentManagerDeps {
 
 This allows tests to inject mock spawn and mock AcpClient creation. The production code can default to `Bun.spawn` and `new AcpClient()`.
 
-3. **Ensure the constructor does NOT throw** -- it should initialize both CLI types to idle state and store dependencies. Only methods should throw `NotImplementedError`.
+3. **Ensure the constructor does NOT throw** -- it should initialize Story 2b runtime state (`claude-code`) and store dependencies. Keep type compatibility for `CliType` union, but do not require Codex runtime behavior in this story. Only methods should throw `NotImplementedError`.
 
 4. **Update the `AgentManager` export** to also export `AgentStatus` as a type.
 
+5. **Add WebSocket bridge Red coverage** in `tests/server/websocket.test.ts` and skeleton support in `server/websocket.ts`:
+- Route inbound WebSocket messages: `session:create`, `session:open`, `session:send`, `session:cancel`
+- Verify each route calls `AgentManager.ensureAgent('claude-code')` then delegates to `AcpClient`
+- Verify `AgentManager` events are forwarded to WebSocket clients:
+  - `agent:status` -> outbound `agent:status`
+  - `error` -> outbound `error`
+- Add `requestId` pass-through assertions: when inbound messages include `requestId`, correlated responses/errors include the same `requestId`
+- Keep tests red where behavior is still unimplemented.
+
+**Required WS bridge test cases (minimum 5, explicit mocks + assertions):**
+Use explicit mocks for `AgentManager`, `AcpClient`, and WS `send()`, then assert exact outbound payload shapes per case.
+1. `session:create` calls `ensureAgent` then `sessionNew`, and emits `session:created` with `requestId` passthrough.
+2. `session:send` calls `ensureAgent` then `sessionPrompt`.
+3. `session:cancel` calls `ensureAgent` then `sessionCancel`.
+4. `agent:status` emitter events are forwarded as WS `agent:status`.
+5. AgentManager `error` events are forwarded as WS `error` with `requestId` correlation when available.
+
 ### Key Design Notes
 
-- The `AgentManager` uses an `EventEmitter` for status notifications. The WebSocket handler (in a later story) listens to these events and forwards them to the browser.
-- Each CLI type has independent state. Claude Code can be connected while Codex is disconnected.
+- Story 2b includes WebSocket bridge work. `server/websocket.ts` is in-scope for routing and outbound agent event forwarding.
+- The `AgentManager` uses an `EventEmitter` for status notifications. The WebSocket handler listens to these events and forwards them to the browser.
+- Runtime behavior in Story 2b is Claude Code only. Codex runtime support is deferred to Story 6.
 - The test for TC-5.2c (auto-retry) is intentionally loose -- it checks that EITHER disconnected or reconnecting status was emitted, because the timing of auto-retry depends on implementation details (immediate vs delayed).
 - The test for TC-5.6b verifies that the agent manager has no coupling to WebSocket state -- it simply confirms the agent is still available after a hypothetical WS disconnect.
 
@@ -480,14 +502,15 @@ This allows tests to inject mock spawn and mock AcpClient creation. The producti
 - Do NOT implement any AgentManager methods (that is prompt 2b.2)
 - Do NOT modify `server/acp/acp-client.ts` -- it is complete from Story 2a
 - Do NOT modify files outside the specified list
-- Do NOT create WebSocket handler code (that is deferred to later stories)
-- Use Bun's built-in test runner (`bun:test`) -- no external test framework
+- Keep WebSocket changes limited to bridge skeletons and red tests for Story 2b routing/forwarding scope
+- Use Vitest APIs (`vitest`) in tests
 - Tests must mock `Bun.spawn` via dependency injection, not monkey-patching global
+- Do NOT add Codex runtime tests/config in Story 2b (deferred to Story 6)
 
 ## If Blocked or Uncertain
 
 - If the AgentManager stub from Story 0 has a different constructor signature, update it to match the injectable pattern described above
-- If `mock` from `bun:test` does not support `mockImplementation`, use Bun's equivalent spy/mock API
+- If an existing test snippet uses Bun mock APIs, convert it to Vitest (`vi.fn`, `vi.spyOn`)
 - Resolve straightforward inconsistencies with feature spec + tech design and continue; ask only for hard blockers.
 - The test mocking approach (dependency injection via constructor) is preferred over module-level mocking for clarity and reliability
 
@@ -495,17 +518,24 @@ This allows tests to inject mock spawn and mock AcpClient creation. The producti
 
 Run:
 ```bash
-bun test tests/server/agent-manager.test.ts
+bun run test -- tests/server/agent-manager.test.ts
 ```
 
 **Expected output:** 10 tests run; new Story 2b assertions fail meaningfully against the current skeleton (exact error shape may vary).
 
 Run:
 ```bash
-bun test
+bun run test -- tests/server/websocket.test.ts
 ```
 
-**Expected output:** 27 total tests. 17 passing (Story 1 + 2a), 10 failing (Story 2b).
+**Expected output:** WebSocket bridge red tests run and fail for unimplemented routing/forwarding behavior.
+
+Run:
+```bash
+bun run test
+```
+
+**Expected output:** Existing Story 1/2a tests still pass; new Story 2b red tests fail only for unimplemented AgentManager + WS bridge behavior.
 
 Run:
 ```bash
@@ -517,8 +547,11 @@ bun run typecheck
 ## Done When
 
 - [ ] `tests/server/agent-manager.test.ts` exists with 10 tests
+- [ ] `tests/server/websocket.test.ts` exists/updated with red coverage for `session:create/open/send/cancel` routing, outbound `agent:status` / `error`, and `requestId` correlation
 - [ ] `server/acp/agent-manager.ts` has class skeleton with dependency injection, constructor does NOT throw, methods throw NotImplementedError
+- [ ] `server/websocket.ts` has bridge skeleton entry points for Story 2b routes/events
 - [ ] `AgentStatus` type exported from agent-manager.ts
 - [ ] `bun run typecheck` passes
-- [ ] `bun test tests/server/agent-manager.test.ts` runs 10 tests with failing outcomes attributable to unimplemented Story 2b behavior
-- [ ] `bun test` shows 17 pass + 10 fail = 27 total
+- [ ] `bun run test -- tests/server/agent-manager.test.ts` runs with failures attributable to unimplemented Story 2b behavior
+- [ ] `bun run test -- tests/server/websocket.test.ts` runs with failures attributable to unimplemented Story 2b WS bridge behavior
+- [ ] `bun run test` preserves passing baseline outside the new Story 2b red assertions

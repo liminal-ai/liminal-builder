@@ -1,4 +1,4 @@
-import { marked } from '/node_modules/marked/lib/marked.esm.js';
+import { marked } from "/node_modules/marked/lib/marked.esm.js";
 
 /**
  * Render markdown string to sanitized HTML.
@@ -12,10 +12,10 @@ import { marked } from '/node_modules/marked/lib/marked.esm.js';
  * @returns {string} Sanitized HTML string
  */
 export function renderMarkdown(text) {
-  const html = marked.parse(text, { gfm: true, breaks: true });
-  // DOMPurify is expected to be available globally (loaded via CDN in HTML)
-  if (typeof DOMPurify !== 'undefined') {
-    return DOMPurify.sanitize(html);
-  }
-  return html;
+	const html = marked.parse(text, { gfm: true, breaks: true });
+	// DOMPurify is expected to be available globally (loaded via CDN in HTML)
+	if (typeof DOMPurify !== "undefined") {
+		return DOMPurify.sanitize(html);
+	}
+	return html;
 }

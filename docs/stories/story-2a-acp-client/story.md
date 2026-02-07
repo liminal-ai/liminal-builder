@@ -11,7 +11,9 @@ The AcpClient class wraps stdin/stdout of a child process and provides typed met
 ## Prerequisites
 
 - Story 0 complete: all type definitions exist (`server/acp/acp-types.ts`), error classes exist (`server/errors.ts`), AcpClient stub exists (`server/acp/acp-client.ts`)
-- Story 1 complete: 9 tests passing
+- Story 1 is not a functional dependency for Story 2a. Verification baseline is either:
+  - Story 0 only (parallel track): 0 prior server tests
+  - Story 0 + Story 1 complete: 9 prior server tests
 - Working directory: `/Users/leemoore/code/liminal-builder`
 
 ## ACs Covered
@@ -27,7 +29,7 @@ The AcpClient class wraps stdin/stdout of a child process and provides typed met
 
 | File | Contents |
 |------|----------|
-| `tests/server/acp-client.test.ts` | 8 tests covering ACP protocol correctness |
+| `tests/server/acp-client.test.ts` | 9 tests covering ACP protocol correctness (including `sessionCancel` notification semantics) |
 
 ### Modified Files
 
@@ -47,25 +49,27 @@ The AcpClient class wraps stdin/stdout of a child process and provides typed met
 
 | Test File | # Tests | TCs Covered | Description |
 |-----------|---------|-------------|-------------|
-| `tests/server/acp-client.test.ts` | 8 | Protocol correctness | init, session/new, session/load replay, session/prompt streaming, permission auto-approve, error handling, close |
+| `tests/server/acp-client.test.ts` | 9 | Protocol correctness | init, session/new, session/load replay, session/prompt streaming, permission auto-approve, error handling, `sessionCancel` notification semantics, close |
 
-**Story 2a test count: 8**
+**Story 2a test count: 9**
 
 | Phase | This Story | Cumulative |
 |-------|-----------|------------|
-| Previous (Story 0 + 1) | -- | 9 |
-| Story 2a | 8 | 17 |
+| Previous baseline | -- | 0 (Story 0 only) or 9 (Story 0 + 1) |
+| Story 2a | 9 | 9 (parallel track) or 18 (with Story 1 complete) |
 
 ## Prompts
 
 | Prompt | Phase | Description |
 |--------|-------|-------------|
-| `prompt-2a.1-skeleton-red.md` | Skeleton + Red | AcpClient class stubs + 8 failing tests |
+| `prompt-2a.1-skeleton-red.md` | Skeleton + Red | AcpClient class stubs + 9 failing tests |
 | `prompt-2a.2-green.md` | Green | Full AcpClient implementation |
-| `prompt-2a.R-verify.md` | Verify | All 17 tests pass, typecheck clean |
+| `prompt-2a.R-verify.md` | Verify | All tests pass, `bun run verify` clean |
 
 ## Exit Criteria
 
-- 17 tests PASS total (9 previous + 8 new)
+- 9 new AcpClient tests PASS; all prior tests still PASS (if present in the branch)
+- `bun run verify` passes (format:check, lint, typecheck, test)
+- `bun run verify-all` passes (verify + client tests + integration + e2e)
 - `bun run typecheck` passes with zero errors
 - AcpClient can: initialize handshake, create sessions, load sessions with history replay, prompt with streaming callbacks, auto-approve permissions, handle JSON-RPC errors, close gracefully

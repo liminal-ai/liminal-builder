@@ -16,7 +16,7 @@ Story 5 implements the tab bar in the shell. Each open session gets a tab elemen
 - `client/shell/shell.js` -- WebSocket connection and message routing
 - `client/shell/shell.css` -- shell layout styles
 - `client/shared/constants.js` -- CLI type constants
-- 57 tests passing across existing test files
+- All prior tests passing (`bun run verify` exits 0)
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -62,6 +62,9 @@ let emptyState = null;
 /**
  * Initialize the tab system.
  * Called once on shell load.
+ * Must support both call paths:
+ *  - init(tabBarEl, containerEl, emptyStateEl) from tests
+ *  - init() from Story 0 shell.js (fallback to document.getElementById lookups)
  * Reads tab state from localStorage and restores tabs.
  * @param {HTMLElement} tabBarEl - The tab bar container element
  * @param {HTMLElement} containerEl - The portlet container element
@@ -194,7 +197,12 @@ function updateTabBarHighlight(sessionId) {
 
 /**
  * Persist current tab state to localStorage.
- * Format: { openTabs: string[], activeTab: string | null, tabOrder: string[] }
+ * Format: {
+ *   openTabs: string[],
+ *   activeTab: string | null,
+ *   tabOrder: string[],
+ *   tabMeta: Record<string, { title: string, cliType: string }>
+ * }
  * Called after every tab operation (open, close, switch, reorder).
  */
 function persistTabState() {
@@ -205,7 +213,12 @@ function persistTabState() {
  * Restore tab state from localStorage.
  * Called during init(). For each saved tab, calls openTab() to recreate.
  * Then activates the saved active tab.
- * @returns {{ openTabs: string[], activeTab: string | null, tabOrder: string[] } | null}
+ * @returns {{
+ *   openTabs: string[],
+ *   activeTab: string | null,
+ *   tabOrder: string[],
+ *   tabMeta: Record<string, { title: string, cliType: string }>
+ * } | null}
  */
 function restoreTabState() {
   throw new Error('Not implemented');
@@ -237,7 +250,7 @@ Create the test file with 14 test specs. Use jsdom for DOM simulation. Each test
 **Test environment setup pattern:**
 
 ```typescript
-import { describe, test, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, test, expect, beforeEach, afterEach, vi } from 'vitest';
 // Import tabs module -- adjust path as needed for your test setup
 // The tabs module operates on DOM elements, so we need jsdom
 
@@ -280,10 +293,14 @@ function createMockStorage() {
 describe('Tab Management', () => {
   // Setup and teardown for each test
   let dom: ReturnType<typeof createTabsDOM>;
+  let tabBar: HTMLElement;
+  let portletContainer: HTMLElement;
+  let emptyState: HTMLElement;
 
   beforeEach(() => {
     document.body.innerHTML = '';
     dom = createTabsDOM();
+    ({ tabBar, portletContainer, emptyState } = dom);
     // Reset localStorage mock
     // Initialize tabs module with DOM elements
   });
@@ -489,6 +506,8 @@ describe('Tab Management', () => {
 - Tests contain REAL assertions — they call the actual functions and assert expected outcomes
 - In the RED phase, tests should fail meaningfully against the current stubs.
 - This is the correct TDD Red pattern: real tests that error on stubs, then pass when implemented in Green
+- Tests call public API functions (`openTab`, `closeTab`, `reorderTabs`) directly rather than simulating click/drag DOM events.
+- UI event wiring (click -> `closeTab`, drop -> `reorderTabs`) is verified via verify-prompt spot checks and manual smoke testing.
 - The DOM setup in `beforeEach` should create the tab bar, portlet container, and empty state elements
 - localStorage should be mocked (or use jsdom's built-in localStorage if available)
 - The tabs module should be re-imported or re-initialized for each test to ensure clean state
@@ -500,7 +519,7 @@ describe('Tab Management', () => {
 - Do NOT modify files outside `client/shell/tabs.js` and `tests/client/tabs.test.ts`
 - Do NOT write implementation logic in this phase -- keep function bodies as stubs.
 - New tests should fail against the current stubs.
-- All 57 previous tests MUST still pass
+- All 58 previous tests MUST still pass
 - Use jsdom for DOM simulation in tests (same pattern as existing `tests/client/` files)
 
 ## If Blocked or Uncertain
@@ -513,13 +532,12 @@ describe('Tab Management', () => {
 
 Run:
 ```bash
-bun test
+bun run test && bun run test:client
 ```
 
 Expected:
-- 57 previous tests: PASS
+- All previous tests: PASS
 - 14 new tests in `tests/client/tabs.test.ts`: failing against unimplemented tabs behavior
-- Total: 71 tests, 14 erroring
 
 Run:
 ```bash
@@ -534,5 +552,5 @@ Expected: zero errors
 - [ ] All function bodies throw `new Error('Not implemented')`
 - [ ] `tests/client/tabs.test.ts` has 14 test specs with TC IDs in descriptions
 - [ ] New tab tests fail against current stubs, with clear assertions for Green
-- [ ] All 57 previous tests still pass
+- [ ] All 58 previous tests still pass
 - [ ] `bun run typecheck` passes with zero errors

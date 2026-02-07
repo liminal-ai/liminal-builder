@@ -6,6 +6,8 @@ Liminal Builder is an agentic IDE -- an organized, session-based interface for p
 
 Story 3 implements the chat interface inside the portlet iframe. In the prior Skeleton + Red phase, the portlet/chat/input modules were stubbed with the correct structure and 17 tests were written (all currently failing with NotImplementedError). In this Green phase, you will implement the full chat rendering pipeline, streaming response handling, markdown rendering, auto-scroll, tool call state transitions, thinking block styling, and cancel functionality -- making all 17 tests pass.
 
+Story 3 uses temporary/mock session routing for chat send/cancel and streaming return paths. Full durable session lifecycle plumbing is deferred to Story 4.
+
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
@@ -16,7 +18,7 @@ Story 3 implements the chat interface inside the portlet iframe. In the prior Sk
 - `tests/client/chat.test.ts` -- 9 tests, all failing
 - `tests/client/input.test.ts` -- 5 tests, all failing
 - `tests/client/portlet.test.ts` -- 3 tests, all failing
-- All 27 prior tests pass
+- All 28 prior tests pass
 
 ## Reference Documents
 
@@ -62,10 +64,38 @@ type PortletToShell =
   | { type: 'portlet:title'; title: string }
 ```
 
+### postMessage to WebSocket Contract Mapping (Canonical)
+
+WebSocket contracts are canonical and require fields that are not always present in iframe `postMessage` payloads. The iframe emits minimal UI messages; the parent shell enriches and routes before handing off to `server/websocket.ts`.
+
+```typescript
+// Canonical WebSocket client -> server
+type WsClientMessage =
+  | { type: 'session:send'; sessionId: string; content: string }
+  | { type: 'session:cancel'; sessionId: string };
+
+// Canonical WebSocket server -> client (subset relevant to Story 3)
+type WsServerMessage =
+  | { type: 'session:cancelled'; sessionId: string; entryId: string }
+  | { type: 'agent:status'; cliType: string; status: 'starting' | 'connected' | 'disconnected' | 'reconnecting' };
+```
+
+Required translation rules:
+
+| Direction | Incoming Payload | Outgoing Payload | Rule |
+|-----------|------------------|------------------|------|
+| Portlet -> Shell -> WS | `{ type: 'session:send', content }` | `{ type: 'session:send', sessionId, content, requestId? }` | Shell must inject `sessionId` from active session context. Shell may inject `requestId` for response correlation. |
+| Portlet -> Shell -> WS | `{ type: 'session:cancel' }` | `{ type: 'session:cancel', sessionId }` | Shell must inject `sessionId` from active session context. |
+| WS -> Shell -> Portlet | `{ type: 'session:cancelled', sessionId, entryId }` | `{ type: 'session:cancelled', entryId }` | Shell routes by `sessionId` and forwards to the matching iframe. |
+| WS -> Shell -> Portlet | `{ type: 'agent:status', cliType, status }` | `{ type: 'agent:status', status }` | Shell preserves `cliType` for routing/logging and forwards UI-relevant status to portlet. |
+| WS -> Shell -> Portlet | `{ type: 'error', requestId?, message }` | `{ type: 'session:error', message }` | Shell routes errors by `requestId` correlation or broadcasts to active portlet. |
+
+`sessionId` is never sourced from the iframe in Story 3. Parent-shell enrichment is mandatory before any WS send.
+
 ### Message Reconciliation Rules
 
 - **`session:history`** -- replaces the entire entry list (response to session:open)
-- **`session:update`** -- upserts: if an entry with the same `entryId` exists, replace it; otherwise append. This is how tool calls transition from running to complete.
+- **`session:update`** -- upserts: if an entry with the same `entryId` exists, replace it; otherwise append. This is how tool calls transition from running to complete. For `type: 'user'`, reconcile against any pending optimistic local user turn and replace in place (no duplicate user turn).
 - **`session:chunk`** -- appends `content` to the existing entry's `content` field (streaming text). The entry must already exist (created by a prior `session:update`).
 - **`session:complete`** -- marks the entry as finalized. No further chunks will arrive for this `entryId`. Triggers markdown rendering.
 - **`session:cancelled`** -- marks the entry as finalized due to user cancellation. Treated like `session:complete`.
@@ -74,12 +104,26 @@ type PortletToShell =
 
 ### Files to Modify
 
-1. **`client/portlet/portlet.js`** -- Full implementation:
+1. **`server/websocket.ts`** -- WebSocket bridge and stream fan-out:
+
+   - Accept canonical WS client messages:
+     - `session:send` requires `sessionId` + `content`
+     - `session:cancel` requires `sessionId`
+   - Ensure Story 3 temp/mock session path can process `session:send` and initiate streaming for the addressed `sessionId`.
+   - Stream messages back with canonical event names and required fields:
+     - `session:update` (session-scoped entry upserts)
+     - `session:chunk` (incremental text)
+     - `session:complete` (finalization)
+     - `session:cancelled` must include `sessionId` + `entryId`
+     - `agent:status` must include `cliType` + `status`
+   - Keep this as bridge logic only; durable session lifecycle remains Story 4 scope.
+
+2. **`client/portlet/portlet.js`** -- Full implementation:
 
    **postMessage handler (`handleShellMessage`):**
    - Implement the message reconciliation logic exactly as specified:
      - `session:history`: Replace `entries` array, call `chat.renderAll(entries)`
-     - `session:update`: Upsert by `entryId` -- find existing, replace if found, push if new. Call `chat.renderEntry(entry)`. When the entry is type `user`, this represents the user's sent message appearing in chat (TC-3.1a).
+     - `session:update`: Upsert by `entryId` -- find existing, replace if found, push if new. Call `chat.renderEntry(entry)`. When the entry is type `user`, reconcile against the pending optimistic user turn and replace in place (TC-3.1a) instead of duplicating.
      - `session:chunk`: Find entry by `entryId`, append `msg.content` to `entry.content`, call `chat.updateEntryContent(entryId, entry.content)`
      - `session:complete`: Call `chat.finalizeEntry(entryId)`, call `input.enable()`, set `sessionState = 'idle'`
      - `session:cancelled`: Same as complete -- call `chat.finalizeEntry(entryId)`, call `input.enable()`, set `sessionState = 'idle'`
@@ -93,9 +137,14 @@ type PortletToShell =
    - `'reconnecting'`: Show reconnecting status
 
    **`sendMessage(content)`:**
+   - Optimistically insert a user entry into `entries` and DOM immediately (TC-3.1a) before any server round-trip:
+     - Create temp ID (example: `optimistic-user-${Date.now()}`)
+     - Add `{ entryId: tempId, type: 'user', content, timestamp }` to `entries`
+     - Call `chat.renderEntry(...)`
    - Post `{ type: 'session:send', content }` to `window.parent`
    - Set `sessionState = 'sending'`
    - Call `input.disable()` and `input.showCancel()`
+   - Track pending optimistic user turn(s) so later `session:update` user entries can dedupe/replace rather than append
 
    **`cancelResponse()`:**
    - Post `{ type: 'session:cancel' }` to `window.parent`
@@ -106,7 +155,7 @@ type PortletToShell =
 
    **Security:** Verify `event.origin` matches expected origin in the postMessage listener.
 
-2. **`client/portlet/chat.js`** -- Full implementation:
+3. **`client/portlet/chat.js`** -- Full implementation:
 
    **`init(container)`:**
    - Store reference to chat container element
@@ -187,7 +236,7 @@ type PortletToShell =
    **`showError(message)`:**
    - Append an error entry to the chat container with distinct error styling
 
-3. **`client/portlet/input.js`** -- Full implementation:
+4. **`client/portlet/input.js`** -- Full implementation:
 
    **`init(container, onSend, onCancel)`:**
    - Get references to `#message-input`, `#send-btn`, `#cancel-btn`, `#working-indicator`
@@ -224,7 +273,7 @@ type PortletToShell =
    - Clear the textarea value
    - Disable send button (since input is now empty)
 
-4. **`client/shared/markdown.js`** -- Full implementation:
+5. **`client/shared/markdown.js`** -- Full implementation:
 
    The markdown rendering pipeline converts raw markdown text to sanitized HTML with syntax highlighting.
 
@@ -265,7 +314,7 @@ type PortletToShell =
 
 ### Files NOT to Modify
 
-- No server files
+- No server files beyond `server/websocket.ts`
 - Prefer not to modify tests. If a Red test has a clear invalid assumption, make the smallest correction that preserves TC intent and document it.
 - No shell files (shell.js, sidebar.js, tabs.js)
 - No HTML files (the HTML structure from Story 0 should be sufficient)
@@ -273,7 +322,7 @@ type PortletToShell =
 ## Constraints
 
 - Do NOT implement beyond this story's scope (no session management, no tab management)
-- Do NOT modify any server files
+- Do NOT modify server files other than `server/websocket.ts`
 - Prefer not to modify tests; if required for correctness, apply minimal TC-preserving fixes and document why.
 - Do NOT modify files outside the specified list
 - Use exact type names and field names from the inlined definitions
@@ -297,19 +346,21 @@ Run the following commands:
 # Typecheck should pass
 bun run typecheck
 
-# ALL tests should pass (27 prior + 17 new = 44 total)
-bun test
+# ALL tests should pass (28 prior + 17 new = 45 total)
+bun run test
+bun run test:client
 
 # Or run specifically:
-bun test tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts
+bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts --passWithNoTests
 ```
 
 **Expected outcome:**
 - `bun run typecheck`: 0 errors
-- `bun test`: 44 tests pass, 0 fail
+- `bun run test` + `bun run test:client`: 45 tests pass, 0 fail
 
 ## Done When
 
+- [ ] `server/websocket.ts` handles `session:send`/`session:cancel` and streams `session:update`/`session:chunk`/`session:complete`
 - [ ] `client/portlet/portlet.js` fully implements postMessage handling and message reconciliation
 - [ ] `client/portlet/chat.js` fully implements entry rendering, streaming, auto-scroll, tool call states, thinking blocks
 - [ ] `client/portlet/input.js` fully implements input bar with send/cancel/disable/working
@@ -317,7 +368,7 @@ bun test tests/client/chat.test.ts tests/client/input.test.ts tests/client/portl
 - [ ] All 9 chat tests pass (TC-3.2a, TC-3.2b, TC-3.3a-c, TC-3.4a, TC-3.6a-c)
 - [ ] All 5 input tests pass (TC-3.1b, TC-3.5a, TC-3.5b, TC-3.7a, TC-3.7c)
 - [ ] All 3 portlet tests pass (TC-3.1a, TC-5.4a, TC-3.7b)
-- [ ] All 27 prior tests still pass
+- [ ] All 28 prior tests still pass
 - [ ] `bun run typecheck` passes
-- [ ] No server files modified
+- [ ] No server files modified except `server/websocket.ts`
 - [ ] No test files modified
