@@ -119,7 +119,10 @@ export function createMockStdio() {
 	};
 
 	return {
+		// lb/no-double-cast: mock objects intentionally cast to match AcpClient constructor signature
+		// eslint-disable-next-line lb/no-double-cast
 		stdin: stdinWriter as unknown as WritableStream,
+		// eslint-disable-next-line lb/no-double-cast
 		stdout: stdoutReader as unknown as ReadableStream,
 
 		/** Queue a JSON-RPC message for the client to read */

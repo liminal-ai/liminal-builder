@@ -41,8 +41,11 @@ describe("AcpClient", () => {
 			params: {
 				protocolVersion: 1,
 				clientInfo: {
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					name: expect.any(String),
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					title: expect.any(String),
+					// eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
 					version: expect.any(String),
 				},
 				clientCapabilities: {

@@ -548,7 +548,7 @@ export class AcpClient {
 ## Constraints
 
 - Only modify `server/acp/acp-client.ts`
-- Prefer not to modify tests; however, if a Red test has an invalid assumption or contract drift, make the smallest correction that preserves the TC intent and document it.
+- Do NOT modify test files (`tests/server/acp-client.test.ts`, `tests/fixtures/acp-messages.ts`) unless absolutely necessary for environmental compatibility (e.g., runtime shim). If you must modify any test file, document every change and justify it against the original AC/TC intent. Assertion changes are NOT acceptable — escalate to the orchestrator instead.
 - Do NOT modify `server/acp/acp-types.ts` or `shared/types.ts`
 - Do NOT create any WebSocket or browser code
 - Do NOT implement beyond AcpClient scope (no AgentManager, no WebSocket handler)
