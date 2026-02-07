@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Liminal Portlet</title>
+  <link rel="stylesheet" href="/shared/theme.css">
+  <link rel="stylesheet" href="/portlet/portlet.css">
+</head>
+<body>
+  <div id="portlet" class="portlet-layout">
+    <div id="chat-container" class="chat-container">
+      <!-- Chat entries rendered by chat.js -->
+    </div>
+    <div id="input-bar" class="input-bar">
+      <textarea id="message-input" class="message-input"
+        placeholder="Send a message..."
+        rows="1"></textarea>
+      <button id="send-btn" class="btn btn-send">Send</button>
+      <button id="cancel-btn" class="btn btn-cancel" hidden>Cancel</button>
+    </div>
+  </div>
+
+  <script type="module" src="/portlet/portlet.js"></script>
+</body>
+</html>

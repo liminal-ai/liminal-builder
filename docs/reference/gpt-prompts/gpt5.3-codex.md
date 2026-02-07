@@ -1,0 +1,21 @@
+
+We’re introducing a new model that unlocks even more of what Codex can do: GPT‑5.3-Codex, the most capable agentic coding model to date. The model advances both the frontier coding performance of GPT‑5.2-Codex and the reasoning and professional knowledge capabilities of GPT‑5.2, together in one model, which is also 25% faster. This enables it to take on long-running tasks that involve research, tool use, and complex execution. Much like a colleague, you can steer and interact with GPT‑5.3-Codex while it’s working, without losing context.
+
+GPT‑5.3‑Codex is our first model that was instrumental in creating itself. The Codex team used early versions to debug its own training, manage its own deployment, and diagnose test results and evaluations—our team was blown away by how much Codex was able to accelerate its own development.
+
+With GPT‑5.3-Codex, Codex goes from an agent that can write and review code to an agent that can do nearly anything developers and professionals can do on a computer.
+
+Frontier agentic capabilities
+GPT‑5.3-Codex sets a new industry high on SWE-Bench Pro and Terminal-Bench, and shows strong performance on OSWorld and GDPval, four benchmarks we use to measure coding, agentic and real-world capabilities.
+
+Coding
+GPT‑5.3-Codex achieves state-of-the-art performance on SWE-Bench Pro, a rigorous evaluation of real-world software engineering. Where SWE‑bench Verified only tests Python, SWE‑Bench Pro spans four languages and is more contamination‑resistant, challenging, diverse and industry-relevant. It also far exceeds the previous state-of-the-art performance on Terminal-Bench 2.0, which measures the terminal skills a coding agent like Codex needs. Notably, GPT‑5.3‑Codex does so with fewer tokens than any prior model, letting users build more.
+GPT‑5.3-Codex also better understands your intent when you ask it to make day-to-day websites, compared to GPT‑5.2-Codex. Simple or underspecified prompts now default to sites with more functionality and sensible defaults, giving you a stronger starting canvas to bring your ideas to life.Web development
+Combining frontier coding capabilities, improvements in aesthetics, and compaction results in a model that can do striking work, building highly functional complex games and apps from scratch over the course of days. To test the model’s web development and long-running agentic capabilities, we asked GPT‑5.3‑Codex to build us two games: version two of the racing game from the Codex app launch⁠, and a diving game. Using the develop web game skill and preselected, generic follow-up prompts like "fix the bug" or "improve the game", GPT‑5.3-Codex iterated on the games autonomously over millions of tokens. Watch the trailers and play the games for yourself to see what Codex can do.
+
+For example, we asked GPT‑5.3-Codex and GPT‑5.2-Codex to build two landing pages below. GPT‑5.3-Codex automatically showed the yearly plan as a discounted monthly price, making the discount feel clear and intentional, instead of multiplying the yearly total. It also made an automatically transitioning testimonial carousel with three distinct user quotes rather than one, resulting in a page that feels more complete and production-ready by default.
+
+Together, these results across coding, frontend, and computer-use and real-world tasks show that GPT‑5.3-Codex isn’t just better at individual tasks, but marks a step change toward a single, general-purpose agent that can reason, build, and execute across the full spectrum of real-world technical work.
+
+An interactive collaborator
+As model capabilities become more powerful, the gap shifts from what agents are capable of doing to how easily humans can interact with, direct and supervise many of them working in parallel. The Codex app makes managing and directing agents much easier, and now with GPT‑5.3-Codex it’s more interactive. With the new model, Codex provides frequent updates so you stay appraised of key decisions and progress as it works. Instead of waiting for a final output, you can interact in real time—ask questions, discuss approaches, and steer toward the solution. GPT‑5.3-Codex talks through what it’s doing, responds to feedback, and keeps you in the loop from start to finish.

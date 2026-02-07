@@ -198,13 +198,12 @@ stateDiagram-v2
     [*] --> idle
     idle --> starting : spawn
     starting --> connected : handshake success
-    starting --> error : fail
+    starting --> disconnected : fail
     connected --> disconnected : crash / exit
     disconnected --> reconnecting : auto-retry (≤5)
     reconnecting --> connected : success
     reconnecting --> disconnected : fail (>5, manual retry)
     disconnected --> reconnecting : manual reconnect
-    error --> idle : retry
 ```
 
 **State transitions and WebSocket emissions:**
@@ -213,7 +212,7 @@ stateDiagram-v2
 |------|-------|----|-----------------|
 | idle | Session requested | starting | `agent:status { starting }` |
 | starting | ACP handshake succeeds | connected | `agent:status { connected }` |
-| starting | Process fails to start | error | `error { message }` |
+| starting | Process fails to start | disconnected | `error { message }` |
 | connected | Process exits/crashes | disconnected | `agent:status { disconnected }` |
 | disconnected | Auto-retry triggered | reconnecting | `agent:status { reconnecting }` |
 | reconnecting | Restart succeeds | connected | `agent:status { connected }` |
@@ -1827,10 +1826,15 @@ type ChatEntry =
 
 ### Test Tool Stack
 
-- **Bun test runner** — Built into Bun, fast, supports TypeScript natively
-- **jsdom** — DOM simulation for client-side tests
+- **Vitest (primary runner)** with `projects` for clear isolation:
+  - `service` (server modules, no DOM)
+  - `ui` (client modules with `jsdom`)
+  - `integration` (WebSocket round-trips with ACP mock)
+- **jsdom** — DOM simulation for UI project tests
+- **@vitest/coverage-v8** — Coverage reporting with low setup overhead
 - **Mock ACP server** — Custom mock that simulates JSON-RPC over stdio
-- No external test framework needed — Bun's built-in `test`, `expect`, `mock` are sufficient
+- **Bun runtime** remains the process/runtime layer; test execution is `vitest`-based for better project grouping and ecosystem tooling
+- **Biome** is the single formatter + linter (`format`, `format:check`, `lint`, `lint:fix`) to avoid Prettier + ESLint drift
 
 ### Manual Verification Checklist (Gorilla Testing)
 
@@ -1849,6 +1853,119 @@ type ChatEntry =
 13. [ ] Create a Codex session → verify end-to-end
 14. [ ] Kill an agent process → verify disconnected state, reconnect button
 15. [ ] Click reconnect → verify recovery
+
+---
+
+## Cross-Cutting Architecture Additions (2026-02-07)
+
+These additions close planning gaps found during comparison with PromptDB architecture docs and current Fastify ecosystem practices.
+
+### Dependency & Version Baseline
+
+Use this baseline for Story 0 package setup. Pin exact versions in lockfile; keep semver ranges in `package.json`.
+
+| Category | Package | Recommended Range | Why |
+|----------|---------|-------------------|-----|
+| Runtime | `fastify` | `^5.7.4` | Current Fastify 5 line, core server/runtime |
+| Runtime | `@fastify/websocket` | `^11.2.0` | WebSocket plugin aligned to Fastify 5 |
+| Runtime | `@fastify/static` | `^9.0.0` | Static shell/portlet asset serving |
+| Runtime | `@fastify/sensible` | `^6.0.4` | Standard HTTP errors/utilities for consistent handlers |
+| Runtime | `zod` | `^4.3.6` | Runtime validation at transport boundaries |
+| Runtime | `fastify-type-provider-zod` | `^6.1.0` | Typed request/response schemas for Fastify + Zod |
+| Runtime | `marked` | `^17.0.1` | Markdown rendering |
+| Runtime | `dompurify` | `^3.3.1` | Sanitization boundary before DOM insertion |
+| Runtime | `highlight.js` | `^11.11.1` | Code block highlighting |
+| Dev | `typescript` | `^5.9.3` | Language and typechecking baseline |
+| Dev | `@types/bun` | `^1.3.8` | Bun runtime types |
+| Dev | `vitest` | `^4.0.18` | Test runner with project support |
+| Dev | `@vitest/coverage-v8` | `^4.0.18` | Coverage support |
+| Dev | `jsdom` | `^28.0.0` | Browser-like test environment |
+| Dev | `@biomejs/biome` | `^2.3.14` | Unified lint + format toolchain |
+
+**Optional (when API docs are added):**
+- `@fastify/swagger` `^9.7.0`
+- `@fastify/swagger-ui` `^5.2.5`
+
+### Fastify + Zod Contract Pattern
+
+All external input boundaries must validate with Zod schemas and surface typed data to handlers.
+
+| Boundary | Validation Strategy | Failure Behavior |
+|----------|---------------------|------------------|
+| WebSocket inbound messages | `z.discriminatedUnion("type", [...])` per message envelope | Reject message + emit `error` response with contract code |
+| HTTP routes (future admin/health APIs) | `fastify-type-provider-zod` on params/query/body/response | 4xx with structured validation details |
+| ACP JSON-RPC inbound | Zod schema per method/update type | Drop malformed payload + log structured warning |
+| `postMessage` payloads | Zod schema after origin check | Ignore invalid payload + no state mutation |
+
+### Non-Functional Targets (MVP)
+
+| ID | Target | Notes |
+|----|--------|-------|
+| NFR-1 | Server cold start < 1.5s on Apple Silicon dev machine | Includes JSON store load and route registration |
+| NFR-2 | First response token render < 250ms from server receive (local loopback) | Excludes model inference time |
+| NFR-3 | Session history restore (2k entries) < 500ms to visible render | On modern laptop class hardware |
+| NFR-4 | WebSocket reconnect + state resync < 2s after local server restart | Browser auto-recovers without manual refresh |
+| NFR-5 | Zero known XSS injection paths in chat rendering | Enforced by sanitize-before-insert pipeline |
+
+### Constraints Accepted
+
+1. Single-user local app; no multi-user tenancy model in MVP.
+2. JSON-file persistence; no concurrent multi-process writer guarantees.
+3. Agent permission requests are auto-approved in MVP viewer mode.
+4. No Playwright E2E in MVP execution scope; rely on integration + Gorilla tests first.
+5. OpenAPI generation deferred until API surface expands beyond current WebSocket protocol.
+
+### Threat Model & Input Validation Matrix
+
+| Threat | Entry Point | Control | Test Requirement |
+|--------|-------------|---------|------------------|
+| Malformed client message crashes server | WebSocket inbound | Zod message envelope validation + guarded router | Integration test for invalid message type/payload |
+| XSS via model markdown | `agent_message_chunk` rendering | `marked` output sanitized by DOMPurify before insertion | UI test with script-tag payload |
+| Cross-origin message injection | `window.postMessage` | Strict `event.origin` check + schema validation | UI test with spoofed origin |
+| Path traversal in project add flow | `project:add` path input | Normalize and validate local path exists/is directory | Service test for `../` and invalid paths |
+| Runaway reconnect loops | agent/websocket reconnect logic | Retry caps + exponential backoff + visible status | Integration test for exhausted retries |
+
+### Runtime Prerequisites & Environment Contract
+
+| Item | Required | Source |
+|------|----------|--------|
+| Bun runtime | `>=1.1.x` | Local install |
+| Node (for ACP adapters/npm globals) | `>=20.x LTS` | Local install |
+| Claude Code CLI + ACP adapter | Installed and authenticated | `claude` + `claude-code-acp` |
+| Codex CLI + ACP adapter | Installed and authenticated | `codex` + `codex-acp` |
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `LIMINAL_PORT` | `3000` | Fastify bind port |
+| `LIMINAL_HOST` | `127.0.0.1` | Fastify bind host |
+| `LIMINAL_DATA_DIR` | `~/.liminal-builder` | JSON persistence root |
+| `CLAUDE_ACP_CMD` | `claude-code-acp` | Claude ACP launch command |
+| `CODEX_ACP_CMD` | `codex-acp` | Codex ACP launch command |
+| `ACP_START_TIMEOUT_MS` | `15000` | Process startup timeout |
+| `ACP_PROMPT_TIMEOUT_MS` | `30000` | Prompt inactivity timeout |
+
+### Error Contract Additions (WebSocket)
+
+Add explicit machine-readable error codes to all `error` payloads.
+
+| Code | Trigger | User-Facing Message |
+|------|---------|---------------------|
+| `INVALID_MESSAGE` | Envelope/schema validation failed | "Invalid request payload." |
+| `PROJECT_PATH_INVALID` | Path missing/not directory/not accessible | "Project path is invalid or inaccessible." |
+| `PROJECT_DUPLICATE` | Project already tracked | "Project already exists." |
+| `SESSION_NOT_FOUND` | Unknown session ID in request | "Session not found." |
+| `AGENT_UNAVAILABLE` | ACP process missing/disconnected | "Agent is unavailable. Check local CLI setup." |
+| `AGENT_PROTOCOL_ERROR` | JSON-RPC error from ACP adapter | "Agent returned a protocol error." |
+| `INTERNAL_ERROR` | Unhandled server exception | "Unexpected server error." |
+
+### Architecture Review Checklist (Phase 3 Gate Additions)
+
+- [ ] Runtime dependency baseline reviewed against current ecosystem versions
+- [ ] Input validation matrix exists for every external boundary
+- [ ] Threat model table includes tests mapped to controls
+- [ ] Non-functional targets are measurable and testable
+- [ ] Environment contract captures required binaries, auth state, and env vars
+- [ ] Error response codes standardized for all transport layers
 
 ---
 
@@ -1893,15 +2010,37 @@ type ChatEntry =
 | Package config | `package.json` | Dependencies, scripts |
 | TS config | `tsconfig.json` | Bun TypeScript config |
 
-**npm dependencies installed in Story 0:**
-- `fastify` — HTTP server framework
-- `@fastify/websocket` — WebSocket plugin for Fastify
-- `@fastify/static` — Static file serving plugin
-- `marked` — GFM markdown parser (for `client/shared/markdown.js`)
-- `dompurify` — HTML sanitizer (for `client/shared/markdown.js`)
-- `highlight.js` — Syntax highlighting for code blocks (for `client/shared/markdown.js`)
+**Package baseline installed in Story 0:**
 
-**Exit Criteria:** `bun run typecheck` passes. Server starts and serves shell HTML. WebSocket connects. No tests yet.
+**Runtime dependencies**
+- `fastify`
+- `@fastify/websocket`
+- `@fastify/static`
+- `@fastify/sensible`
+- `zod`
+- `fastify-type-provider-zod`
+- `marked`
+- `dompurify`
+- `highlight.js`
+
+**Dev dependencies**
+- `typescript`
+- `@types/bun`
+- `vitest`
+- `@vitest/coverage-v8`
+- `jsdom`
+- `@biomejs/biome`
+
+**Story 0 scripts established in `package.json`:**
+- `dev`, `start`
+- `typecheck`
+- `format`, `format:check`
+- `lint`, `lint:fix`
+- `test`, `test:integration`, `test:e2e`
+- `verify` (format:check + lint + typecheck + service mock tests)
+- `verify-all` (verify + integration + e2e)
+
+**Exit Criteria:** `bun run verify` passes. Server starts and serves shell HTML. WebSocket connects. `bun run verify-all` is wired for full checks (integration/e2e may be placeholder/no-op until those suites exist).
 
 **Test count:** 0 (infrastructure only)
 
