@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { stat } from "node:fs/promises";
 import { basename } from "node:path";
 import { AppError } from "../errors";
 import type { JsonStore } from "../store/json-store";
@@ -15,8 +16,8 @@ export class ProjectStore {
 
 	/** Add project. Validates path exists, checks duplicates. */
 	async addProject(path: string): Promise<Project> {
-		const exists = await Bun.file(path).exists();
-		if (!exists) {
+		const directory = await stat(path).catch(() => null);
+		if (!directory?.isDirectory()) {
 			throw new AppError("INVALID_PATH", `Directory does not exist: ${path}`);
 		}
 
