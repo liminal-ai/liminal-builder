@@ -68,3 +68,159 @@ export function makeRpcError(
 ): JsonRpcResponse {
 	return { jsonrpc: "2.0", id, error: { code, message } };
 }
+
+/**
+ * Mock stdio pair for testing AcpClient.
+ * Simulates the stdin/stdout of a child process.
+ *
+ * Usage:
+ *   const mock = createMockStdio();
+ *   const client = new AcpClient(mock.stdin, mock.stdout);
+ *
+ *   // Queue a response the client will read
+ *   mock.pushResponse({ jsonrpc: '2.0', id: 1, result: { ... } });
+ *
+ *   // After client sends, check what was written
+ *   const sent = mock.getSentMessages();
+ */
+export function createMockStdio() {
+	const sentMessages: unknown[] = [];
+	const responseQueue: string[] = [];
+	let responseResolve: (() => void) | null = null;
+
+	// Writable stdin -- captures writes
+	const stdinWriter = {
+		write(chunk: string) {
+			const lines = chunk.split("\n").filter((l) => l.trim());
+			for (const line of lines) {
+				sentMessages.push(JSON.parse(line));
+			}
+		},
+		close() {
+			/* no-op for tests */
+		},
+	};
+
+	// Readable stdout -- yields queued responses
+	// Implementation: an async iterable that yields lines from responseQueue
+	const stdoutReader = {
+		[Symbol.asyncIterator]() {
+			return {
+				async next(): Promise<{ value: string; done: boolean }> {
+					while (responseQueue.length === 0) {
+						await new Promise<void>((resolve) => {
+							responseResolve = resolve;
+						});
+					}
+					return { value: responseQueue.shift() as string, done: false };
+				},
+			};
+		},
+	};
+
+	return {
+		stdin: stdinWriter as unknown as WritableStream,
+		stdout: stdoutReader as unknown as ReadableStream,
+
+		/** Queue a JSON-RPC message for the client to read */
+		pushMessage(msg: unknown) {
+			responseQueue.push(`${JSON.stringify(msg)}\n`);
+			if (responseResolve) {
+				const resolve = responseResolve;
+				responseResolve = null;
+				resolve();
+			}
+		},
+
+		/** Get all messages sent by the client to stdin */
+		getSentMessages(): unknown[] {
+			return [...sentMessages];
+		},
+
+		/** Queue multiple messages */
+		pushMessages(msgs: unknown[]) {
+			for (const msg of msgs) {
+				this.pushMessage(msg);
+			}
+		},
+	};
+}
+
+// --- Mock ACP response factories ---
+
+export function mockInitializeResponse(
+	id: number,
+	overrides?: Partial<{
+		loadSession: boolean;
+	}>,
+) {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		result: {
+			protocolVersion: 1,
+			agentInfo: {
+				name: "mock-agent",
+				title: "Mock Agent",
+				version: "1.0.0",
+			},
+			agentCapabilities: {
+				loadSession: overrides?.loadSession ?? true,
+				promptCapabilities: { image: false, embeddedContext: false },
+			},
+		},
+	};
+}
+
+export function mockSessionNewResponse(id: number, sessionId: string) {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		result: { sessionId },
+	};
+}
+
+export function mockSessionLoadResponse(id: number) {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		result: {},
+	};
+}
+
+export function mockSessionPromptResponse(id: number, stopReason = "end_turn") {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		result: { stopReason },
+	};
+}
+
+export function mockUpdateNotification(sessionId: string, event: unknown) {
+	return {
+		jsonrpc: "2.0" as const,
+		method: "session/update",
+		params: { sessionId, update: event },
+	};
+}
+
+export function mockPermissionRequest(
+	id: number,
+	toolCallId: string,
+	title: string,
+) {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		method: "session/request_permission",
+		params: { toolCallId, title },
+	};
+}
+
+export function mockJsonRpcError(id: number, code: number, message: string) {
+	return {
+		jsonrpc: "2.0" as const,
+		id,
+		error: { code, message },
+	};
+}
