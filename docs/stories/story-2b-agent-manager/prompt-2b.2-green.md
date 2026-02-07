@@ -12,7 +12,6 @@ Story 2a implemented the `AcpClient` (JSON-RPC protocol layer). Story 2b builds 
 - `server/acp/agent-manager.ts` -- class skeleton with stubs (from prompt 2b.1)
 - `server/websocket.ts` -- bridge skeleton (from prompt 2b.1)
 - `tests/server/agent-manager.test.ts` -- failing red tests (from prompt 2b.1)
-- `tests/server/websocket.test.ts` -- failing red tests (from prompt 2b.1)
 - `server/acp/acp-client.ts` -- fully implemented AcpClient (from Story 2a)
 - `server/acp/acp-types.ts` -- protocol types (from Story 0)
 - `server/sessions/session-types.ts` -- CliType (from Story 0)
@@ -551,17 +550,10 @@ bun run test -- tests/server/agent-manager.test.ts
 
 Run:
 ```bash
-bun run test -- tests/server/websocket.test.ts
-```
-
-**Expected output:** WebSocket bridge tests PASS (`session:create/open/send/cancel` routing + `agent:status/error` forwarding + `requestId` correlation checks).
-
-Run:
-```bash
 bun run test
 ```
 
-**Expected output:** All server Vitest tests PASS (including Story 2b agent-manager + websocket coverage).
+**Expected output:** All server Vitest tests PASS (including Story 2b agent-manager coverage).
 
 Run:
 ```bash
@@ -577,7 +569,6 @@ bun run typecheck
 - [ ] `server/websocket.ts` forwards AgentManager `agent:status` and `error` as WS `agent:status` / `error`
 - [ ] `server/websocket.ts` preserves `requestId` correlation for `session:created`, `session:history`, and `error` responses
 - [ ] `bun run test -- tests/server/agent-manager.test.ts` -- tests pass
-- [ ] `bun run test -- tests/server/websocket.test.ts` -- tests pass
 - [ ] `bun run test` -- total server tests pass (no regressions)
 - [ ] `bun run typecheck` -- zero errors
 - [ ] AgentManager correctly:

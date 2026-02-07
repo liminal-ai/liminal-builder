@@ -397,12 +397,11 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     const projectsStore = new JsonStore<Project[]>({ filePath: join(dataRoot, 'projects.json'), writeDebounceMs: 0 }, []);
     const sessionsStore = new JsonStore<SessionMeta[]>({ filePath: join(dataRoot, 'sessions.json'), writeDebounceMs: 0 }, []);
     const projectStore = new ProjectStore(projectsStore);
-    const sessionManager = new SessionManager(sessionsStore);
-
     const emitter = new EventEmitter();
     const agentManager = new AgentManager(emitter, {
       spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
     });
+    const sessionManager = new SessionManager(sessionsStore, agentManager, projectStore);
 
     app = Fastify();
     await app.register(fastifyWebsocket);
@@ -664,7 +663,7 @@ Run:
 bun run verify
 ```
 
-Expected: quality gate passes (format:check, lint, typecheck, test)
+Expected: All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ## Done When
 

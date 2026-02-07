@@ -69,7 +69,7 @@ The AcpClient class wraps stdin/stdout of a child process and provides typed met
 ## Exit Criteria
 
 - 9 new AcpClient tests PASS; all prior tests still PASS (if present in the branch)
-- `bun run verify` passes (format:check, lint, typecheck, test)
+- `bun run verify` passes (format:check, biome lint, eslint, eslint-plugin tests, typecheck, test)
 - `bun run verify-all` passes (verify + client tests + integration + e2e)
 - `bun run typecheck` passes with zero errors
 - AcpClient can: initialize handshake, create sessions, load sessions with history replay, prompt with streaming callbacks, auto-approve permissions, handle JSON-RPC errors, close gracefully

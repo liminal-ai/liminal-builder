@@ -28,8 +28,10 @@ This story brings the total test count to 79, completing the MVP test suite.
 |----|-------------|-----|
 | AC-5.2 | Agent connection status visible to user | Server lifecycle transitions automated in Story 2b; Story 6 UI rendering (`status dot`, input disable, reconnect button) validated via Gorilla checklist (manual) |
 | AC-5.6 | Browser refresh restores session state | TC-5.6a |
-| TC-2.2d | Claude Code session end-to-end | Manual/integration |
-| TC-2.2e | Codex session end-to-end | Manual/integration |
+
+Additional manual integration TCs validated in Story 6:
+- TC-2.2d (Claude Code session end-to-end)
+- TC-2.2e (Codex session end-to-end)
 
 Codex adapter note: adapter availability is a runtime concern, not a Story 6 readiness concern. Automated tests mock ACP at the process boundary; real Codex adapter validation is deferred to integration/Gorilla testing.
 
@@ -94,7 +96,7 @@ WebSocket integration tests:
 
 | Phase | This Story | Cumulative |
 |-------|-----------|------------|
-| Previous (Stories 0-5) | -- | 71 |
+| Previous (Stories 0-5) | -- | 72 |
 | Story 6 | 7 | 79 (FINAL) |
 
 ## Prompts

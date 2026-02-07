@@ -78,7 +78,9 @@ bun run verify
 
 **Expected:** Exit code 0. This is the primary quality gate and runs:
 - format check
-- lint
+- biome lint
+- eslint (`lint:eslint`)
+- eslint-plugin tests (`test:eslint-plugin`)
 - typecheck
 - Vitest-backed `bun run test`
 

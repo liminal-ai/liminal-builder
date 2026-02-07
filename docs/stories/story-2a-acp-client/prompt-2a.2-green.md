@@ -584,7 +584,7 @@ Run:
 bun run verify
 ```
 
-**Expected output:** format check, lint, typecheck, and server tests all PASSING.
+**Expected output:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 Run:
 ```bash

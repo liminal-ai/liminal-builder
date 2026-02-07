@@ -11,7 +11,7 @@ This is the VERIFY phase of Story 5 (Tab Management). The skeleton (5.1) and imp
 **Prerequisites complete:**
 - `client/shell/tabs.js` -- fully implemented
 - `tests/client/tabs.test.ts` -- 14 tests written and expected to pass
-- All previous stories (0-4) complete with 57 passing tests
+- All previous stories (0-4) complete with 58 passing tests
 
 ## Reference Documents
 (For human traceability)

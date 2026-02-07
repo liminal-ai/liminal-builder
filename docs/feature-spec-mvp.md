@@ -841,6 +841,8 @@ Add Codex as a second CLI type. Implement agent connection status indicators, re
 **ACs covered:**
 - AC-5.2 (connection status)
 - AC-5.6 (browser refresh recovery)
+
+**Additional manual integration TCs validated:**
 - TC-2.2d (Claude Code end-to-end)
 - TC-2.2e (Codex end-to-end)
 

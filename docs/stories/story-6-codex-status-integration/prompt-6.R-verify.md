@@ -235,7 +235,7 @@ Verify the running totals match the plan:
 | Story 0 | 0 | 0 |
 | Story 1 | 9 | 9 |
 | Story 2a | 9 | 18 |
-| Story 2b | 10 | 27 |
+| Story 2b | 10 | 28 |
 | Story 3 | 17 | 45 |
 | Story 4 | 13 | 58 |
 | Story 5 | 14 | 72 |

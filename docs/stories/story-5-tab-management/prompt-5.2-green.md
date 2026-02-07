@@ -568,7 +568,7 @@ Run:
 bun run verify
 ```
 
-Expected: passes (format check, lint, typecheck, Vitest server suite).
+Expected: All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ## Done When
 

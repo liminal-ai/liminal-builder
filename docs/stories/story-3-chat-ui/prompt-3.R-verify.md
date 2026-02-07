@@ -27,7 +27,7 @@ Story 3 implemented the chat interface inside the portlet iframe: message render
 bun run verify
 ```
 
-**Expected:** format/lint/typecheck/server tests all pass.
+**Expected:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ### 2. Run Story 3 Client Tests
 

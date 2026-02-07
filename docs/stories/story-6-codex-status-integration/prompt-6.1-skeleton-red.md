@@ -223,12 +223,11 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     const projectsStore = new JsonStore<Project[]>({ filePath: join(dataRoot, 'projects.json'), writeDebounceMs: 0 }, []);
     const sessionsStore = new JsonStore<SessionMeta[]>({ filePath: join(dataRoot, 'sessions.json'), writeDebounceMs: 0 }, []);
     const projectStore = new ProjectStore(projectsStore);
-    const sessionManager = new SessionManager(sessionsStore);
-
     const emitter = new EventEmitter();
     const agentManager = new AgentManager(emitter, {
       spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
     });
+    const sessionManager = new SessionManager(sessionsStore, agentManager, projectStore);
 
     server = Fastify();
     await server.register(fastifyWebsocket);

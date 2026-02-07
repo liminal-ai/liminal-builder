@@ -14,7 +14,7 @@ Story 3 uses Story 2b's real agent pipeline for send/stream/cancel message routi
 - Story 0 complete (all stubs, types, HTML scaffolding exist)
 - Story 1 complete (project sidebar functional, 9 tests pass)
 - Story 2a complete (ACP client protocol layer, 18 tests pass)
-- Story 2b complete (agent manager + WebSocket bridge, 27 tests pass)
+- Story 2b complete (agent manager + WebSocket bridge, 28 tests pass)
 - All 28 existing tests pass
 - `bun run typecheck` passes
 
@@ -71,8 +71,8 @@ Story 3 uses Story 2b's real agent pipeline for send/stream/cancel message routi
 | Story 0 | 0 |
 | Story 1 | 9 |
 | Story 2a | 18 |
-| Story 2b | 27 |
-| **Story 3** | **44** |
+| Story 2b | 28 |
+| **Story 3** | **45** |
 
 ## Prompts
 

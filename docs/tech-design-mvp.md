@@ -313,6 +313,9 @@ server/
 │   ├── json-store.ts                # Generic JSON file persistence (read/write/atomic)
 │   └── store-types.ts               # Store config types
 └── errors.ts                        # Error classes (NotImplementedError, AppError)
+
+shared/
+└── types.ts                         # Shared WS/message and ChatEntry types (server <-> client)
 ```
 
 ### Client Module Architecture
@@ -631,7 +634,7 @@ sequenceDiagram
 
 **Covers:** AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5
 
-Sessions are the core content unit. The app maintains a local metadata overlay (session-to-project mapping, archive state) while the ACP agent owns conversation content. Session lists come from combining local metadata with ACP agent data.
+Sessions are the core content unit. The app maintains a local metadata overlay (session-to-project mapping, archive state) while the ACP agent owns conversation content. Session listing is local-only because ACP has no `session/list` method.
 
 **Session list assembly (key algorithm):**
 
@@ -1707,7 +1710,7 @@ type ChatEntry =
 | — | Handles JSON-RPC error responses | Mock error response | Rejects with error message |
 | — | close sends stdin close and waits for exit | Mock process | stdin closed, process terminated |
 
-**`tests/server/websocket.test.ts`** — Integration: WebSocket message routing
+**`tests/server/websocket.test.ts`** — WebSocket message routing
 
 | TC | Test Name | Setup | Assert |
 |----|-----------|-------|--------|
@@ -1868,36 +1871,36 @@ Use this baseline for Story 0 package setup. Pin exact versions in lockfile; kee
 
 | Category | Package | Recommended Range | Why |
 |----------|---------|-------------------|-----|
-| Runtime | `fastify` | `^5.7.4` | Current Fastify 5 line, core server/runtime |
-| Runtime | `@fastify/websocket` | `^11.2.0` | WebSocket plugin aligned to Fastify 5 |
-| Runtime | `@fastify/static` | `^9.0.0` | Static shell/portlet asset serving |
-| Runtime | `@fastify/sensible` | `^6.0.4` | Standard HTTP errors/utilities for consistent handlers |
-| Runtime | `zod` | `^4.3.6` | Runtime validation at transport boundaries |
-| Runtime | `fastify-type-provider-zod` | `^6.1.0` | Typed request/response schemas for Fastify + Zod |
-| Runtime | `marked` | `^17.0.1` | Markdown rendering |
-| Runtime | `dompurify` | `^3.3.1` | Sanitization boundary before DOM insertion |
-| Runtime | `highlight.js` | `^11.11.1` | Code block highlighting |
-| Dev | `typescript` | `^5.9.3` | Language and typechecking baseline |
-| Dev | `@types/bun` | `^1.3.8` | Bun runtime types |
+| Runtime | `fastify` | `^5.0.0` | Core server/runtime |
+| Runtime | `@fastify/websocket` | `^11.0.0` | WebSocket plugin aligned to Fastify 5 |
+| Runtime | `@fastify/static` | `^8.0.0` | Static shell/portlet asset serving |
+| Runtime | `marked` | `^15.0.0` | Markdown rendering |
+| Runtime | `dompurify` | `^3.2.0` | Sanitization boundary before DOM insertion |
+| Runtime | `highlight.js` | `^11.11.0` | Code block highlighting |
+| Dev | `typescript` | `^5.7.0` | Language and typechecking baseline |
+| Dev | `@types/bun` | `latest` | Bun runtime types |
 | Dev | `vitest` | `^4.0.18` | Test runner with project support |
 | Dev | `@vitest/coverage-v8` | `^4.0.18` | Coverage support |
 | Dev | `jsdom` | `^28.0.0` | Browser-like test environment |
 | Dev | `@biomejs/biome` | `^2.3.14` | Unified lint + format toolchain |
+| Dev | `eslint` | `^9.39.1` | Type-aware/custom lint execution |
+| Dev | `typescript-eslint` | `^8.46.2` | Typed ESLint config/rules |
+| Dev | `@eslint/js` | `^9.39.1` | ESLint core JS config set |
 
 **Optional (when API docs are added):**
 - `@fastify/swagger` `^9.7.0`
 - `@fastify/swagger-ui` `^5.2.5`
 
-### Fastify + Zod Contract Pattern
+### Validation Contract Pattern (MVP)
 
-All external input boundaries must validate with Zod schemas and surface typed data to handlers.
+For MVP, external boundary validation uses explicit guards and typed message contracts. Schema-library-first validation (for example Zod + Fastify type-provider) is deferred.
 
 | Boundary | Validation Strategy | Failure Behavior |
 |----------|---------------------|------------------|
-| WebSocket inbound messages | `z.discriminatedUnion("type", [...])` per message envelope | Reject message + emit `error` response with contract code |
-| HTTP routes (future admin/health APIs) | `fastify-type-provider-zod` on params/query/body/response | 4xx with structured validation details |
-| ACP JSON-RPC inbound | Zod schema per method/update type | Drop malformed payload + log structured warning |
-| `postMessage` payloads | Zod schema after origin check | Ignore invalid payload + no state mutation |
+| WebSocket inbound messages | Typed envelope checks per message `type` and required fields | Reject message + emit `error` response with contract code |
+| HTTP routes (future admin/health APIs) | Fastify route-level validation (library choice deferred) | 4xx with structured validation details |
+| ACP JSON-RPC inbound | Method/update shape checks before processing | Drop malformed payload + log structured warning |
+| `postMessage` payloads | Origin check + typed payload guards | Ignore invalid payload + no state mutation |
 
 ### Non-Functional Targets (MVP)
 
@@ -1948,7 +1951,7 @@ All external input boundaries must validate with Zod schemas and surface typed d
 
 ### Error Contract Additions (WebSocket)
 
-Define machine-readable error codes for internal error classification. MVP WebSocket `error` messages remain `{ type: 'error', message: string }`; codes are not required in the on-wire payload for this phase.
+Define machine-readable error codes for internal error classification. MVP WebSocket `error` messages remain `{ type: 'error', requestId?: string, message: string }`; codes are not required in the on-wire payload for this phase.
 
 | Code | Trigger | User-Facing Message |
 |------|---------|---------------------|
@@ -2009,6 +2012,7 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | Test fixtures | `tests/fixtures/projects.ts` | Mock project data |
 | Test fixtures | `tests/fixtures/sessions.ts` | Mock session data |
 | Test fixtures | `tests/fixtures/acp-messages.ts` | Mock ACP responses |
+| Shared types | `shared/types.ts` | `ChatEntry`, `ClientMessage`, `ServerMessage` |
 | Package config | `package.json` | Dependencies, scripts |
 | TS config | `tsconfig.json` | Bun TypeScript config |
 
@@ -2018,9 +2022,6 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 - `fastify`
 - `@fastify/websocket`
 - `@fastify/static`
-- `@fastify/sensible`
-- `zod`
-- `fastify-type-provider-zod`
 - `marked`
 - `dompurify`
 - `highlight.js`
@@ -2038,9 +2039,11 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 - `typecheck`
 - `format`, `format:check`
 - `lint`, `lint:fix`
-- `test`, `test:integration`, `test:e2e`
-- `verify` (format:check + lint + typecheck + service mock tests)
-- `verify-all` (verify + integration + e2e)
+- `lint:eslint`, `lint:eslint:fix`
+- `test`, `test:client`, `test:integration`, `test:e2e`
+- `test:eslint-plugin`
+- `verify` (format:check + lint + lint:eslint + test:eslint-plugin + typecheck + service mock tests)
+- `verify-all` (verify + client + integration + e2e)
 
 **Exit Criteria:** `bun run verify` passes. Server starts and serves shell HTML. WebSocket connects. `bun run verify-all` is wired for full checks (integration/e2e may be placeholder/no-op until those suites exist).
 
@@ -2091,9 +2094,9 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 
 | Test File | # Tests | TCs Covered |
 |-----------|---------|-------------|
-| `tests/server/acp-client.test.ts` | 8 | Protocol correctness (init, session/new, session/load replay, session/prompt streaming, permission auto-approve, error handling, close) |
+| `tests/server/acp-client.test.ts` | 9 | Protocol correctness (init, session/new, session/load replay, session/prompt streaming, permission auto-approve, error handling, close, sessionCancel) |
 
-**Exit Criteria:** 8 new tests ERROR. Previous 9 PASS.
+**Exit Criteria:** 9 new tests ERROR. Previous 9 PASS.
 
 #### TDD Green
 
@@ -2101,9 +2104,9 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 |--------|---------------------|
 | `acp-client.ts` | Newline-delimited JSON-RPC framing over stdio. Request ID counter. Response correlation via Map. Bidirectional: handles agent → client requests (permission, fs, terminal). Session/load collects replayed notifications into ChatEntry[]. Session/prompt uses callback for streaming events. |
 
-**Exit Criteria:** 17 tests PASS total. ACP client can communicate with agent processes over stdio.
+**Exit Criteria:** 18 tests PASS total. ACP client can communicate with agent processes over stdio.
 
-**Running total:** 17 tests
+**Running total:** 18 tests
 
 ---
 
@@ -2120,7 +2123,7 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 |-----------|---------|-------------|
 | `tests/server/agent-manager.test.ts` | 10 | TC-5.1a-b, TC-5.2a-d, TC-5.3a, TC-5.5a-b, TC-5.6b |
 
-**Exit Criteria:** 10 new tests ERROR. Previous 17 PASS.
+**Exit Criteria:** 10 new tests ERROR. Previous 18 PASS.
 
 #### TDD Green
 
@@ -2129,9 +2132,9 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | `agent-manager.ts` | State machine per CliType. `Bun.spawn` for process creation. Exponential backoff reconnect. Event emitter for status changes. Close stdin for shutdown. Uses AcpClient from Story 2a. |
 | `websocket.ts` | Wire `session:create`, `session:send`, `session:cancel`, `session:open` to agent-manager and ACP client. Route ACP streaming events to WebSocket messages. |
 
-**Exit Criteria:** 27 tests PASS total. Agent processes spawn, communicate, and bridge to WebSocket.
+**Exit Criteria:** 28 tests PASS total. Agent processes spawn, communicate, and bridge to WebSocket.
 
-**Running total:** 27 tests
+**Running total:** 28 tests
 
 ---
 
@@ -2150,7 +2153,7 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | `tests/client/input.test.ts` | 5 | TC-3.1b, TC-3.5a, TC-3.5b, TC-3.7a, TC-3.7c |
 | `tests/client/portlet.test.ts` | 3 | TC-3.1a, TC-5.4a, TC-3.7b |
 
-**Exit Criteria:** 17 new tests ERROR. Previous 27 PASS.
+**Exit Criteria:** 17 new tests ERROR. Previous 28 PASS.
 
 #### TDD Green
 
@@ -2162,15 +2165,15 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | `markdown.js` | `marked.parse()` with GFM options → `DOMPurify.sanitize()`. highlight.js for code blocks. |
 | `websocket.ts` | Wire `session:send` → session-manager → ACP. Stream events back as `session:update`/`session:chunk`/`session:complete`. |
 
-**Exit Criteria:** 44 tests PASS total. Manual: can chat with Claude Code through the app.
+**Exit Criteria:** 45 tests PASS total. Manual: can chat with Claude Code through the app.
 
-**Running total:** 44 tests
+**Running total:** 45 tests
 
 ---
 
 ### Story 4: Session Management
 
-**Scope:** Session CRUD via ACP, session listing with metadata join, session-to-project mapping, archive, persistence.
+**Scope:** Session CRUD via ACP, session listing from local metadata, session-to-project mapping, archive, persistence.
 
 **ACs:** AC-2.1, AC-2.2, AC-2.3, AC-2.4, AC-2.5
 **TCs:** TC-2.1a-c, TC-2.2a-f, TC-2.3a-b, TC-2.4a-c, TC-2.5a-b
@@ -2182,19 +2185,19 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | `tests/server/session-manager.test.ts` | 10 | TC-2.1a-c, TC-2.2a, TC-2.2f, TC-2.3a, TC-2.4a, TC-2.4c, TC-2.5a-b |
 | `tests/client/sidebar.test.ts` | +3 | TC-2.2b-c, TC-2.4b |
 
-**Exit Criteria:** 13 new tests ERROR. Previous 44 PASS.
+**Exit Criteria:** 13 new tests ERROR. Previous 45 PASS.
 
 #### TDD Green
 
 | Module | Implementation Notes |
 |--------|---------------------|
-| `session-manager.ts` | Full implementation. Join algorithm: local mappings + ACP list. Canonical ID helpers. Archive flag. |
+| `session-manager.ts` | Full implementation. Local metadata is the source of truth for `session:list` (no ACP list join). Canonical ID helpers. Archive flag. |
 | `websocket.ts` | Wire `session:create`, `session:open`, `session:list`, `session:archive`. |
 | `sidebar.js` | Session list rendering under projects. New Session button with CLI picker. Archive action. |
 
-**Exit Criteria:** 57 tests PASS total. Manual: full session lifecycle works.
+**Exit Criteria:** 58 tests PASS total. Manual: full session lifecycle works.
 
-**Running total:** 57 tests
+**Running total:** 58 tests
 
 ---
 
@@ -2209,9 +2212,9 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 
 | Test File | # Tests | TCs Covered |
 |-----------|---------|-------------|
-| `tests/client/tabs.test.ts` | 14 | TC-4.1a-b, TC-4.2a, TC-4.3a-b, TC-4.4a-c, TC-4.5a-b, TC-4.6a-b, TC-4.7a |
+| `tests/client/tabs.test.ts` | 14 | TC-4.1a-b, TC-4.2a, TC-4.3a-b, TC-4.4a-c, TC-4.5a-b, TC-4.6a-b, TC-4.7a, TC-2.3b |
 
-**Exit Criteria:** 14 new tests ERROR. Previous 57 PASS.
+**Exit Criteria:** 14 new tests ERROR. Previous 58 PASS.
 
 #### TDD Green
 
@@ -2219,9 +2222,9 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 |--------|---------------------|
 | `tabs.js` | Full implementation. Iframe map. CSS display toggle. HTML5 drag-and-drop. localStorage persistence. Adjacent tab activation on close. |
 
-**Exit Criteria:** 71 tests PASS total. Manual: tabs work with full behavior.
+**Exit Criteria:** 72 tests PASS total. Manual: tabs work with full behavior.
 
-**Running total:** 71 tests
+**Running total:** 72 tests
 
 ---
 
@@ -2229,7 +2232,7 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 
 **Scope:** Add Codex as second CLI type, implement connection status indicators in UI, browser refresh recovery, WebSocket integration tests.
 
-**ACs:** AC-5.2, AC-5.6, TC-2.2d, TC-2.2e
+**ACs:** AC-5.2, AC-5.6
 **TCs:** TC-5.2a-d, TC-5.6a-b, TC-2.2d, TC-2.2e
 
 #### TDD Red
@@ -2239,7 +2242,7 @@ Define machine-readable error codes for internal error classification. MVP WebSo
 | `tests/server/websocket.test.ts` | 6 | Integration round-trips, TC-3.7b cancel round-trip |
 | `tests/client/tabs.test.ts` | +1 | TC-5.6a |
 
-**Exit Criteria:** 7 new tests ERROR. Previous 71 PASS.
+**Exit Criteria:** 7 new tests ERROR. Previous 72 PASS.
 
 #### TDD Green
 
@@ -2264,15 +2267,17 @@ Story 0 (Infrastructure)
     └──→ Story 2a (ACP Client — Protocol Layer)
               ↓
          Story 2b (Agent Manager + WebSocket Bridge)
-              ├──→ Story 3 (Chat Session UI)
-              │         ↓
-              │    Story 4 (Session Management)
-              │         ↓
-              │    Story 5 (Tab Management)
-              └──→ Story 6 (Codex + Status + Integration)
+                       ↓
+                  Story 3 (Chat Session UI)
+                       ↓
+                  Story 4 (Session Management)
+                       ↓
+                  Story 5 (Tab Management)
+                       ↓
+                  Story 6 (Codex + Status + Integration)
 ```
 
-Story 0 is the foundation. Story 1 and Story 2a can proceed in parallel after Story 0. Story 2b depends on Story 2a (protocol must be validated before building the management layer). Story 3 depends on Story 2b (needs the full agent bridge). Story 4 depends on Story 2b + Story 3. Story 5 depends on Story 4. Story 6 depends on Story 2b (agent manager must exist).
+Story 0 is the foundation. Story 1 and Story 2a can proceed in parallel after Story 0. Story 2b depends on Story 2a (protocol must be validated before building the management layer). Story 3 depends on Story 2b (needs the full agent bridge). Story 4 depends on Story 2b + Story 3. Story 5 depends on Story 4. Story 6 executes after Story 5 (operationally sequential), with Story 2b as the architectural dependency for agent lifecycle/state behavior.
 
 ---
 

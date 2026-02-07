@@ -1,0 +1,5 @@
+{
+	"files": {
+		"includes": ["**", "!dist", "!tools/eslint-plugin-lb/dist"]
+	}
+}

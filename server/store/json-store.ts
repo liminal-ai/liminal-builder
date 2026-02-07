@@ -16,7 +16,7 @@ export class JsonStore<T> {
 	async read(): Promise<T> {
 		try {
 			const raw = await readFile(this.config.filePath, "utf-8");
-			const parsed: VersionedFile<T> = JSON.parse(raw);
+			const parsed = JSON.parse(raw) as VersionedFile<T>;
 			return parsed.data;
 		} catch (err: unknown) {
 			const code =
@@ -36,7 +36,7 @@ export class JsonStore<T> {
 			clearTimeout(this.debounceTimer);
 		}
 		this.debounceTimer = setTimeout(() => {
-			this.flush();
+			void this.flush();
 		}, this.config.writeDebounceMs);
 	}
 

@@ -62,7 +62,7 @@ story-N-{description}/
 - **Client tests:** `bun run test:client` (runs `vitest run tests/client`)
 - **Integration tests:** `bun run test:integration` (runs `vitest run tests/integration`)
 - Verify-phase script tiers:
-  - `bun run verify` = format:check + lint + typecheck + `bun run test`
+  - `bun run verify` = format:check + lint + lint:eslint + test:eslint-plugin + typecheck + `bun run test`
   - `bun run verify-all` = `bun run verify` + `bun run test:client` + `bun run test:integration` + `bun run test:e2e`
 - Each story's verify prompt (`prompt-N.R-verify.md`) must end on `bun run verify` or `bun run verify-all` as the final gate.
 

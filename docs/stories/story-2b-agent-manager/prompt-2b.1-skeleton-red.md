@@ -30,7 +30,6 @@ This prompt creates Red tests/skeleton for both AgentManager lifecycle and WebSo
 | File | Action | Purpose |
 |------|--------|---------|
 | `tests/server/agent-manager.test.ts` | **Create** | 10 tests covering agent lifecycle |
-| `tests/server/websocket.test.ts` | **Create/Update** | Red tests for WS bridge routing + outbound forwarding |
 | `server/acp/agent-manager.ts` | **Verify/Update** | Ensure class skeleton matches interface below |
 | `server/websocket.ts` | **Verify/Update** | Ensure WS bridge skeleton routes through AgentManager APIs |
 
@@ -472,22 +471,14 @@ This allows tests to inject mock spawn and mock AcpClient creation. The producti
 
 4. **Update the `AgentManager` export** to also export `AgentStatus` as a type.
 
-5. **Add WebSocket bridge Red coverage** in `tests/server/websocket.test.ts` and skeleton support in `server/websocket.ts`:
+5. **Add WebSocket bridge skeleton support** in `server/websocket.ts`:
 - Route inbound WebSocket messages: `session:create`, `session:open`, `session:send`, `session:cancel`
 - Verify each route calls `AgentManager.ensureAgent('claude-code')` then delegates to `AcpClient`
 - Verify `AgentManager` events are forwarded to WebSocket clients:
   - `agent:status` -> outbound `agent:status`
   - `error` -> outbound `error`
 - Add `requestId` pass-through assertions: when inbound messages include `requestId`, correlated responses/errors include the same `requestId`
-- Keep tests red where behavior is still unimplemented.
-
-**Required WS bridge test cases (minimum 5, explicit mocks + assertions):**
-Use explicit mocks for `AgentManager`, `AcpClient`, and WS `send()`, then assert exact outbound payload shapes per case.
-1. `session:create` calls `ensureAgent` then `sessionNew`, and emits `session:created` with `requestId` passthrough.
-2. `session:send` calls `ensureAgent` then `sessionPrompt`.
-3. `session:cancel` calls `ensureAgent` then `sessionCancel`.
-4. `agent:status` emitter events are forwarded as WS `agent:status`.
-5. AgentManager `error` events are forwarded as WS `error` with `requestId` correlation when available.
+- Story 2b does not add separate counted WS integration tests; end-to-end WS bridge test coverage is counted in Story 6 to preserve the 79-test ladder.
 
 ### Key Design Notes
 
@@ -502,7 +493,7 @@ Use explicit mocks for `AgentManager`, `AcpClient`, and WS `send()`, then assert
 - Do NOT implement any AgentManager methods (that is prompt 2b.2)
 - Do NOT modify `server/acp/acp-client.ts` -- it is complete from Story 2a
 - Do NOT modify files outside the specified list
-- Keep WebSocket changes limited to bridge skeletons and red tests for Story 2b routing/forwarding scope
+- Keep WebSocket changes limited to bridge skeletons for Story 2b routing/forwarding scope
 - Use Vitest APIs (`vitest`) in tests
 - Tests must mock `Bun.spawn` via dependency injection, not monkey-patching global
 - Do NOT add Codex runtime tests/config in Story 2b (deferred to Story 6)
@@ -525,17 +516,10 @@ bun run test -- tests/server/agent-manager.test.ts
 
 Run:
 ```bash
-bun run test -- tests/server/websocket.test.ts
-```
-
-**Expected output:** WebSocket bridge red tests run and fail for unimplemented routing/forwarding behavior.
-
-Run:
-```bash
 bun run test
 ```
 
-**Expected output:** Existing Story 1/2a tests still pass; new Story 2b red tests fail only for unimplemented AgentManager + WS bridge behavior.
+**Expected output:** Existing Story 1/2a tests still pass; new Story 2b red tests fail only for unimplemented AgentManager behavior.
 
 Run:
 ```bash
@@ -547,11 +531,9 @@ bun run typecheck
 ## Done When
 
 - [ ] `tests/server/agent-manager.test.ts` exists with 10 tests
-- [ ] `tests/server/websocket.test.ts` exists/updated with red coverage for `session:create/open/send/cancel` routing, outbound `agent:status` / `error`, and `requestId` correlation
 - [ ] `server/acp/agent-manager.ts` has class skeleton with dependency injection, constructor does NOT throw, methods throw NotImplementedError
 - [ ] `server/websocket.ts` has bridge skeleton entry points for Story 2b routes/events
 - [ ] `AgentStatus` type exported from agent-manager.ts
 - [ ] `bun run typecheck` passes
 - [ ] `bun run test -- tests/server/agent-manager.test.ts` runs with failures attributable to unimplemented Story 2b behavior
-- [ ] `bun run test -- tests/server/websocket.test.ts` runs with failures attributable to unimplemented Story 2b WS bridge behavior
 - [ ] `bun run test` preserves passing baseline outside the new Story 2b red assertions

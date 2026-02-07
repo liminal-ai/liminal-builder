@@ -325,7 +325,7 @@ bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/clien
 
 **Expected outcome:**
 - `bun run typecheck`: 0 errors
-- Prior tests: 27 pass, 0 fail
+- Prior tests: 28 pass, 0 fail
 - New tests: failing outcomes attributable to unimplemented Story 3 behavior
 
 ## Done When

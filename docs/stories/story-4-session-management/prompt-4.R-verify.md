@@ -11,7 +11,7 @@ Story 4 implemented session CRUD, listing, persistence, and archive: the Session
 **Prerequisites complete:**
 - Story 4 Green phase complete (session-manager.ts, websocket.ts, sidebar.js implemented)
 - 13 new tests written across 2 test files
-- 44 prior tests from Stories 0-3
+- 45 prior tests from Stories 0-3
 
 ## Reference Documents
 
@@ -43,7 +43,7 @@ bun run typecheck
 bun run verify
 ```
 
-**Expected:** `format:check`, lint, typecheck, and `bun run test` all pass.
+**Expected:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ### 4. Verify No Regressions
 

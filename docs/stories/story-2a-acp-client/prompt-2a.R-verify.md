@@ -65,7 +65,7 @@ bun run typecheck
 bun run verify
 ```
 
-**Expected:** All checks pass (format:check, lint, typecheck, and server tests).
+**Expected:** All checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ### 5. Full Gate
 
@@ -73,7 +73,7 @@ bun run verify
 bun run verify-all
 ```
 
-**Expected:** `bun run verify` plus integration and e2e checks all pass.
+**Expected:** `bun run verify` plus client tests, integration, and e2e checks all pass.
 
 ### 6. No Regressions
 

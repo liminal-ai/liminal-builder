@@ -4,7 +4,7 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio.
 
-This is Story 5 of the MVP build. Stories 0-4 have established the full server stack (project store, session manager, agent manager, ACP client), the chat UI (portlet with streaming, tool calls, thinking blocks), and the session management flow. 57 tests are currently passing.
+This is Story 5 of the MVP build. Stories 0-4 have established the full server stack (project store, session manager, agent manager, ACP client), the chat UI (portlet with streaming, tool calls, thinking blocks), and the session management flow. 58 tests are currently passing.
 
 Story 5 implements the tab bar in the shell. Each open session gets a tab element and a corresponding portlet iframe. The tab system provides instant switching (CSS display toggle), deduplication, drag-and-drop reorder, adjacent-tab activation on close, and state persistence in localStorage. All tab logic lives in `client/shell/tabs.js`.
 

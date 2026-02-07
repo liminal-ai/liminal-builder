@@ -82,22 +82,23 @@ The JSON store (`json-store.ts`) IS fully implemented in this story because it i
     "typescheck": "bun run typecheck",
     "format": "biome format --write .",
     "format:check": "biome format .",
-    "lint": "biome lint .",
-    "lint:fix": "biome lint --write .",
+    "lint": "biome lint --error-on-warnings .",
+    "lint:fix": "biome lint --write --error-on-warnings .",
+    "build:eslint-plugin": "tsc -p tools/eslint-plugin-lb/tsconfig.json",
+    "lint:eslint": "bun run build:eslint-plugin && eslint --max-warnings 0 server shared tests",
+    "lint:eslint:fix": "bun run build:eslint-plugin && eslint --max-warnings 0 --fix server shared tests",
+    "test:eslint-plugin": "vitest run tools/eslint-plugin-lb/tests --passWithNoTests",
     "test": "vitest run tests/server --passWithNoTests",
     "test:client": "vitest run tests/client --passWithNoTests",
     "test:integration": "vitest run tests/integration --passWithNoTests",
     "test:e2e": "echo \"No e2e tests configured yet\"",
-    "verify": "bun run format:check && bun run lint && bun run typecheck && bun run test",
+    "verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck && bun run test",
     "verify-all": "bun run verify && bun run test:client && bun run test:integration && bun run test:e2e"
   },
   "dependencies": {
     "fastify": "^5.0.0",
-    "@fastify/sensible": "^6.0.0",
     "@fastify/websocket": "^11.0.0",
     "@fastify/static": "^8.0.0",
-    "zod": "^3.25.0",
-    "fastify-type-provider-zod": "^4.0.0",
     "marked": "^15.0.0",
     "dompurify": "^3.2.0",
     "highlight.js": "^11.11.0"
@@ -1594,7 +1595,7 @@ export function makeRpcError(id: number, code: number, message: string): JsonRpc
 After creating all files, run these commands:
 
 1. `cd /Users/leemoore/code/liminal-builder && bun install` -- Install all dependencies
-2. `bun run verify` -- Verify format check, lint, typecheck, and `test` script
+2. `bun run verify` -- Verify full quality gate (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests)
 
 ## Constraints
 
@@ -1616,7 +1617,7 @@ After creating all files, run these commands:
 After creating all files and running `bun install`:
 
 ```bash
-# 1. Verify must pass (format, lint, typecheck, test)
+# 1. Verify must pass (full quality gate)
 bun run verify
 # Expected: No errors. Exit code 0.
 

@@ -76,8 +76,8 @@ Note: TC-4.2b (tab switch within 100ms) is a manual/performance test, not automa
 
 | Phase | This Story | Cumulative |
 |-------|-----------|------------|
-| Previous (Stories 0-4) | -- | 57 |
-| Story 5 | 14 | 71 |
+| Previous (Stories 0-4) | -- | 58 |
+| Story 5 | 14 | 72 |
 
 ## Prompts
 

@@ -20,7 +20,7 @@ Story 4 implements session CRUD, listing, persistence, and archive. In the prior
 - `client/shell/sidebar.js` -- Sidebar with project list, session stubs
 - `tests/server/session-manager.test.ts` -- 10 tests, all failing
 - `tests/client/sidebar.test.ts` -- 7 tests total (4 passing from Story 1, 3 failing new)
-- All 44 prior tests pass
+- All 45 prior tests pass
 
 ## Reference Documents
 
@@ -368,7 +368,7 @@ bun run verify
 - [ ] `client/shell/sidebar.js` renders session lists, CLI picker, archive action
 - [ ] All 10 session-manager tests pass
 - [ ] All 7 sidebar tests pass (4 prior + 3 new)
-- [ ] All 44 prior tests still pass
+- [ ] All 45 prior tests still pass
 - [ ] `bun run typecheck` passes
 - [ ] No test files modified
 - [ ] No files outside the specified list modified

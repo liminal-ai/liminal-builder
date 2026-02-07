@@ -16,9 +16,9 @@ This story has NO TDD cycle. There is no Red phase or Green phase. The work is s
 
 - Canonical scripts:
   - `test`: `vitest run tests/server --passWithNoTests`
-  - `verify`: `bun run format:check && bun run lint && bun run typecheck && bun run test`
-  - `verify-all`: `bun run verify && bun run test:integration && bun run test:e2e`
-- Baseline dependencies include: `@fastify/sensible`, `zod`, `fastify-type-provider-zod`
+  - `verify`: `bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck && bun run test`
+  - `verify-all`: `bun run verify && bun run test:client && bun run test:integration && bun run test:e2e`
+- Baseline dependencies follow the canonical `package.json` runtime dependency list for this branch
 
 ## ACs Covered
 
@@ -99,8 +99,8 @@ None directly. This is infrastructure-only. It enables all subsequent stories.
 
 ## Exit Criteria
 
-- `bun run verify` passes (format:check + lint + typecheck + `test` script)
+- `bun run verify` passes (format:check + biome lint + eslint + eslint-plugin tests + typecheck + `test` script)
 - `bun run dev` starts the server and serves shell HTML at `http://localhost:3000`
 - WebSocket connects when shell page loads in browser
-- `bun run verify-all` is available and runs `verify` + integration + e2e hooks
+- `bun run verify-all` is available and runs `verify` + client + integration + e2e hooks
 - All stub methods throw `NotImplementedError`

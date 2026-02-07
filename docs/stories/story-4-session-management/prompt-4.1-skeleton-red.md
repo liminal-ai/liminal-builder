@@ -24,7 +24,7 @@ In this Skeleton + Red phase, you will update the existing `SessionManager` stub
 - `client/shell/sidebar.js` -- Sidebar with project list, collapse/expand
 - `shared/types.ts` -- ChatEntry, ClientMessage, ServerMessage types
 - `tests/fixtures/sessions.ts` -- Mock session data
-- All 44 prior tests pass
+- All 45 prior tests pass
 
 ## Reference Documents
 
@@ -384,7 +384,7 @@ bun run test:client -- tests/client/sidebar.test.ts
 
 **Expected outcome:**
 - `bun run typecheck`: 0 errors
-- Full suite shows mixed RED results: ~44 passes (prior stories) and 13 failures/errors (new Story 4 tests)
+- Full suite shows mixed RED results: ~45 passes (prior stories) and 13 failures/errors (new Story 4 tests)
 - Isolated `session-manager` run shows failures attributable to unimplemented SessionManager behavior
 - Isolated `sidebar` run shows the 3 new Story 4 tests failing against stubs
 
@@ -394,6 +394,6 @@ bun run test:client -- tests/client/sidebar.test.ts
 - [ ] `client/shell/sidebar.js` has session rendering stubs and "New Session" button structure
 - [ ] `tests/server/session-manager.test.ts` exists with 10 tests, initially failing in RED
 - [ ] `tests/client/sidebar.test.ts` has 3 new tests (7 total), 3 failing
-- [ ] All 44 prior tests still pass
+- [ ] All 45 prior tests still pass
 - [ ] `bun run typecheck` passes
 - [ ] No files outside the specified list modified

@@ -12,7 +12,6 @@ This verification prompt confirms that Story 2b is complete: all tests pass, typ
 - `server/acp/agent-manager.ts` -- fully implemented (from prompt 2b.2)
 - `server/websocket.ts` -- WS bridge routing + forwarding implemented (from prompt 2b.2)
 - `tests/server/agent-manager.test.ts` -- 10 tests (from prompt 2b.1)
-- `tests/server/websocket.test.ts` -- Story 2b WS bridge tests (from prompt 2b.1)
 - Story dependency baseline present: Story 0 + Story 2a files in place (Story 1 may also be present in the sequential pipeline)
 
 ## Reference Documents
@@ -31,9 +30,9 @@ bun run test
 ```
 
 **Expected:** all server Vitest tests passing.
-- Story 2a baseline tests (8 in the standard shard)
+- Story 2a baseline tests (9 in the standard shard)
 - Story 1 tests if present in the current branch baseline
-- Story 2b coverage for agent-manager + websocket bridge
+- Story 2b coverage for agent-manager (WebSocket bridge behavior is implementation-audited here and integration-tested in Story 6)
 
 If any test fails, diagnose and fix. Report what was wrong and what you changed.
 
@@ -86,7 +85,7 @@ bun run typecheck
 bun run verify
 ```
 
-**Expected:** pass (`format:check`, `lint`, `typecheck`, `test`).
+**Expected:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
 
 ### 7. Implementation Audit
 
@@ -203,7 +202,7 @@ Report results in this format:
 - Details: ...
 
 ### 3. No Regressions (Story 2a): PASS/FAIL
-- 8/8 passing
+- 9/9 passing
 
 ### 4. No Regressions (Story 1): PASS/FAIL
 - X/X passing
