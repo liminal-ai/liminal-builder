@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProjectStore } from "../../server/projects/project-store";
@@ -15,6 +22,18 @@ describe("ProjectStore", () => {
 	let myAppPath: string;
 
 	beforeEach(() => {
+		if (typeof Bun === "undefined") {
+			Object.defineProperty(globalThis, "Bun", {
+				value: {
+					file: (path: string) => ({
+						exists: async () => existsSync(path),
+					}),
+				},
+				configurable: true,
+				writable: true,
+			});
+		}
+
 		tempDir = mkdtempSync(join(tmpdir(), "liminal-test-"));
 		projectAlphaPath = join(tempDir, "project-alpha");
 		projectBetaPath = join(tempDir, "project-beta");

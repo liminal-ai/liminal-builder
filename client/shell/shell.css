@@ -100,3 +100,58 @@
 	border-color: var(--accent-blue);
 	color: var(--accent-blue);
 }
+
+.project-group {
+	margin-bottom: 6px;
+	border: 1px solid var(--border-color);
+	border-radius: var(--radius-md);
+	background: var(--bg-tertiary);
+}
+
+.project-header {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+}
+
+.collapse-toggle,
+.remove-project-btn {
+	border: 1px solid var(--border-color);
+	border-radius: 4px;
+	background: transparent;
+	color: var(--fg-primary);
+	cursor: pointer;
+	line-height: 1;
+	padding: 2px 6px;
+}
+
+.project-name {
+	flex: 1;
+	font-size: 13px;
+	color: var(--fg-primary);
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.session-list {
+	padding: 4px 8px 8px 24px;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.session-item {
+	padding: 4px 6px;
+	border-radius: 4px;
+	background: var(--bg-secondary);
+	color: var(--fg-secondary);
+	font-size: 12px;
+}
+
+.project-list .empty-state {
+	height: auto;
+	padding: 12px;
+	justify-content: flex-start;
+}

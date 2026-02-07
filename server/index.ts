@@ -1,14 +1,24 @@
-import Fastify from "fastify";
-import fastifyWebsocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
+import fastifyWebsocket from "@fastify/websocket";
+import Fastify from "fastify";
 import { join } from "node:path";
+import type { Project } from "./projects/project-types";
+import { ProjectStore } from "./projects/project-store";
+import { JsonStore } from "./store/json-store";
 import { handleWebSocket } from "./websocket";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CLIENT_DIR = join(import.meta.dir, "..", "client");
+const PROJECTS_FILE = join(import.meta.dir, "..", "data", "projects.json");
 
 async function main() {
 	const app = Fastify({ logger: true });
+
+	const projectsStore = new JsonStore<Project[]>(
+		{ filePath: PROJECTS_FILE, writeDebounceMs: 500 },
+		[],
+	);
+	const projectStore = new ProjectStore(projectsStore);
 
 	// Static file serving for the client
 	await app.register(fastifyStatic, {
@@ -21,7 +31,7 @@ async function main() {
 
 	// WebSocket endpoint
 	app.get("/ws", { websocket: true }, (socket, _req) => {
-		handleWebSocket(socket);
+		handleWebSocket(socket, { projectStore });
 	});
 
 	// Start server

@@ -69,6 +69,6 @@ function connect() {
 // Initialize on DOM ready
 document.addEventListener("DOMContentLoaded", () => {
 	connect();
-	initSidebar();
+	initSidebar(sendMessage, onMessage);
 	initTabs();
 });

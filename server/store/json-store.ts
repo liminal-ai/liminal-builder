@@ -31,6 +31,11 @@ export class JsonStore<T> {
 	}
 
 	async write(data: T): Promise<void> {
+		if (this.config.writeDebounceMs <= 0) {
+			await this.writeSync(data);
+			return;
+		}
+
 		this.pendingData = data;
 		if (this.debounceTimer) {
 			clearTimeout(this.debounceTimer);

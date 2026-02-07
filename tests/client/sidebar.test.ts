@@ -24,26 +24,42 @@ function mockSendMessage(msg: object) {
 
 type SidebarModule = {
 	renderProjects: (
-		projects: Array<{ id: string; path: string; name: string; addedAt: string }>,
+		projects: Array<{
+			id: string;
+			path: string;
+			name: string;
+			addedAt: string;
+		}>,
 		sendMessage: (msg: object) => void,
 		sessionsByProject?: Record<
 			string,
-			Array<{ id: string; title: string; lastActiveAt: string; cliType: string }>
+			Array<{
+				id: string;
+				title: string;
+				lastActiveAt: string;
+				cliType: string;
+			}>
 		>,
 	) => void;
-	handleAddProject: (path: string | null, sendMessage: (msg: object) => void) => void;
+	handleAddProject: (
+		path: string | null,
+		sendMessage: (msg: object) => void,
+	) => void;
 	toggleCollapse: (projectId: string) => void;
 };
 
+const SIDEBAR_MODULE_PATH = "../../client/shell/sidebar.js";
+const CONSTANTS_MODULE_PATH = "../../client/shared/constants.js";
+
 async function importSidebar(): Promise<SidebarModule> {
-	// @ts-ignore Red phase: sidebar JS module has no TS declarations yet.
-	return await import("../../client/shell/sidebar.js");
+	const sidebarModule: unknown = await import(SIDEBAR_MODULE_PATH);
+	return sidebarModule as SidebarModule;
 }
 
 async function importCollapsedStorageKey(): Promise<string> {
-	// @ts-ignore Red phase: constants JS module has no TS declarations yet.
-	const { STORAGE_KEYS } = await import("../../client/shared/constants.js");
-	return STORAGE_KEYS.COLLAPSED;
+	const constantsModule: unknown = await import(CONSTANTS_MODULE_PATH);
+	return (constantsModule as { STORAGE_KEYS: { COLLAPSED: string } })
+		.STORAGE_KEYS.COLLAPSED;
 }
 
 describe("Sidebar", () => {
@@ -102,9 +118,9 @@ describe("Sidebar", () => {
 
 		renderProjects(mockProjects, mockSendMessage, { "proj-1": mockSessions });
 
-		const sessionList = document.querySelector(
+		const sessionList = document.querySelector<HTMLElement>(
 			'[data-project-id="proj-1"] .session-list',
-		) as HTMLElement | null;
+		);
 		expect(sessionList).not.toBeNull();
 		expect(sessionList?.hidden).toBe(false);
 
@@ -139,9 +155,9 @@ describe("Sidebar", () => {
 
 		renderProjects(mockProjects, mockSendMessage, { "proj-1": mockSessions });
 
-		const sessionList = document.querySelector(
+		const sessionList = document.querySelector<HTMLElement>(
 			'[data-project-id="proj-1"] .session-list',
-		) as HTMLElement | null;
+		);
 		expect(sessionList).not.toBeNull();
 		expect(sessionList?.hidden).toBe(true);
 	});
