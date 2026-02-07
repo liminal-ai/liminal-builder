@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 function setupDOM() {
 	document.body.innerHTML = `
@@ -68,6 +68,10 @@ describe("Sidebar", () => {
 		setupDOM();
 		sentMessages = [];
 		localStorage.clear();
+	});
+
+	afterEach(() => {
+		vi.restoreAllMocks();
 	});
 
 	it("TC-1.1b: empty state prompt rendered when no projects", async () => {

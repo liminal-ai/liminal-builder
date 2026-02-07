@@ -312,6 +312,13 @@ Each test file should:
 Run the following commands:
 
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+**Expected:** Passes — new test files and stub updates should not introduce lint, format, or type errors.
+
+```bash
 # Typecheck should pass
 bun run typecheck
 

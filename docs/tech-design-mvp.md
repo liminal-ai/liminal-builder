@@ -1841,6 +1841,16 @@ type ChatEntry =
 - **Bun runtime** remains the process/runtime layer; test execution is `vitest`-based for better project grouping and ecosystem tooling
 - **Biome** is the single formatter + linter (`format`, `format:check`, `lint`, `lint:fix`) to avoid Prettier + ESLint drift
 
+### Vitest/Node vs Bun Runtime Mismatch
+
+Vitest runs under Node, not Bun. Code that uses Bun-specific APIs (`Bun.file()`, `Bun.serve()`, `Bun.write()`, etc.) will fail in Vitest without intervention. Story 1 hit this concretely: `project-store.ts` originally used `Bun.file().exists()` and required a `globalThis.Bun` polyfill in tests before being refactored to `node:fs/promises` `stat()`.
+
+**Mitigation strategy (ordered by preference):**
+
+1. **Prefer `node:` stdlib APIs** (`node:fs/promises`, `node:path`, `node:crypto`, etc.) — these work identically in both Bun and Node.
+2. **When a Bun-specific API is unavoidable** (e.g., `Bun.spawn` for ACP process management), structure the code behind an injectable dependency so tests can substitute a mock without shimming the global.
+3. **Last resort:** add a `globalThis.Bun` shim in the test setup file, but document why the shim exists and plan to remove it if Bun gains native Vitest support.
+
 ### Manual Verification Checklist (Gorilla Testing)
 
 1. [ ] Start server: `bun run server/index.ts`

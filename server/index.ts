@@ -1,6 +1,7 @@
 import fastifyStatic from "@fastify/static";
 import fastifyWebsocket from "@fastify/websocket";
 import Fastify from "fastify";
+import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Project } from "./projects/project-types";
 import { ProjectStore } from "./projects/project-store";
@@ -9,7 +10,7 @@ import { handleWebSocket } from "./websocket";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CLIENT_DIR = join(import.meta.dir, "..", "client");
-const PROJECTS_FILE = join(import.meta.dir, "..", "data", "projects.json");
+const PROJECTS_FILE = join(homedir(), ".liminal-builder", "projects.json");
 
 async function main() {
 	const app = Fastify({ logger: true });

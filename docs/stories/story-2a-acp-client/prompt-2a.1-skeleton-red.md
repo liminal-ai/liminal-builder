@@ -671,6 +671,14 @@ describe('AcpClient', () => {
 
 Run:
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+**Expected:** Passes — new test files and fixture additions should not introduce lint, format, or type errors.
+
+Run:
+```bash
 bunx vitest run tests/server/acp-client.test.ts
 ```
 

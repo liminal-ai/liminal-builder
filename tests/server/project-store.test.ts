@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-	existsSync,
 	mkdtempSync,
 	mkdirSync,
 	readFileSync,
@@ -22,18 +21,6 @@ describe("ProjectStore", () => {
 	let myAppPath: string;
 
 	beforeEach(() => {
-		if (typeof Bun === "undefined") {
-			Object.defineProperty(globalThis, "Bun", {
-				value: {
-					file: (path: string) => ({
-						exists: async () => existsSync(path),
-					}),
-				},
-				configurable: true,
-				writable: true,
-			});
-		}
-
 		tempDir = mkdtempSync(join(tmpdir(), "liminal-test-"));
 		projectAlphaPath = join(tempDir, "project-alpha");
 		projectBetaPath = join(tempDir, "project-beta");
@@ -89,7 +76,7 @@ describe("ProjectStore", () => {
 			name: "AppError",
 		});
 
-		const projects = await store.read();
+		const projects = await projectStore.listProjects();
 		expect(projects).toHaveLength(0);
 	});
 
@@ -100,7 +87,7 @@ describe("ProjectStore", () => {
 			/already added|duplicate/i,
 		);
 
-		const projects = await store.read();
+		const projects = await projectStore.listProjects();
 		expect(projects).toHaveLength(1);
 		expect(projects[0]?.path).toBe(myAppPath);
 	});

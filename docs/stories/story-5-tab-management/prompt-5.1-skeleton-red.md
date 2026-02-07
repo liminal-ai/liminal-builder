@@ -532,6 +532,14 @@ describe('Tab Management', () => {
 
 Run:
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+Expected: Passes — new test files and skeleton should not introduce lint, format, or type errors.
+
+Run:
+```bash
 bun run test && bun run test:client
 ```
 

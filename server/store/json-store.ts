@@ -30,6 +30,16 @@ export class JsonStore<T> {
 		}
 	}
 
+	/**
+	 * Persist data to the JSON store.
+	 *
+	 * - When `writeDebounceMs <= 0`, writes are immediate (no debouncing).
+	 *   This is the mode used by tests (`writeDebounceMs: 0`) for synchronous
+	 *   store behavior without timer complications.
+	 * - When `writeDebounceMs > 0`, writes are debounced with the configured
+	 *   delay. Subsequent calls within the debounce window replace the pending
+	 *   data and reset the timer, so only the last write in a burst is flushed.
+	 */
 	async write(data: T): Promise<void> {
 		if (this.config.writeDebounceMs <= 0) {
 			await this.writeSync(data);

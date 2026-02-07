@@ -562,6 +562,14 @@ bun run typecheck
 
 **Expected output:** Zero type errors.
 
+Run:
+```bash
+# Full quality gate (format, lint, eslint, eslint-plugin tests, typecheck, test)
+bun run verify
+```
+
+**Expected:** All `bun run verify` checks pass.
+
 ## Done When
 
 - [ ] `server/acp/agent-manager.ts` fully implemented (no more NotImplementedError)
@@ -570,6 +578,7 @@ bun run typecheck
 - [ ] `server/websocket.ts` preserves `requestId` correlation for `session:created`, `session:history`, and `error` responses
 - [ ] `bun run test -- tests/server/agent-manager.test.ts` -- tests pass
 - [ ] `bun run test` -- total server tests pass (no regressions)
+- [ ] `bun run verify` -- quality gate passes (format, lint, eslint, typecheck, test)
 - [ ] `bun run typecheck` -- zero errors
 - [ ] AgentManager correctly:
   - Spawns agent on first `ensureAgent()` call (idle -> starting -> connected)

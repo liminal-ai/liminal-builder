@@ -370,6 +370,13 @@ const mockSessions: SessionMeta[] = [
 Run the following commands:
 
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+**Expected:** Passes — new test files and skeleton updates should not introduce lint, format, or type errors.
+
+```bash
 # Typecheck should pass
 bun run typecheck
 

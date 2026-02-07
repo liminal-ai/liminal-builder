@@ -31,6 +31,7 @@ export class AcpClient {
 	private readingStarted = false;
 	private closed = false;
 	private readBuffer = "";
+	private readLoopDone: Promise<void> | null = null;
 
 	constructor(stdin: WritableStream, stdout: ReadableStream) {
 		if (!this.isWritableLike(stdin)) {
@@ -50,7 +51,7 @@ export class AcpClient {
 	async initialize(): Promise<AcpInitializeResult> {
 		if (!this.readingStarted) {
 			this.readingStarted = true;
-			void this.startReadLoop();
+			this.readLoopDone = this.startReadLoop();
 		}
 
 		const result = await this.sendRequest<AcpInitializeResult>("initialize", {
@@ -131,9 +132,12 @@ export class AcpClient {
 		});
 	}
 
-	/** Close stdin to signal shutdown. Wait up to timeoutMs for exit. */
+	/** Close stdin to signal shutdown. Wait up to timeoutMs for exit.
+	 *  If the read loop exits within the timeout, pending requests are
+	 *  rejected by the read loop cleanup. Otherwise, the timeout
+	 *  force-rejects any remaining pending requests. */
 	async close(timeoutMs?: number): Promise<void> {
-		void timeoutMs;
+		const effectiveTimeout = timeoutMs ?? 5000;
 		this.closed = true;
 
 		try {
@@ -142,7 +146,23 @@ export class AcpClient {
 			this.emitError(this.toError(error));
 		}
 
-		this.rejectAllPending(new Error("Client closed"));
+		if (this.readLoopDone) {
+			const timeout = new Promise<"timeout">((resolve) => {
+				setTimeout(() => resolve("timeout"), effectiveTimeout);
+			});
+
+			const result = await Promise.race([
+				this.readLoopDone.then(() => "done" as const),
+				timeout,
+			]);
+
+			if (result === "timeout") {
+				this.rejectAllPending(new Error("Client closed"));
+			}
+		} else {
+			// Read loop was never started; reject immediately
+			this.rejectAllPending(new Error("Client closed"));
+		}
 	}
 
 	/** Register handler for unexpected errors (broken pipe, parse error) */
@@ -258,7 +278,9 @@ export class AcpClient {
 		const method = message.method;
 
 		if (typeof id === "number" && typeof method === "string") {
-			this.handleAgentRequest(id, method);
+			const rawParams = message.params;
+			const params = this.isRecord(rawParams) ? rawParams : undefined;
+			this.handleAgentRequest(id, method, params);
 			return;
 		}
 
@@ -305,7 +327,14 @@ export class AcpClient {
 		this.eventHandlers.get(sessionId)?.(update as AcpUpdateEvent);
 	}
 
-	private handleAgentRequest(id: number, method: string): void {
+	private handleAgentRequest(
+		id: number,
+		method: string,
+		params: Record<string, unknown> | undefined,
+	): void {
+		// params stored for future stories (fs/terminal delegation)
+		void params;
+
 		if (method === "session/request_permission") {
 			this.writeMessage({
 				jsonrpc: "2.0",

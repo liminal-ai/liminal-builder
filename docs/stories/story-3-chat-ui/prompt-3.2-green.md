@@ -343,6 +343,13 @@ Required translation rules:
 Run the following commands:
 
 ```bash
+# Full quality gate (format, lint, eslint, eslint-plugin tests, typecheck, test)
+bun run verify
+```
+
+**Expected:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
+
+```bash
 # Typecheck should pass
 bun run typecheck
 
@@ -369,6 +376,7 @@ bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/clien
 - [ ] All 5 input tests pass (TC-3.1b, TC-3.5a, TC-3.5b, TC-3.7a, TC-3.7c)
 - [ ] All 3 portlet tests pass (TC-3.1a, TC-5.4a, TC-3.7b)
 - [ ] All 28 prior tests still pass
+- [ ] `bun run verify` passes
 - [ ] `bun run typecheck` passes
 - [ ] No server files modified except `server/websocket.ts`
 - [ ] No test files modified

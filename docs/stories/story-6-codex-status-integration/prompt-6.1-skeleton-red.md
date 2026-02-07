@@ -506,6 +506,14 @@ export function updateAgentStatus(cliType, status) {
 
 Run:
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+Expected: Passes — new test additions, stubs, and CSS should not introduce lint, format, or type errors.
+
+Run:
+```bash
 bun run test
 ```
 

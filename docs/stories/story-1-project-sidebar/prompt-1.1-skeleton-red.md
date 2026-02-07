@@ -382,6 +382,13 @@ describe('Sidebar', () => {
 ## Verification
 
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+**Expected:** Passes — new test files should not introduce lint, format, or type errors.
+
+```bash
 # Server tests (5 tests, all should fail against stubs)
 bun run test
 

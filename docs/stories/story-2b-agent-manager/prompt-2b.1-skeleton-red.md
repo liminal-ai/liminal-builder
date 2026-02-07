@@ -509,6 +509,14 @@ This allows tests to inject mock spawn and mock AcpClient creation. The producti
 
 Run:
 ```bash
+# Full quality gate (format, lint, eslint, typecheck, test)
+bun run verify
+```
+
+**Expected:** Passes — new test files and skeleton updates should not introduce lint, format, or type errors.
+
+Run:
+```bash
 bun run test -- tests/server/agent-manager.test.ts
 ```
 

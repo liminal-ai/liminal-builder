@@ -12,7 +12,7 @@ import type { Project } from "./project-types";
  * Covers: AC-1.1-1.3 (project management)
  */
 export class ProjectStore {
-	constructor(public store: JsonStore<Project[]>) {}
+	constructor(private store: JsonStore<Project[]>) {}
 
 	/** Add project. Validates path exists, checks duplicates. */
 	async addProject(path: string): Promise<Project> {
