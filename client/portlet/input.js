@@ -105,7 +105,7 @@ export function enable() {
 	}
 
 	messageInput.disabled = false;
-	sendBtn.disabled = false;
+	updateSendButtonState();
 	hideWorking();
 	hideCancel();
 }

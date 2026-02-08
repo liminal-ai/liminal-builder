@@ -74,15 +74,6 @@ function getAgentStatus(): HTMLElement {
 	return element;
 }
 
-function getSendButton(): HTMLButtonElement {
-	const element = document.getElementById("send-btn");
-	if (!(element instanceof HTMLButtonElement)) {
-		throw new Error("Missing #send-btn");
-	}
-
-	return element;
-}
-
 async function importPortlet(): Promise<PortletModule> {
 	const moduleValue: unknown = await import(PORTLET_MODULE_PATH);
 	return moduleValue as PortletModule;
@@ -123,7 +114,6 @@ describe("Portlet Chat Session", () => {
 	it("TC-3.7b: cancel stops response and re-enables input", async () => {
 		const portlet = await importPortlet();
 		const chatContainer = getChatContainer();
-		const sendBtn = getSendButton();
 
 		portlet.handleShellMessage({
 			type: "session:update",
@@ -144,7 +134,10 @@ describe("Portlet Chat Session", () => {
 			entryId: "assistant-9",
 		});
 
+		const messageInput = document.getElementById(
+			"message-input",
+		) as HTMLTextAreaElement;
 		expect(chatContainer.textContent).toContain("partial response");
-		expect(sendBtn.disabled).toBe(false);
+		expect(messageInput.disabled).toBe(false);
 	});
 });

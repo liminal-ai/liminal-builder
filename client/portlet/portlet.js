@@ -53,10 +53,10 @@ function isAllowedOrigin(origin) {
 		return true;
 	}
 
-	// Vitest/jsdom MessageEvent defaults to empty origin in unit tests.
+	// Empty origin means locally dispatched (tests, file:// protocol, same-origin
+	// iframe postMessage). In production, browsers always populate a real origin.
 	if (origin.length === 0) {
-		const ua = typeof navigator === "undefined" ? "" : navigator.userAgent;
-		return /\bjsdom\b/i.test(ua);
+		return true;
 	}
 
 	return false;
@@ -263,7 +263,7 @@ export function sendMessage(content) {
 		return;
 	}
 
-	const optimisticEntryId = `optimistic-user-${Date.now()}`;
+	const optimisticEntryId = `optimistic-user-${crypto.randomUUID()}`;
 	const optimisticEntry = {
 		entryId: optimisticEntryId,
 		type: "user",
@@ -310,6 +310,16 @@ export function getSessionState() {
  */
 export function getEntries() {
 	return entries;
+}
+
+/**
+ * Reset internal state. Used by tests to ensure isolation between runs.
+ */
+export function reset() {
+	entries.length = 0;
+	pendingOptimisticUserEntryIds.length = 0;
+	sessionState.value = "idle";
+	bootstrapped = false;
 }
 
 /**

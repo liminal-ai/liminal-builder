@@ -9,15 +9,18 @@
 </head>
 <body>
   <div id="portlet" class="portlet-layout">
+    <div id="agent-status" class="agent-status"></div>
     <div id="chat-container" class="chat-container">
       <!-- Chat entries rendered by chat.js -->
     </div>
+    <button id="scroll-to-bottom" class="scroll-to-bottom" hidden>Scroll to bottom</button>
     <div id="input-bar" class="input-bar">
       <textarea id="message-input" class="message-input"
         placeholder="Send a message..."
         rows="1"></textarea>
       <button id="send-btn" class="btn btn-send">Send</button>
       <button id="cancel-btn" class="btn btn-cancel" hidden>Cancel</button>
+      <div id="working-indicator" class="working-indicator" hidden>Working...</div>
     </div>
   </div>
 
