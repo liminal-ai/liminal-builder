@@ -4,7 +4,7 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio JSON-RPC.
 
-This is Story 6, the final story of the MVP build. Stories 0-5 have delivered the full stack: project management, session CRUD, ACP protocol, agent lifecycle, chat UI with streaming/tool-calls/thinking, and tab management. 72 tests are currently passing.
+This is Story 6, the final story of the MVP build. Stories 0-5 have delivered the full stack: project management, session CRUD, ACP protocol, agent lifecycle, chat UI with streaming/tool-calls/thinking, and tab management. 87 tests are currently passing.
 
 Story 6 adds: (1) Codex CLI command config, (2) connection status indicators, (3) WebSocket browser-side reconnection with backoff, (4) browser refresh recovery, and (5) WebSocket integration tests verifying full message round-trips.
 
@@ -21,7 +21,7 @@ The RED phase creates 7 new failing tests: 6 integration tests in `tests/server/
 - `client/portlet/portlet.js` -- postMessage handler for session messages
 - `client/portlet/portlet.css` -- Chat and input styles
 - `client/shell/sidebar.js` -- Project/session list rendering
-- 72 tests passing
+- 87 tests passing
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -495,7 +495,7 @@ export function updateAgentStatus(cliType, status) {
 - Do NOT implement full Story 6 logic in this phase; placeholders are allowed but must not break existing passing tests.
 - Do NOT modify the implementations of existing passing functions
 - New Story 6 tests should fail against currently unimplemented behavior (RED phase)
-- All 72 previous tests MUST still pass
+- All 87 previous tests MUST still pass
 - Integration tests have real assertions that should fail meaningfully (FAIL/ERROR) because full Story 6 behavior is not implemented yet
 - The connection status CSS can be fully written (it is presentational, not logic)
 - AC-5.2 UI rendering checks (status dot class, disabled input, reconnect button visibility) are manual-only in Story 6; they are validated in Gorilla checklist steps and not added as new automated client tests in this prompt.
@@ -522,9 +522,9 @@ bun run test
 ```
 
 Expected:
-- 72 previous tests: PASS
+- 87 previous tests: PASS
 - 7 new tests: failing outcomes (FAIL/ERROR) against unimplemented Story 6 behavior
-- Total: 79 tests, 7 failing
+- Total: 94 tests, 7 failing
 
 Run:
 ```bash
@@ -541,6 +541,6 @@ Expected: zero errors
 - [ ] Connection status CSS added to `client/portlet/portlet.css`
 - [ ] Reconnect button stub added to `client/shell/sidebar.js`
 - [ ] New Story 6 tests fail in RED for implementation-relevant reasons
-- [ ] All 72 previous tests still pass
+- [ ] All 87 previous tests still pass
 - [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes with zero errors

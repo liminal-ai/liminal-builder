@@ -9,11 +9,11 @@ Story 6 is the final story of the Liminal Builder MVP. It adds four capabilities
 3. **Browser refresh recovery** -- WebSocket reconnection with exponential backoff on the browser side, plus localStorage-based tab restoration on refresh. Agent processes survive browser refresh because they are server-managed.
 4. **WebSocket integration tests** -- Full round-trip tests verifying the message pipeline from WebSocket client through server to mocked ACP and back.
 
-This story brings the total test count to 79, completing the MVP test suite.
+This story brings the total test count to 94, completing the MVP test suite.
 
 ## Prerequisites
 
-- Operational prerequisite: Stories 0-5 complete (sequential pipeline): 72 tests passing
+- Operational prerequisite: Stories 0-5 complete (sequential pipeline): 87 tests passing
 - Architectural dependency: Story 2b (agent manager lifecycle/reconnect foundation)
 - Working directory: `/Users/leemoore/code/liminal-builder`
 - `server/acp/agent-manager.ts` has AgentManager with lifecycle state machine
@@ -56,7 +56,9 @@ WebSocket integration tests:
 | File | Changes |
 |------|---------|
 | `server/acp/agent-manager.ts` | Add Codex CLI command configuration |
-| `client/shell/shell.js` | WebSocket reconnection logic with exponential backoff, resync on reconnect |
+| `server/websocket.ts` | Wire `session:reconnect` handler to `agentManager.reconnect()` (currently returns "not implemented" error) |
+| `server/index.ts` | Add SIGINT/SIGTERM graceful shutdown hook: `process.on('SIGINT', async () => { await agentManager.shutdownAll(); await app.close(); })` |
+| `client/shell/shell.js` | WebSocket reconnection logic with exponential backoff, resync on reconnect. Also: add `agent:status` broadcast to all portlet iframes (Story 5's `routeToPortlet` only handles session-scoped messages by sessionId; `agent:status` carries cliType and must broadcast to all portlets). |
 | `client/portlet/portlet.js` | Connection status indicator handling |
 | `client/portlet/portlet.css` | Connection status dot styles |
 | `client/shell/sidebar.js` | Reconnect button per CLI type when disconnected |
@@ -67,7 +69,6 @@ WebSocket integration tests:
 
 | File | Role |
 |------|------|
-| `server/websocket.ts` | WebSocket message handler |
 | `server/acp/acp-client.ts` | ACP JSON-RPC protocol |
 | `server/acp/acp-types.ts` | ACP type definitions |
 | `shared/types.ts` | ChatEntry, ClientMessage, ServerMessage |
@@ -96,8 +97,8 @@ WebSocket integration tests:
 
 | Phase | This Story | Cumulative |
 |-------|-----------|------------|
-| Previous (Stories 0-5) | -- | 72 |
-| Story 6 | 7 | 79 (FINAL) |
+| Previous (Stories 0-5) | -- | 87 |
+| Story 6 | 7 | 94 (FINAL) |
 
 ## Prompts
 
@@ -105,15 +106,17 @@ WebSocket integration tests:
 |--------|-------|-------------|
 | `prompt-6.1-skeleton-red.md` | Skeleton + Red | WebSocket integration test structure + status indicator stubs + 7 failing tests |
 | `prompt-6.2-green.md` | Green | Full implementation: Codex config, status indicators, WS reconnection, integration tests pass |
-| `prompt-6.R-verify.md` | Verify | FINAL: 79 tests pass, full traceability check, manual verification checklist |
+| `prompt-6.R-verify.md` | Verify | FINAL: 94 tests pass, full traceability check, manual verification checklist |
 
 ## Exit Criteria
 
-- 79 tests PASS total (72 previous + 7 new) -- FINAL MVP test count
+- 94 tests PASS total (87 previous + 7 new) -- FINAL MVP test count
 - `bun run typecheck` passes with zero errors
 - `bun run verify` passes
 - `bun run verify-all` passes
 - Codex CLI command configured in agent-manager.ts
+- `session:reconnect` handler wired in websocket.ts (no longer returns "not implemented")
+- SIGINT/SIGTERM graceful shutdown wired in index.ts (calls agentManager.shutdownAll())
 - Connection status indicators visible in session header
 - WebSocket reconnection with backoff on browser side
 - Browser refresh recovers tabs from localStorage

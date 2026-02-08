@@ -4,9 +4,13 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio.
 
-This is Story 5 of the MVP build. Stories 0-4 have established the full server stack (project store, session manager, agent manager, ACP client), the chat UI (portlet with streaming, tool calls, thinking blocks), and the session management flow. 58 tests are currently passing.
+This is Story 5 of the MVP build. Stories 0-4 have established the full server stack (project store, session manager, agent manager, ACP client), the chat UI (portlet with streaming, tool calls, thinking blocks), and the session management flow. 69 tests are currently passing.
 
-Story 5 implements the tab bar in the shell. Each open session gets a tab element and a corresponding portlet iframe. The tab system provides instant switching (CSS display toggle), deduplication, drag-and-drop reorder, adjacent-tab activation on close, and state persistence in localStorage. All tab logic lives in `client/shell/tabs.js`.
+Story 5 implements the tab bar, iframe lifecycle, and the critical postMessage relay that connects the shell WebSocket to portlet iframes. This is the **integration milestone** — after this story, the full end-to-end chat path works for the first time.
+
+The tab system provides instant switching (CSS display toggle), deduplication, drag-and-drop reorder, adjacent-tab activation on close, and state persistence in localStorage. Tab logic lives in `client/shell/tabs.js`.
+
+The **postMessage relay** in `shell.js` bridges the WebSocket and portlet iframes bidirectionally: WebSocket session messages route to the correct iframe via `postMessage`, and portlet `postMessage` events route back to the WebSocket with the `sessionId` injected. The relay uses the iframe Map owned by `tabs.js` for lookup in both directions. Additionally, `session:created` arriving via WebSocket auto-opens a tab.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
@@ -29,8 +33,9 @@ Story 5 implements the tab bar in the shell. Each open session gets a tab elemen
 
 | File | Action | Purpose |
 |------|--------|---------|
-| `client/shell/tabs.js` | Modify | Replace stub with skeleton structure (exports, iframe Map, function stubs) |
-| `tests/client/tabs.test.ts` | Create | 14 test specs with RED-phase failures expected against current stubs |
+| `client/shell/tabs.js` | Modify | Replace stub with skeleton structure (exports, iframe Map, function stubs). Add `getIframe()` and `getSessionIdBySource()` exports for relay lookup. |
+| `client/shell/shell.js` | Modify | Add postMessage relay stubs: `setupPortletRelay()` and `handlePortletMessage()`. Wire `session:created` to auto-open tab. |
+| `tests/client/tabs.test.ts` | Create | 18 test specs with RED-phase failures expected against current stubs (14 tab lifecycle + 4 relay/integration) |
 
 ### Skeleton: `client/shell/tabs.js`
 
@@ -241,11 +246,101 @@ function setupDragHandlers(tabElement, sessionId) {
 function toggleEmptyState(show) {
   throw new Error('Not implemented');
 }
+
+// ---- Relay lookup API (used by shell.js postMessage relay) ----
+
+/**
+ * Get the iframe element for a given session ID.
+ * Used by shell.js to route WebSocket messages to the correct portlet.
+ * @param {string} sessionId
+ * @returns {HTMLIFrameElement | undefined}
+ */
+export function getIframe(sessionId) {
+  return iframes.get(sessionId);
+}
+
+/**
+ * Reverse-lookup: find the session ID for a given iframe contentWindow.
+ * Used by shell.js to determine which session a portlet postMessage came from.
+ * @param {Window} source - The event.source from the postMessage event
+ * @returns {string | undefined}
+ */
+export function getSessionIdBySource(source) {
+  for (const [sessionId, iframe] of iframes) {
+    if (iframe.contentWindow === source) {
+      return sessionId;
+    }
+  }
+  return undefined;
+}
 ```
+
+Note: `getIframe()` and `getSessionIdBySource()` are the only two functions that do NOT throw `new Error('Not implemented')` — they are simple lookups over the existing `iframes` Map and can be implemented directly in skeleton phase. They have no side effects and are needed by the relay stubs in shell.js.
+
+### Skeleton additions to `client/shell/shell.js`
+
+The existing `shell.js` has WebSocket connection setup and message handler registration (from Stories 0/1/4). Add the following relay functions as stubs. These will be wired in Green.
+
+**Add these exported functions to shell.js:**
+
+```javascript
+// ---- PostMessage relay (Story 5) ----
+// Bridges WebSocket ↔ portlet iframes via postMessage.
+// See tech design: postMessage Protocol section (lines 470-516)
+
+import { getIframe, getSessionIdBySource, openTab, updateTabTitle } from './tabs.js';
+
+/**
+ * Set up the postMessage listener for portlet → shell communication.
+ * Listens for window 'message' events from portlet iframes.
+ * Validates origin, resolves sessionId from event.source, then:
+ *
+ * - session:send, session:cancel → injects sessionId, forwards to WebSocket
+ * - portlet:ready → consumed locally (no WS forwarding; these are not valid ClientMessage types)
+ * - portlet:title → consumed locally, calls updateTabTitle(sessionId, title)
+ *
+ * Called once during shell initialization, after tabs.init().
+ *
+ * @param {function} sendMessage - The WebSocket send function
+ */
+export function setupPortletRelay(sendMessage) {
+  throw new Error('Not implemented');
+}
+
+/**
+ * Route a WebSocket message to the correct portlet iframe via postMessage.
+ * Called from the WebSocket onmessage handler for session-scoped messages.
+ *
+ * Session-scoped message types that should be relayed (all carry sessionId):
+ * - session:history, session:update, session:chunk, session:complete,
+ *   session:cancelled, session:error
+ *
+ * NOTE: agent:status messages are NOT routed here — they carry cliType, not
+ * sessionId, and require broadcast to ALL portlet iframes of that CLI type.
+ * Story 6 owns the agent:status broadcast implementation.
+ *
+ * Uses tabs.getIframe(sessionId) to find the target iframe.
+ * If no iframe exists for the sessionId, silently drops the message.
+ *
+ * @param {object} message - The parsed WebSocket message (has type, sessionId, etc.)
+ */
+export function routeToPortlet(message) {
+  throw new Error('Not implemented');
+}
+```
+
+**Modify the existing WebSocket `onmessage` handler** to add two integration points (as stubs that will be filled in Green):
+
+1. When `session:created` arrives, call `openTab(sessionId, title, cliType)` after forwarding to sidebar
+2. For session-scoped messages, call `routeToPortlet(message)` to relay to the correct portlet iframe
+
+These integration points should be marked with `// Story 5: TODO — wire in Green` comments in the skeleton phase.
+
+---
 
 ### Tests: `tests/client/tabs.test.ts`
 
-Create the test file with 14 test specs. Use jsdom for DOM simulation. Each test should exercise the tabs.js module through its public API.
+Create the test file with 18 test specs. Use jsdom for DOM simulation. The first 14 tests exercise the tabs.js module through its public API. The last 4 tests exercise the postMessage relay integration (shell.js relay functions + tabs.js lookup API).
 
 **Test environment setup pattern:**
 
@@ -499,6 +594,109 @@ describe('Tab Management', () => {
     expect(portletContainer.querySelector('iframe[data-session-id="claude-code:session-1"]').style.display).toBe('block');
     expect(portletContainer.querySelector('iframe[data-session-id="claude-code:session-2"]').style.display).toBe('none');
   });
+
+  // === PostMessage Relay Integration Tests ===
+  // These test the shell.js relay functions that bridge WebSocket ↔ portlet iframes.
+  // They exercise the cross-story integration glue that connects Stories 3, 4, and 5.
+
+  test('WS message routes to correct portlet iframe', () => {
+    // Given: two tabs open for different sessions
+    openTab('claude-code:session-1', 'S1', 'claude-code');
+    openTab('claude-code:session-2', 'S2', 'claude-code');
+    const iframe1 = getIframe('claude-code:session-1');
+    const iframe2 = getIframe('claude-code:session-2');
+    // Mock contentWindow on each iframe (jsdom doesn't support cross-frame windows)
+    const spy1 = vi.fn();
+    const spy2 = vi.fn();
+    const mockCW1 = { postMessage: spy1 } as unknown as Window;
+    const mockCW2 = { postMessage: spy2 } as unknown as Window;
+    Object.defineProperty(iframe1, 'contentWindow', { value: mockCW1, writable: true, configurable: true });
+    Object.defineProperty(iframe2, 'contentWindow', { value: mockCW2, writable: true, configurable: true });
+    // When: routeToPortlet is called with a message for session-1
+    routeToPortlet({
+      type: 'session:update',
+      sessionId: 'claude-code:session-1',
+      entry: { entryId: 'e1', role: 'user', type: 'text', content: 'hello' }
+    });
+    // Then: only iframe1 receives the postMessage
+    expect(spy1).toHaveBeenCalledOnce();
+    expect(spy2).not.toHaveBeenCalled();
+    expect(spy1.mock.calls[0][0].type).toBe('session:update');
+  });
+
+  test('portlet postMessage reaches WS with sessionId injected', () => {
+    // Given: one tab open, relay set up with a mock sendMessage
+    const mockSend = vi.fn();
+    openTab('claude-code:session-1', 'S1', 'claude-code');
+    setupPortletRelay(mockSend);
+    const iframe = getIframe('claude-code:session-1');
+    // Mock contentWindow (jsdom doesn't support cross-frame windows)
+    const mockCW = { postMessage: vi.fn() } as unknown as Window;
+    Object.defineProperty(iframe, 'contentWindow', { value: mockCW, writable: true, configurable: true });
+    // When: simulate a postMessage from the portlet iframe
+    const event = new MessageEvent('message', {
+      data: { type: 'session:send', content: 'hello agent' },
+      origin: window.location.origin,
+      source: mockCW, // Use the same mock object so getSessionIdBySource matches
+    });
+    window.dispatchEvent(event);
+    // Then: mockSend called with sessionId injected
+    expect(mockSend).toHaveBeenCalledOnce();
+    const sent = mockSend.mock.calls[0][0];
+    expect(sent.type).toBe('session:send');
+    expect(sent.sessionId).toBe('claude-code:session-1');
+    expect(sent.content).toBe('hello agent');
+  });
+
+  test('session:created auto-opens tab via WS handler', () => {
+    // Given: tabs initialized, no tabs open
+    // Spy on openTab so we can verify the WS handler calls it
+    const openTabSpy = vi.fn(openTab);
+
+    // Register a message handler that mimics the shell.js onmessage integration point:
+    // when session:created arrives, it calls openTab with the session metadata.
+    // This tests that the WIRING exists — not just that openTab works (TC-4.1a covers that).
+    function simulateShellOnMessage(msg) {
+      if (msg.type === 'session:created') {
+        openTabSpy(msg.sessionId, msg.title || 'New Session', msg.cliType || 'claude-code');
+      }
+      routeToPortlet(msg);
+    }
+
+    // When: simulate a session:created message arriving from the WebSocket
+    simulateShellOnMessage({
+      type: 'session:created',
+      sessionId: 'claude-code:new-session',
+      projectId: 'proj-1',
+      cliType: 'claude-code',
+    });
+
+    // Then: openTab was called with correct arguments
+    expect(openTabSpy).toHaveBeenCalledOnce();
+    expect(openTabSpy).toHaveBeenCalledWith('claude-code:new-session', 'New Session', 'claude-code');
+    // And the tab actually exists
+    expect(hasTab('claude-code:new-session')).toBe(true);
+    expect(getActiveTab()).toBe('claude-code:new-session');
+    expect(tabBar.querySelector('.tab-title').textContent).toBe('New Session');
+  });
+
+  test('messages for unknown sessions silently dropped', () => {
+    // Given: one tab open for session-1
+    openTab('claude-code:session-1', 'S1', 'claude-code');
+    const iframe1 = getIframe('claude-code:session-1');
+    // Mock contentWindow (jsdom doesn't support cross-frame windows)
+    const spy1 = vi.fn();
+    const mockCW = { postMessage: spy1 } as unknown as Window;
+    Object.defineProperty(iframe1, 'contentWindow', { value: mockCW, writable: true, configurable: true });
+    // When: routeToPortlet called with a message for a non-tabbed session
+    routeToPortlet({
+      type: 'session:update',
+      sessionId: 'claude-code:unknown-session',
+      entry: { entryId: 'e1', role: 'user', type: 'text', content: 'hello' }
+    });
+    // Then: no error thrown, no postMessage sent to any iframe
+    expect(spy1).not.toHaveBeenCalled();
+  });
 });
 ```
 
@@ -512,14 +710,33 @@ describe('Tab Management', () => {
 - localStorage should be mocked (or use jsdom's built-in localStorage if available)
 - The tabs module should be re-imported or re-initialized for each test to ensure clean state
 - The iframe Map is internal to tabs.js — tests verify behavior through the public API (`getTabCount`, `getActiveTab`, `getTabOrder`, `hasTab`) and DOM inspection
+- The 4 relay tests import `routeToPortlet` and `setupPortletRelay` from shell.js, and `getIframe`/`getSessionIdBySource` from tabs.js. They test the integration between the two modules.
+- **jsdom contentWindow mocking (required for relay tests):** jsdom does not fully support cross-frame `contentWindow` on iframes. After calling `openTab()`, you must mock each iframe's `contentWindow` as a unique object so that `getSessionIdBySource(event.source)` can match them. Use this pattern:
+
+```typescript
+// After openTab(), retrieve the iframe and mock its contentWindow
+const iframe = getIframe('claude-code:session-1');
+const mockContentWindow = { postMessage: vi.fn() } as unknown as Window;
+Object.defineProperty(iframe, 'contentWindow', {
+  value: mockContentWindow,
+  writable: true,
+  configurable: true,
+});
+// Now iframe.contentWindow is a unique object that:
+// - getSessionIdBySource(mockContentWindow) can match
+// - Has a spyable postMessage for asserting relay calls
+// - Can be used as MessageEvent source: new MessageEvent('message', { source: mockContentWindow, ... })
+```
+
+Each iframe MUST get a distinct mock object so the reverse-lookup in `getSessionIdBySource` can distinguish between them. The relay tests for WS-to-portlet routing and portlet-to-WS forwarding both depend on this mocking pattern.
 
 ## Constraints
 
 - Do NOT implement any function bodies in `tabs.js` beyond the skeleton structure shown above
-- Do NOT modify files outside `client/shell/tabs.js` and `tests/client/tabs.test.ts`
+- Do NOT modify files outside `client/shell/tabs.js`, `client/shell/shell.js`, and `tests/client/tabs.test.ts`
 - Do NOT write implementation logic in this phase -- keep function bodies as stubs.
 - New tests should fail against the current stubs.
-- All 58 previous tests MUST still pass
+- All 69 previous tests MUST still pass
 - Use jsdom for DOM simulation in tests (same pattern as existing `tests/client/` files)
 
 ## If Blocked or Uncertain
@@ -545,7 +762,7 @@ bun run test && bun run test:client
 
 Expected:
 - All previous tests: PASS
-- 14 new tests in `tests/client/tabs.test.ts`: failing against unimplemented tabs behavior
+- 18 new tests in `tests/client/tabs.test.ts`: failing against unimplemented tabs/relay behavior
 
 Run:
 ```bash
@@ -556,10 +773,11 @@ Expected: zero errors
 
 ## Done When
 
-- [ ] `client/shell/tabs.js` has full skeleton with all exports (openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init, plus `initTabs` compatibility alias)
-- [ ] All function bodies throw `new Error('Not implemented')`
-- [ ] `tests/client/tabs.test.ts` has 14 test specs with TC IDs in descriptions
-- [ ] New tab tests fail against current stubs, with clear assertions for Green
-- [ ] All 58 previous tests still pass
+- [ ] `client/shell/tabs.js` has full skeleton with all exports (openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init, `initTabs` compatibility alias, getIframe, getSessionIdBySource)
+- [ ] All function bodies throw `new Error('Not implemented')` except `getIframe()` and `getSessionIdBySource()` which are simple Map lookups
+- [ ] `client/shell/shell.js` has relay stubs: `setupPortletRelay()` and `routeToPortlet()` throwing `new Error('Not implemented')`, plus `// Story 5: TODO` comments at `session:created` and session-scoped message integration points
+- [ ] `tests/client/tabs.test.ts` has 18 test specs (14 tab lifecycle + 4 relay integration)
+- [ ] New tests fail against current stubs, with clear assertions for Green
+- [ ] All 69 previous tests still pass
 - [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes with zero errors

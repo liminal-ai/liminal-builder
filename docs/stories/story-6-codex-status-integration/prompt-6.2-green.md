@@ -13,7 +13,7 @@ This is the GREEN phase of Story 6 -- the final implementation story of the MVP.
 - `tests/client/tabs.test.ts` -- 1 new test spec for TC-5.6a (failing)
 - Connection status stubs in `client/portlet/portlet.js` and `client/shell/sidebar.js`
 - Connection status CSS in `client/portlet/portlet.css`
-- 72 previous tests passing, 7 new tests failing
+- 87 previous tests passing, 7 new tests failing
 
 ## Reference Documents
 (For human traceability -- key content inlined below)
@@ -27,6 +27,8 @@ This is the GREEN phase of Story 6 -- the final implementation story of the MVP.
 | File | Action | Purpose |
 |------|--------|---------|
 | `server/acp/agent-manager.ts` | Modify | Add Codex CLI command configuration |
+| `server/websocket.ts` | Modify | Wire `session:reconnect` handler to call `agentManager.reconnect()` |
+| `server/index.ts` | Modify | Add SIGINT/SIGTERM graceful shutdown hook |
 | `client/shell/shell.js` | Modify | WebSocket reconnection with exponential backoff, resync on reconnect |
 | `client/portlet/portlet.js` | Modify | Connection status indicator implementation |
 | `client/shell/sidebar.js` | Modify | Reconnect button implementation |
@@ -68,9 +70,69 @@ const ACP_COMMANDS: Record<CliType, { cmd: string; args: string[] }> = {
 
 If the agent-manager already has `ACP_COMMANDS` with only Claude Code, add the Codex entry. The Codex adapter follows the same ACP protocol (JSON-RPC over stdio), so no protocol changes are needed -- just the command configuration.
 
-#### 2. WebSocket Reconnection (`client/shell/shell.js`)
+#### 2. Wire `session:reconnect` handler (`server/websocket.ts`)
+
+The `session:reconnect` message type exists in the handler mapping but currently returns a "not implemented" error. Wire it to call `agentManager.reconnect()`:
+
+```typescript
+// In the message handler switch/map in websocket.ts:
+case 'session:reconnect': {
+  const { cliType } = parsed;
+  try {
+    await agentManager.reconnect(cliType);
+    socket.send(JSON.stringify({ type: 'agent:status', cliType, status: 'reconnecting' }));
+  } catch (err) {
+    socket.send(JSON.stringify({ type: 'error', message: (err as Error).message }));
+  }
+  break;
+}
+```
+
+#### 3. Graceful shutdown hook (`server/index.ts`)
+
+Add SIGINT/SIGTERM handlers to the server entry point so agent processes are cleaned up when the server stops:
+
+```typescript
+// In server/index.ts, after the server starts listening:
+const shutdown = async (signal: string) => {
+  console.log(`\n[server] Received ${signal}, shutting down...`);
+  await agentManager.shutdownAll();
+  await app.close();
+  process.exit(0);
+};
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+```
+
+#### 4. WebSocket Reconnection + agent:status Broadcast (`client/shell/shell.js`)
 
 The browser maintains a single WebSocket connection to the Fastify server. On disconnect, it reconnects with exponential backoff. On reconnect, it resyncs state.
+
+**agent:status broadcast:** Story 5's `routeToPortlet` only routes session-scoped messages (those with `sessionId`). `agent:status` messages carry `cliType` instead and must be broadcast to ALL portlet iframes. Add a `broadcastToPortlets(message)` function that iterates ALL iframes from the tabs Map and posts the message to each. Wire it into the WS `onmessage` handler alongside `routeToPortlet`:
+
+```javascript
+import { getIframe, getSessionIdBySource, openTab, updateTabTitle, getTabOrder } from './tabs.js';
+
+/**
+ * Broadcast a message to ALL portlet iframes (not session-targeted).
+ * Used for agent:status messages which carry cliType, not sessionId.
+ * @param {object} message - The message to broadcast
+ */
+function broadcastToPortlets(message) {
+  for (const sessionId of getTabOrder()) {
+    const iframe = getIframe(sessionId);
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(message, window.location.origin);
+    }
+  }
+}
+
+// In the WS onmessage handler, after routeToPortlet(parsed):
+if (parsed.type === 'agent:status') {
+  broadcastToPortlets(parsed);
+}
+```
 
 **WebSocket Lifecycle State Machine:**
 
@@ -191,7 +253,7 @@ function wsSend(message) {
 
 Implementation note: if your shell already triggers `session:list` during sidebar render and `session:open` during tab restore, keep that delegation and document it inline. Do not leave reconnect behavior as comment-only placeholders.
 
-#### 3. Connection Status Indicators (`client/portlet/portlet.js`)
+#### 5. Connection Status Indicators (`client/portlet/portlet.js`)
 
 Replace the `updateConnectionStatus` stub with a working implementation. The status dot appears in the session/portlet header.
 
@@ -251,7 +313,7 @@ function updateConnectionStatus(status) {
 }
 ```
 
-#### 4. Sidebar Reconnect Button (`client/shell/sidebar.js`)
+#### 6. Sidebar Reconnect Button (`client/shell/sidebar.js`)
 
 Replace the `updateAgentStatus` stub:
 
@@ -304,7 +366,7 @@ window.addEventListener('liminal:reconnect', (e) => {
 });
 ```
 
-#### 5. WebSocket Integration Tests (`tests/server/websocket.test.ts`)
+#### 7. WebSocket Integration Tests (`tests/server/websocket.test.ts`)
 
 Implement the 6 integration test bodies. Each test needs a real Fastify server with mocked ACP. The mock pattern:
 
@@ -582,7 +644,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
 });
 ```
 
-#### 6. TC-5.6a Implementation (`tests/client/tabs.test.ts`)
+#### 8. TC-5.6a Implementation (`tests/client/tabs.test.ts`)
 
 Implement the TC-5.6a test body in the existing tabs test file:
 
@@ -671,9 +733,11 @@ Expected: `bun run verify` checks pass and no new test-file changes appear after
 
 ## Done When
 
-- [ ] All 79 tests PASS (72 previous + 7 new)
+- [ ] All 94 tests PASS (87 previous + 7 new)
 - [ ] `bun run typecheck` passes with zero errors
 - [ ] Codex CLI command configured in `server/acp/agent-manager.ts`
+- [ ] `session:reconnect` handler wired in `server/websocket.ts` (calls `agentManager.reconnect()`)
+- [ ] SIGINT/SIGTERM graceful shutdown wired in `server/index.ts` (calls `agentManager.shutdownAll()` then `app.close()`)
 - [ ] WebSocket reconnection implemented in `client/shell/shell.js` with exponential backoff (500ms, 1s, 2s, 4s, cap 5s)
 - [ ] Connection status indicator implemented in `client/portlet/portlet.js`
 - [ ] Reconnect button implemented in `client/shell/sidebar.js`

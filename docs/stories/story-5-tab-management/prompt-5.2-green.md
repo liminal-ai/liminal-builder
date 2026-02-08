@@ -4,16 +4,18 @@
 
 Liminal Builder is an agentic IDE -- an organized, session-based interface for parallel AI coding CLIs (Claude Code, Codex). Stack: Bun + Fastify server, vanilla HTML/JS client (shell/portlet iframes), WebSocket bridge. CLIs communicate via ACP (Agent Client Protocol) over stdio.
 
-This is the GREEN phase of Story 5. The skeleton and 14 failing tests were created in Prompt 5.1. All 14 tests currently fail because every function in `tabs.js` throws `new Error('Not implemented')`. Your job is to implement all function bodies so that all 14 tests pass.
+This is the GREEN phase of Story 5. The skeleton and 18 failing tests were created in Prompt 5.1. All 18 tests currently fail because functions throw `new Error('Not implemented')`. Your job is to implement all function bodies so that all 18 tests pass.
 
 The tab system manages portlet iframes for open sessions. Key behaviors: CSS display toggle for instant switching (<100ms), deduplication, drag-and-drop reorder, adjacent-tab activation on close, and localStorage persistence for app restart recovery.
+
+The **postMessage relay** in shell.js bridges the WebSocket and portlet iframes bidirectionally. This is the integration milestone — after this story, the full end-to-end chat path works for the first time.
 
 **Working Directory:** `/Users/leemoore/code/liminal-builder`
 
 **Prerequisites complete:**
 - `client/shell/tabs.js` -- skeleton with all function stubs (from Prompt 5.1)
 - `tests/client/tabs.test.ts` -- 14 failing tests (from Prompt 5.1)
-- 58 previous tests passing
+- 69 previous tests passing
 - All types and shared modules from Stories 0-4
 
 ## Reference Documents
@@ -28,6 +30,7 @@ The tab system manages portlet iframes for open sessions. Key behaviors: CSS dis
 | File | Action | Purpose |
 |------|--------|---------|
 | `client/shell/tabs.js` | Modify | Replace all `throw new Error('Not implemented')` with working implementations |
+| `client/shell/shell.js` | Modify | Implement postMessage relay (`setupPortletRelay`, `routeToPortlet`), wire `session:created` to auto-open tab, wire session-scoped WS messages to `routeToPortlet` |
 | `client/shell/shell.css` | Modify | Add tab bar styles if not already present |
 
 ### Implementation Requirements
@@ -529,11 +532,126 @@ Add these styles for the tab bar if not already present:
 }
 ```
 
+#### 10. PostMessage relay in `client/shell/shell.js`
+
+The relay bridges WebSocket ↔ portlet iframes. It has two directions and one auto-open hook.
+
+**`setupPortletRelay(sendMessage)` — portlet → WebSocket direction:**
+
+```javascript
+import { getIframe, getSessionIdBySource, openTab, updateTabTitle } from './tabs.js';
+
+// Known portlet→shell message types. These are the ONLY types we handle.
+// session:send and session:cancel are forwarded to the WebSocket.
+// portlet:ready and portlet:title are consumed locally (they are NOT valid
+// ClientMessage types and the server would reject them).
+const PORTLET_WS_TYPES = new Set(['session:send', 'session:cancel']);
+const PORTLET_LOCAL_TYPES = new Set(['portlet:ready', 'portlet:title']);
+
+export function setupPortletRelay(sendMessage) {
+  window.addEventListener('message', (event) => {
+    // Security: verify origin (same-origin for local server)
+    if (event.origin !== window.location.origin) return;
+
+    const data = event.data;
+    if (!data || !data.type) return;
+
+    // Reject unknown message types
+    if (!PORTLET_WS_TYPES.has(data.type) && !PORTLET_LOCAL_TYPES.has(data.type)) {
+      return;
+    }
+
+    // Reverse-lookup: which session did this postMessage come from?
+    const sessionId = getSessionIdBySource(event.source);
+    if (!sessionId) return; // Unknown source, ignore
+
+    // Handle locally-consumed messages
+    if (data.type === 'portlet:ready') {
+      // Portlet has loaded and is ready to receive messages.
+      // Currently informational — no buffering implemented in MVP.
+      return;
+    }
+
+    if (data.type === 'portlet:title') {
+      // Portlet forwards session title for tab bar display.
+      // Consumed locally — update the tab title, do NOT forward to WS.
+      updateTabTitle(sessionId, data.title);
+      return;
+    }
+
+    // Forward to WebSocket with sessionId injected
+    sendMessage({ ...data, sessionId });
+  });
+}
+```
+
+**`routeToPortlet(message)` — WebSocket → portlet direction:**
+
+```javascript
+// Session-scoped message types that should be relayed to portlet iframes.
+// All of these carry a sessionId field for targeted routing.
+//
+// NOTE: agent:status is intentionally NOT in this set. It carries cliType
+// (not sessionId) and requires broadcast to ALL portlet iframes of the
+// matching CLI type. Story 6 owns the agent:status broadcast implementation —
+// it will add a broadcastToPortlets(message) function that iterates all
+// iframes and filters by cliType.
+const PORTLET_MESSAGE_TYPES = new Set([
+  'session:history',
+  'session:update',
+  'session:chunk',
+  'session:complete',
+  'session:cancelled',
+  'session:error',
+]);
+
+export function routeToPortlet(message) {
+  if (!PORTLET_MESSAGE_TYPES.has(message.type)) return;
+  if (!message.sessionId) return;
+
+  const iframe = getIframe(message.sessionId);
+  if (!iframe || !iframe.contentWindow) return; // No tab for this session, silently drop
+
+  // Forward the message to the portlet iframe
+  iframe.contentWindow.postMessage(message, window.location.origin);
+}
+```
+
+**Wiring into shell.js `onmessage` handler:**
+
+In the existing WebSocket `onmessage` handler, add two integration points:
+
+1. **Auto-open tab on `session:created`:**
+
+```javascript
+// Inside the ws.onmessage handler, after dispatching to messageHandlers:
+if (parsed.type === 'session:created') {
+  // Auto-open tab for the new session (AC-4.1 / TC-2.2a)
+  openTab(parsed.sessionId, parsed.title || 'New Session', parsed.cliType || 'claude-code');
+}
+```
+
+2. **Route session-scoped messages to portlet:**
+
+```javascript
+// Inside the ws.onmessage handler, after dispatching to messageHandlers:
+routeToPortlet(parsed);
+```
+
+**Initialization wiring:**
+
+In the shell initialization sequence, after `initTabs()` and after the WebSocket connection is established:
+
+```javascript
+// Set up portlet→shell relay with the WebSocket send function
+setupPortletRelay(sendMessage);
+```
+
 ## Constraints
 
 - Do NOT modify tests in Green. Red tests are the contract and must remain unchanged.
 - Before implementation starts, run `bun run guard:test-baseline-record`.
-- Do NOT modify files outside `client/shell/tabs.js` and `client/shell/shell.css`
+- Do NOT modify files outside `client/shell/tabs.js`, `client/shell/shell.js`, and `client/shell/shell.css`
 - Do NOT add new dependencies
 - The tab system is purely client-side -- no WebSocket messages for tab operations
 - localStorage key MUST be `liminal:tabs`
@@ -556,7 +674,7 @@ bun run test && bun run test:client
 ```
 
 Expected:
-- All tests PASS (previous + 14 new)
+- All tests PASS (previous + 18 new)
 - Zero failures
 
 Run:
@@ -575,14 +693,17 @@ Expected: `bun run verify` checks pass and no new test-file changes appear after
 
 ## Done When
 
-- [ ] All 14 tests in `tests/client/tabs.test.ts` PASS
-- [ ] All 58 previous tests still PASS
+- [ ] All 18 tests in `tests/client/tabs.test.ts` PASS
+- [ ] All 69 previous tests still PASS
 - [ ] `bun run typecheck` passes with zero errors
 - [ ] `bun run green-verify` passes
 - [ ] No new test-file changes beyond the recorded baseline
-- [ ] `client/shell/tabs.js` fully implements: openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init (and `initTabs` compatibility export)
+- [ ] `client/shell/tabs.js` fully implements: openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init (and `initTabs` compatibility export), getIframe, getSessionIdBySource
 - [ ] Iframe lifecycle works: create on open, CSS toggle on switch, remove on close
 - [ ] Deduplication works: opening already-tabbed session activates existing tab
 - [ ] Adjacent tab activation works: closing middle tab activates next, closing last activates previous, closing only tab shows empty state
 - [ ] Drag-and-drop reorder works: reorderTabs updates tabOrder and DOM order
 - [ ] localStorage persistence works: every operation persists, init restores
+- [ ] `client/shell/shell.js` postMessage relay works: `routeToPortlet()` dispatches WS messages to correct iframe, `setupPortletRelay()` listens for portlet postMessages and forwards to WS with sessionId injected
+- [ ] `session:created` auto-opens a tab via `openTab()` in the WS onmessage handler
+- [ ] Messages for unknown/non-tabbed sessions are silently dropped (no error)
