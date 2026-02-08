@@ -193,9 +193,12 @@ describe("AgentManager", () => {
 		proc._resolveExit(1);
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
-		expect(manager.getStatus("claude-code")).toBe("disconnected");
+		expect(manager.getStatus("claude-code")).toBe("reconnecting");
 		const statusEvents = events.filter((e) => e.event === "agent:status");
 		expect(statusEvents.some((e) => e.args[0]?.status === "disconnected")).toBe(
+			true,
+		);
+		expect(statusEvents.some((e) => e.args[0]?.status === "reconnecting")).toBe(
 			true,
 		);
 	});
@@ -210,6 +213,12 @@ describe("AgentManager", () => {
 		await new Promise((resolve) => setTimeout(resolve, 50));
 
 		const statusEvents = events.filter((e) => e.event === "agent:status");
+		const statusSequence = statusEvents
+			.map((event) => event.args[0]?.status)
+			.filter(
+				(status): status is string =>
+					typeof status === "string" && status.length > 0,
+			);
 		const hasReconnecting = statusEvents.some(
 			(e) => e.args[0]?.status === "reconnecting",
 		);
@@ -217,7 +226,10 @@ describe("AgentManager", () => {
 			(e) => e.args[0]?.status === "disconnected",
 		);
 
-		expect(hasDisconnected || hasReconnecting).toBe(true);
+		expect(hasDisconnected).toBe(true);
+		expect(hasReconnecting).toBe(true);
+		expect(statusSequence[0]).toBe("disconnected");
+		expect(statusSequence[1]).toBe("reconnecting");
 	});
 
 	it("TC-5.2d: manual reconnect spawns new", async () => {
@@ -238,6 +250,21 @@ describe("AgentManager", () => {
 		const statusEvents = events.filter((e) => e.event === "agent:status");
 		expect(statusEvents.some((e) => e.args[0]?.status === "connected")).toBe(
 			true,
+		);
+	});
+
+	it("manual reconnect while already connected does not spawn a second process", async () => {
+		await manager.ensureAgent("claude-code");
+		const spawnCallsBeforeReconnect = mockSpawn.mock.calls.length;
+		events.length = 0;
+
+		await manager.reconnect("claude-code");
+
+		expect(mockSpawn.mock.calls.length).toBe(spawnCallsBeforeReconnect);
+		expect(manager.getStatus("claude-code")).toBe("connected");
+		const statusEvents = events.filter((e) => e.event === "agent:status");
+		expect(statusEvents.some((e) => e.args[0]?.status === "reconnecting")).toBe(
+			false,
 		);
 	});
 
