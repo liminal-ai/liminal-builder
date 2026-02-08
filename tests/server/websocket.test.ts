@@ -1,15 +1,33 @@
 import { EventEmitter } from "node:events";
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { PassThrough } from "node:stream";
+import Fastify, { type FastifyInstance } from "fastify";
+import fastifyWebsocket from "@fastify/websocket";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AgentManager } from "../../server/acp/agent-manager";
 import type {
 	AcpPromptResult,
 	AcpUpdateEvent,
 } from "../../server/acp/acp-types";
 import { AcpClient } from "../../server/acp/acp-client";
+import { ProjectStore } from "../../server/projects/project-store";
 import type { Project } from "../../server/projects/project-types";
+import { SessionManager } from "../../server/sessions/session-manager";
+import type { SessionMeta } from "../../server/sessions/session-types";
 import type { CliType } from "../../server/sessions/session-types";
+import { JsonStore } from "../../server/store/json-store";
 import type { ChatEntry } from "../../shared/types";
 import type { ServerMessage } from "../../shared/types";
 import { handleWebSocket, type WebSocketDeps } from "../../server/websocket";
+import {
+	MOCK_CREATE_RESULT,
+	MOCK_INIT_RESULT,
+	MOCK_PROMPT_RESULT,
+	makeRpcError,
+	makeRpcResponse,
+} from "../fixtures/acp-messages";
 
 type MessageListener = (payload: Buffer | string) => void;
 type CloseListener = () => void;
@@ -94,6 +112,208 @@ function messagesOfType<TType extends ServerMessage["type"]>(
 
 async function flushAsync(): Promise<void> {
 	await new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function parseWsMessage(data: unknown): Record<string, unknown> {
+	const text = typeof data === "string" ? data : String(data);
+	const parsed = JSON.parse(text) as unknown;
+	if (typeof parsed !== "object" || parsed === null) {
+		throw new Error("Expected object websocket payload");
+	}
+	return parsed as Record<string, unknown>;
+}
+
+function createTestWSClient(port: number): Promise<WebSocket> {
+	return new Promise((resolve, reject) => {
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+		ws.onopen = () => resolve(ws);
+		ws.onerror = () => {
+			reject(new Error("WebSocket connection failed"));
+		};
+	});
+}
+
+function sendAndReceive(
+	ws: WebSocket,
+	message: Record<string, unknown>,
+	expectedType: string,
+	timeoutMs = 5000,
+): Promise<Record<string, unknown>> {
+	return new Promise((resolve, reject) => {
+		const timer = setTimeout(() => {
+			ws.removeEventListener("message", handler);
+			reject(new Error(`Timeout waiting for ${expectedType}`));
+		}, timeoutMs);
+		const handler = (event: MessageEvent) => {
+			const data = parseWsMessage(event.data);
+			if (data.type === expectedType) {
+				clearTimeout(timer);
+				ws.removeEventListener("message", handler);
+				resolve(data);
+				return;
+			}
+			if (
+				expectedType === "session:cancelled" &&
+				data.type === "session:complete"
+			) {
+				clearTimeout(timer);
+				ws.removeEventListener("message", handler);
+				reject(
+					new Error(
+						"Received session:complete while waiting for session:cancelled",
+					),
+				);
+				return;
+			}
+			if (expectedType === "error" && data.type === "session:created") {
+				clearTimeout(timer);
+				ws.removeEventListener("message", handler);
+				reject(new Error("Received session:created while waiting for error"));
+				return;
+			}
+			if (data.type === "error" && expectedType !== "error") {
+				clearTimeout(timer);
+				ws.removeEventListener("message", handler);
+				const messageText =
+					typeof data.message === "string"
+						? data.message
+						: "Unexpected error response";
+				reject(new Error(messageText));
+			}
+		};
+		ws.addEventListener("message", handler);
+		ws.send(JSON.stringify(message));
+	});
+}
+
+function sendAndCollect(
+	ws: WebSocket,
+	message: Record<string, unknown>,
+	untilType: string,
+	timeoutMs = 10000,
+): Promise<Record<string, unknown>[]> {
+	return new Promise((resolve, reject) => {
+		const collected: Record<string, unknown>[] = [];
+		const timer = setTimeout(() => {
+			ws.removeEventListener("message", handler);
+			reject(new Error(`Timeout waiting for ${untilType}`));
+		}, timeoutMs);
+		const handler = (event: MessageEvent) => {
+			const data = parseWsMessage(event.data);
+			collected.push(data);
+			if (data.type === untilType) {
+				clearTimeout(timer);
+				ws.removeEventListener("message", handler);
+				resolve(collected);
+			}
+		};
+		ws.addEventListener("message", handler);
+		ws.send(JSON.stringify(message));
+	});
+}
+
+function makeProjectDir(rootDir: string, name: string): string {
+	const dir = join(rootDir, name);
+	mkdirSync(dir, { recursive: true });
+	return dir;
+}
+
+type MockAcpProcess = {
+	stdin: PassThrough;
+	stdout: PassThrough;
+	stderr: PassThrough;
+	exited: Promise<number>;
+	kill: (signal?: number | NodeJS.Signals) => void;
+};
+
+function createMockAcpProcess(
+	opts: { failCreate?: boolean } = {},
+): MockAcpProcess {
+	const stdin = new PassThrough();
+	const stdout = new PassThrough();
+	const stderr = new PassThrough();
+	let resolveExited: (code: number) => void = () => {};
+	const exited = new Promise<number>((resolve) => {
+		resolveExited = resolve;
+	});
+
+	stdin.on("data", (chunk: Buffer | string) => {
+		const lines = chunk
+			.toString()
+			.split("\n")
+			.map((line) => line.trim())
+			.filter((line) => line.length > 0);
+
+		for (const line of lines) {
+			const req = JSON.parse(line) as {
+				id?: number;
+				method?: string;
+				params?: { sessionId?: string };
+			};
+
+			if (req.method === "initialize" && typeof req.id === "number") {
+				stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_INIT_RESULT)));
+				stdout.write("\n");
+				continue;
+			}
+
+			if (req.method === "session/new" && typeof req.id === "number") {
+				if (opts.failCreate) {
+					stdout.write(
+						JSON.stringify(
+							makeRpcError(req.id, -32001, "Mock session/create failure"),
+						),
+					);
+					stdout.write("\n");
+				} else {
+					stdout.write(
+						JSON.stringify(makeRpcResponse(req.id, MOCK_CREATE_RESULT)),
+					);
+					stdout.write("\n");
+				}
+				continue;
+			}
+
+			if (req.method === "session/prompt" && typeof req.id === "number") {
+				stdout.write(
+					JSON.stringify({
+						jsonrpc: "2.0",
+						method: "session/update",
+						params: {
+							sessionId: req.params?.sessionId ?? "acp-session-xyz",
+							update: {
+								type: "agent_message_chunk",
+								content: [
+									{ type: "text", text: "Mock streamed response chunk" },
+								],
+							},
+						},
+					}),
+				);
+				stdout.write("\n");
+				stdout.write(
+					JSON.stringify(makeRpcResponse(req.id, MOCK_PROMPT_RESULT)),
+				);
+				stdout.write("\n");
+				continue;
+			}
+
+			if (req.method === "session/load" && typeof req.id === "number") {
+				stdout.write(JSON.stringify(makeRpcResponse(req.id, { loaded: true })));
+				stdout.write("\n");
+			}
+		}
+	});
+
+	return {
+		stdin,
+		stdout,
+		stderr,
+		exited,
+		kill: () => {
+			resolveExited(0);
+		},
+	};
 }
 
 function createHarness(): MockHarness {
@@ -445,5 +665,253 @@ describe("handleWebSocket", () => {
 			type: "error",
 			message: "agent crashed",
 		});
+	});
+});
+
+describe("WebSocket Integration: Round-Trip Message Flow", () => {
+	let server: FastifyInstance;
+	let port: number;
+	let ws: WebSocket;
+	let tempRoot: string;
+	let dataRoot: string;
+	let shouldFailCreate = false;
+
+	beforeEach(async () => {
+		dataRoot = mkdtempSync(join(tmpdir(), "liminal-story6-data-"));
+		const projectsStore = new JsonStore<Project[]>(
+			{
+				filePath: join(dataRoot, "projects.json"),
+				writeDebounceMs: 0,
+			},
+			[],
+		);
+		const sessionsStore = new JsonStore<SessionMeta[]>(
+			{
+				filePath: join(dataRoot, "sessions.json"),
+				writeDebounceMs: 0,
+			},
+			[],
+		);
+		const projectStore = new ProjectStore(projectsStore);
+		const emitter = new EventEmitter();
+		const agentManager = new AgentManager(emitter, {
+			spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
+		});
+		const sessionManager = new SessionManager(
+			sessionsStore,
+			agentManager,
+			projectStore,
+		);
+
+		server = Fastify();
+		await server.register(fastifyWebsocket);
+		server.get("/ws", { websocket: true }, (socket) => {
+			handleWebSocket(socket, { projectStore, sessionManager, agentManager });
+		});
+		await server.listen({ port: 0, host: "127.0.0.1" });
+		const address = server.server.address();
+		if (!address || typeof address === "string") {
+			throw new Error("Failed to resolve test server port");
+		}
+		port = address.port;
+		tempRoot = mkdtempSync(join(tmpdir(), "liminal-ws-"));
+		ws = await createTestWSClient(port);
+	});
+
+	afterEach(async () => {
+		shouldFailCreate = false;
+		if (
+			ws &&
+			(ws.readyState === WebSocket.OPEN ||
+				ws.readyState === WebSocket.CONNECTING)
+		) {
+			ws.close();
+		}
+		await server.close();
+		rmSync(tempRoot, { recursive: true, force: true });
+		rmSync(dataRoot, { recursive: true, force: true });
+	});
+
+	it("project:add round-trip - sends project:add, receives project:added", async () => {
+		const projectPath = makeProjectDir(tempRoot, "project-add");
+		const messages = await sendAndCollect(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-1" },
+			"project:added",
+		);
+		const response = messages[messages.length - 1];
+		expect(response.type).toBe("project:added");
+		expect(response.project).toBeDefined();
+		expect((response.project as { path: string }).path).toBe(projectPath);
+		expect((response.project as { name: string }).name).toBe("project-add");
+		expect(typeof (response.project as { id: string }).id).toBe("string");
+	});
+
+	it("session:create round-trip - sends session:create, receives session:created", async () => {
+		const projectPath = makeProjectDir(tempRoot, "project-create");
+		const addResp = await sendAndReceive(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-2" },
+			"project:added",
+		);
+		const projectId = (addResp.project as { id: string }).id;
+
+		const response = await sendAndReceive(
+			ws,
+			{
+				type: "session:create",
+				projectId,
+				cliType: "codex",
+				requestId: "req-3",
+			},
+			"session:created",
+		);
+		expect(response.type).toBe("session:created");
+		expect(typeof response.sessionId).toBe("string");
+		expect((response.sessionId as string).startsWith("codex:")).toBe(true);
+	});
+
+	it("session:reconnect round-trip - sends reconnect, receives agent status", async () => {
+		const projectPath = makeProjectDir(tempRoot, "project-stream");
+		const addResp = await sendAndReceive(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-4" },
+			"project:added",
+		);
+		const projectId = (addResp.project as { id: string }).id;
+		await sendAndReceive(
+			ws,
+			{
+				type: "session:create",
+				projectId,
+				cliType: "claude-code",
+				requestId: "req-5",
+			},
+			"session:created",
+		);
+		const response = await sendAndReceive(
+			ws,
+			{
+				type: "session:reconnect",
+				cliType: "claude-code",
+				requestId: "req-5r",
+			},
+			"agent:status",
+		);
+		expect(response.type).toBe("agent:status");
+		expect(response.cliType).toBe("claude-code");
+	});
+
+	it("TC-3.7b: cancel round-trip - sends cancel during streaming, receives session:cancelled", async () => {
+		const projectPath = makeProjectDir(tempRoot, "project-cancel");
+		const addResp = await sendAndReceive(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-6" },
+			"project:added",
+		);
+		const projectId = (addResp.project as { id: string }).id;
+		const createResp = await sendAndReceive(
+			ws,
+			{
+				type: "session:create",
+				projectId,
+				cliType: "claude-code",
+				requestId: "req-7",
+			},
+			"session:created",
+		);
+		const sessionId = createResp.sessionId as string;
+
+		const response = await new Promise<Record<string, unknown>>(
+			(resolve, reject) => {
+				const timer = setTimeout(() => {
+					ws.removeEventListener("message", handler);
+					reject(new Error("Timeout waiting for cancellation outcome"));
+				}, 5000);
+
+				const handler = (event: MessageEvent) => {
+					const data = parseWsMessage(event.data);
+					if (data.type === "session:cancelled") {
+						clearTimeout(timer);
+						ws.removeEventListener("message", handler);
+						resolve(data);
+						return;
+					}
+					if (data.type === "session:complete") {
+						clearTimeout(timer);
+						ws.removeEventListener("message", handler);
+						reject(
+							new Error(
+								"Received session:complete before cancellation confirmation",
+							),
+						);
+					}
+				};
+
+				ws.addEventListener("message", handler);
+				ws.send(
+					JSON.stringify({ type: "session:send", sessionId, content: "Hello" }),
+				);
+				setTimeout(() => {
+					ws.send(JSON.stringify({ type: "session:cancel", sessionId }));
+				}, 50);
+			},
+		);
+
+		expect(response.type).toBe("session:cancelled");
+		expect(response.sessionId).toBe(sessionId);
+	});
+
+	it("project:remove WebSocket round-trip - sends project:remove, receives project:removed", async () => {
+		const projectPath = makeProjectDir(tempRoot, "project-remove");
+		const addResp = await sendAndReceive(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-8" },
+			"project:added",
+		);
+		const projectId = (addResp.project as { id: string }).id;
+		await sendAndReceive(
+			ws,
+			{
+				type: "session:create",
+				projectId,
+				cliType: "claude-code",
+				requestId: "req-8-create",
+			},
+			"session:created",
+		);
+
+		const messages = await sendAndCollect(
+			ws,
+			{ type: "project:remove", projectId, requestId: "req-9" },
+			"project:removed",
+		);
+		const response = messages[messages.length - 1];
+		expect(response.type).toBe("project:removed");
+		expect(response.projectId).toBe(projectId);
+	});
+
+	it("TC-2.2f: session creation failure sends error", async () => {
+		shouldFailCreate = true;
+		const projectPath = makeProjectDir(tempRoot, "project-fail");
+		const addResp = await sendAndReceive(
+			ws,
+			{ type: "project:add", path: projectPath, requestId: "req-10a" },
+			"project:added",
+		);
+		const projectId = (addResp.project as { id: string }).id;
+
+		const response = await sendAndReceive(
+			ws,
+			{
+				type: "session:create",
+				projectId,
+				cliType: "claude-code",
+				requestId: "req-10b",
+			},
+			"error",
+		);
+		expect(response.type).toBe("error");
+		expect(typeof response.message).toBe("string");
 	});
 });

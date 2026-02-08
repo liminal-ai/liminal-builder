@@ -82,7 +82,7 @@ WebSocket integration tests:
 |----|-----------|-------|--------|
 | -- | project:add round-trip | WS client sends project:add | Receives project:added with project data |
 | -- | session:create round-trip | WS client sends session:create | Receives session:created with sessionId |
-| -- | session:send streams response | WS client sends session:send | Receives session:update, session:chunk(s), session:complete |
+| -- | session:reconnect round-trip | WS client sends session:reconnect | Receives agent:status with reconnecting/connected |
 | TC-3.7b | cancel round-trip | WS client sends session:send then session:cancel | Receives session:cancelled |
 | -- | project:remove WebSocket round-trip | WS client sends project:remove | Receives project:removed |
 | TC-2.2f | create failure sends error | Mock ACP fails on session:create | Receives error message |
