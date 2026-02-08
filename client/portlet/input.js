@@ -19,69 +19,156 @@ let cancelBtn = null;
 /** @type {HTMLElement | null} */
 let workingIndicator = null;
 
+/** @type {(content: string) => void} */
+let onSendHandler = () => {};
+
+/** @type {() => void} */
+let onCancelHandler = () => {};
+
+function updateSendButtonState() {
+	if (!sendBtn || !messageInput) {
+		return;
+	}
+
+	const hasText = messageInput.value.trim().length > 0;
+	sendBtn.disabled = messageInput.disabled || !hasText;
+}
+
 /**
  * Initialize the input bar.
- * @param {HTMLElement} _container
- * @param {(content: string) => void} _onSend
- * @param {() => void} _onCancel
+ * @param {HTMLElement} container
+ * @param {(content: string) => void} onSend
+ * @param {() => void} onCancel
  */
-export function init(_container, _onSend, _onCancel) {
-	inputContainer = _container;
-	messageInput = document.getElementById("message-input");
-	sendBtn = document.getElementById("send-btn");
-	cancelBtn = document.getElementById("cancel-btn");
-	workingIndicator = document.getElementById("working-indicator");
-	throw new Error("NotImplementedError");
+export function init(container, onSend, onCancel) {
+	inputContainer = container;
+	messageInput =
+		container.querySelector("#message-input") ??
+		document.getElementById("message-input");
+	sendBtn =
+		container.querySelector("#send-btn") ?? document.getElementById("send-btn");
+	cancelBtn =
+		container.querySelector("#cancel-btn") ??
+		document.getElementById("cancel-btn");
+	workingIndicator =
+		container.querySelector("#working-indicator") ??
+		document.getElementById("working-indicator");
+	onSendHandler = onSend;
+	onCancelHandler = onCancel;
+
+	sendBtn?.addEventListener("click", () => {
+		if (!messageInput || messageInput.disabled) {
+			return;
+		}
+		const value = messageInput.value.trim();
+		if (value.length === 0) {
+			updateSendButtonState();
+			return;
+		}
+		onSendHandler(getValue());
+		clear();
+	});
+
+	cancelBtn?.addEventListener("click", () => {
+		onCancelHandler();
+	});
+
+	messageInput?.addEventListener("input", () => {
+		updateSendButtonState();
+	});
+
+	hideWorking();
+	hideCancel();
+	if (sendBtn) {
+		sendBtn.disabled = false;
+	}
 }
 
 /**
  * Backward-compatible initializer alias.
- * @param {(content: string) => void} _onSend
+ * @param {(content: string) => void} onSend
  */
-export function initInput(_onSend) {
-	throw new Error("NotImplementedError");
+export function initInput(onSend) {
+	const container = document.getElementById("input-bar");
+	if (!(container instanceof HTMLElement)) {
+		return;
+	}
+	init(container, onSend, () => {});
 }
 
 /**
  * Enable input controls.
  */
 export function enable() {
-	throw new Error("NotImplementedError");
+	if (!messageInput || !sendBtn) {
+		return;
+	}
+
+	messageInput.disabled = false;
+	sendBtn.disabled = false;
+	hideWorking();
+	hideCancel();
 }
 
 /**
  * Disable input controls.
  */
 export function disable() {
-	throw new Error("NotImplementedError");
+	if (!messageInput || !sendBtn) {
+		return;
+	}
+
+	messageInput.disabled = true;
+	sendBtn.disabled = true;
+	showWorking();
 }
 
 /**
  * Show working indicator.
  */
 export function showWorking() {
-	throw new Error("NotImplementedError");
+	if (!workingIndicator) {
+		return;
+	}
+
+	workingIndicator.hidden = false;
+	workingIndicator.style.display = "block";
 }
 
 /**
  * Hide working indicator.
  */
 export function hideWorking() {
-	throw new Error("NotImplementedError");
+	if (!workingIndicator) {
+		return;
+	}
+
+	workingIndicator.hidden = true;
+	workingIndicator.style.display = "none";
 }
 
 /**
  * Show cancel control.
  */
 export function showCancel() {
-	throw new Error("NotImplementedError");
+	if (!cancelBtn) {
+		return;
+	}
+
+	cancelBtn.hidden = false;
+	cancelBtn.style.display = "block";
 }
 
 /**
  * Hide cancel control.
  */
 export function hideCancel() {
-	throw new Error("NotImplementedError");
+	if (!cancelBtn) {
+		return;
+	}
+
+	cancelBtn.hidden = true;
+	cancelBtn.style.display = "none";
 }
 
 /**
@@ -89,14 +176,19 @@ export function hideCancel() {
  * @returns {string}
  */
 export function getValue() {
-	throw new Error("NotImplementedError");
+	return messageInput?.value ?? "";
 }
 
 /**
  * Clear input value.
  */
 export function clear() {
-	throw new Error("NotImplementedError");
+	if (!messageInput) {
+		return;
+	}
+
+	messageInput.value = "";
+	updateSendButtonState();
 }
 
 /**
