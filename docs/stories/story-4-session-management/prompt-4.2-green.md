@@ -319,15 +319,15 @@ static fromCanonical(canonicalId: string): { cliType: CliType; acpId: string } {
 
 ### Files NOT to Modify
 
-- Prefer not to modify tests; if a Red test has a clear invalid assumption, make the smallest correction that preserves TC intent and document it.
+- Do NOT modify tests in Green. Red tests are the contract and must remain unchanged.
 - No portlet files (portlet.js, chat.js, input.js -- Story 3's work)
 - No ACP client or agent manager files (Stories 2a/2b's work)
 
 ## Constraints
 
 - Do NOT implement beyond this story's scope (no tab management logic)
-- Prefer not to modify tests; if required for correctness, apply minimal TC-preserving fixes and document why.
 - Do NOT modify files outside the specified list
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - Use exact type names and field names from the inlined definitions
 - Session listing is ENTIRELY LOCAL -- never call ACP for listing
 - Canonical ID format is strictly `{cliType}:{acpSessionId}`
@@ -347,14 +347,17 @@ static fromCanonical(canonicalId: string): { cliType: CliType; acpId: string } {
 Run the following commands:
 
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 # Typecheck should pass
 bun run typecheck
 
 # ALL tests should pass (prior + 13 new Story 4 tests)
 bun run test && bun run test:client
 
-# Full quality gate
-bun run verify
+# Green quality gate (verify + fail if new test-file changes appear after baseline)
+bun run green-verify
 ```
 
 **Expected outcome:**
@@ -369,6 +372,7 @@ bun run verify
 - [ ] All 10 session-manager tests pass
 - [ ] All 7 sidebar tests pass (4 prior + 3 new)
 - [ ] All 45 prior tests still pass
+- [ ] `bun run green-verify` passes
 - [ ] `bun run typecheck` passes
-- [ ] No test files modified
+- [ ] No new test-file changes beyond the recorded baseline
 - [ ] No files outside the specified list modified

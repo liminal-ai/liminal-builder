@@ -548,10 +548,11 @@ export class AcpClient {
 ## Constraints
 
 - Only modify `server/acp/acp-client.ts`
-- Do NOT modify test files (`tests/server/acp-client.test.ts`, `tests/fixtures/acp-messages.ts`) unless absolutely necessary for environmental compatibility (e.g., runtime shim). If you must modify any test file, document every change and justify it against the original AC/TC intent. Assertion changes are NOT acceptable — escalate to the orchestrator instead.
+- Do NOT modify test files (`tests/server/acp-client.test.ts`, `tests/fixtures/acp-messages.ts`) in Green. Red tests are the contract and must remain unchanged.
 - Do NOT modify `server/acp/acp-types.ts` or `shared/types.ts`
 - Do NOT create any WebSocket or browser code
 - Do NOT implement beyond AcpClient scope (no AgentManager, no WebSocket handler)
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - Use `crypto.randomUUID()` for entry IDs (available in Bun globally)
 - The implementation must match the mock stdio interface from `tests/fixtures/acp-messages.ts`
 
@@ -567,6 +568,9 @@ export class AcpClient {
 
 Run:
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 bunx vitest run tests/server/acp-client.test.ts
 ```
 
@@ -581,23 +585,24 @@ bun run test
 
 Run:
 ```bash
-bun run verify
-```
-
-**Expected output:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
-
-Run:
-```bash
 bun run typecheck
 ```
 
 **Expected output:** Zero type errors.
+
+Run:
+```bash
+bun run green-verify
+```
+
+**Expected output:** `bun run verify` checks pass and no new test-file changes appear after baseline.
 
 ## Done When
 
 - [ ] `server/acp/acp-client.ts` fully implemented (no more NotImplementedError)
 - [ ] `bunx vitest run tests/server/acp-client.test.ts` -- 9 tests pass
 - [ ] `bun run test` -- all server tests pass (no regressions)
-- [ ] `bun run verify` -- quality gate passes
+- [ ] `bun run green-verify` -- quality gate passes
+- [ ] No new test-file changes beyond the recorded baseline
 - [ ] `bun run typecheck` -- zero errors
 - [ ] AcpClient correctly: initializes with protocol version and capabilities, creates sessions with cwd, loads sessions collecting replayed history, prompts with streaming event callbacks, auto-approves permission requests, handles JSON-RPC errors, closes gracefully

@@ -569,7 +569,9 @@ Then update paths in tests to use `join(tempDir, 'project-alpha')` etc.
 
 - Do NOT implement beyond Story 1 scope. Only project CRUD + sidebar rendering.
 - Do NOT implement session creation, chat, tabs, or ACP integration.
-- Do NOT modify files outside the specified list, except minimal test corrections required to align Red tests with AC/TC intent.
+- Do NOT modify files outside the specified list.
+- Do NOT modify test files in Green. Red tests are the contract and must remain unchanged.
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - WebSocket handlers for `session:*` messages should remain as the default case (return "not implemented" error).
 - Use `crypto.randomUUID()` for project IDs (Bun supports this natively).
 - Use `Bun.file(path).exists()` for directory validation.
@@ -585,6 +587,9 @@ Then update paths in tests to use `join(tempDir, 'project-alpha')` etc.
 ## Verification
 
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 # Server tests (5) must pass
 bun run test
 
@@ -597,8 +602,8 @@ bun run test:client
 bun run typecheck
 # Expected: Exit code 0, no errors
 
-# Full quality gate
-bun run verify
+# Green quality gate (verify + fail if new test-file changes appear after baseline)
+bun run green-verify
 ```
 
 ## Done When
@@ -608,5 +613,6 @@ bun run verify
 - [ ] `server/index.ts` wires `ProjectStore` into `handleWebSocket` deps
 - [ ] `client/shell/sidebar.js` renders projects, handles add/remove/collapse
 - [ ] All server tests pass (`bun run test`) and all client tests pass (`bun run test:client`)
-- [ ] `bun run verify` passes
+- [ ] `bun run green-verify` passes
+- [ ] No new test-file changes beyond the recorded baseline
 - [ ] No regressions (there are no prior tests to regress)

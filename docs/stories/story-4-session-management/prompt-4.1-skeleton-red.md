@@ -370,11 +370,11 @@ const mockSessions: SessionMeta[] = [
 Run the following commands:
 
 ```bash
-# Full quality gate (format, lint, eslint, typecheck, test)
-bun run verify
+# Red quality gate (format, lint, eslint, eslint-plugin tests, typecheck)
+bun run red-verify
 ```
 
-**Expected:** Passes — new test files and skeleton updates should not introduce lint, format, or type errors.
+**Expected:** Passes — new test files and skeleton updates should not introduce lint, format, eslint, or type errors.
 
 ```bash
 # Typecheck should pass
@@ -390,6 +390,7 @@ bun run test:client -- tests/client/sidebar.test.ts
 ```
 
 **Expected outcome:**
+- `bun run red-verify`: pass
 - `bun run typecheck`: 0 errors
 - Full suite shows mixed RED results: ~45 passes (prior stories) and 13 failures/errors (new Story 4 tests)
 - Isolated `session-manager` run shows failures attributable to unimplemented SessionManager behavior
@@ -402,5 +403,6 @@ bun run test:client -- tests/client/sidebar.test.ts
 - [ ] `tests/server/session-manager.test.ts` exists with 10 tests, initially failing in RED
 - [ ] `tests/client/sidebar.test.ts` has 3 new tests (7 total), 3 failing
 - [ ] All 45 prior tests still pass
+- [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes
 - [ ] No files outside the specified list modified

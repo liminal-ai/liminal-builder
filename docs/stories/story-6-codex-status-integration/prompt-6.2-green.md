@@ -632,7 +632,8 @@ test('TC-5.6a: tabs restore after browser refresh — tabs restored from localSt
 
 ## Constraints
 
-- Prefer to keep test expectations unchanged; if a Red test has a clear invalid assumption, apply the smallest TC-preserving correction and document it.
+- Do NOT modify tests in Green. Red tests are the contract and must remain unchanged.
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - Do NOT add new dependencies
 - Do NOT modify files outside the specified list
 - The WebSocket reconnection must use exponential backoff: 500ms base, 2x multiplier, 5s cap
@@ -651,6 +652,9 @@ test('TC-5.6a: tabs restore after browser refresh — tabs restored from localSt
 
 Run:
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 bun run test && bun run test:client
 ```
 
@@ -660,10 +664,10 @@ Expected:
 
 Run:
 ```bash
-bun run verify
+bun run green-verify
 ```
 
-Expected: All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
+Expected: `bun run verify` checks pass and no new test-file changes appear after baseline.
 
 ## Done When
 
@@ -675,3 +679,5 @@ Expected: All `bun run verify` checks pass (format:check, biome lint, eslint, es
 - [ ] Reconnect button implemented in `client/shell/sidebar.js`
 - [ ] WebSocket integration tests verify: project:add, session:create, session:send streaming, session:cancel, project:remove, session creation failure
 - [ ] TC-5.6a verifies tab restore after browser refresh
+- [ ] `bun run green-verify` passes
+- [ ] No new test-file changes beyond the recorded baseline

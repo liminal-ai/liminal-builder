@@ -71,7 +71,10 @@ function toErrorMessage(error: unknown): string {
 export function handleWebSocket(socket: WebSocket, deps: WebSocketDeps): void {
 	console.log("[ws] Client connected");
 
-	const onAgentStatus = (payload: { cliType: CliType; status: AgentStatus }) => {
+	const onAgentStatus = (payload: {
+		cliType: CliType;
+		status: AgentStatus;
+	}) => {
 		if (payload.status === "idle") {
 			return;
 		}
@@ -239,7 +242,11 @@ async function routeMessage(
 		case "session:send": {
 			try {
 				const client = await deps.agentManager.ensureAgent("claude-code");
-				await client.sessionPrompt(message.sessionId, message.content, () => {});
+				await client.sessionPrompt(
+					message.sessionId,
+					message.content,
+					() => {},
+				);
 			} catch (error) {
 				sendEnvelope(socket, {
 					type: "error",

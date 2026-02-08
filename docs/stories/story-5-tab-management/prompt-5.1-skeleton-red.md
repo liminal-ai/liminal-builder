@@ -532,11 +532,11 @@ describe('Tab Management', () => {
 
 Run:
 ```bash
-# Full quality gate (format, lint, eslint, typecheck, test)
-bun run verify
+# Red quality gate (format, lint, eslint, eslint-plugin tests, typecheck)
+bun run red-verify
 ```
 
-Expected: Passes — new test files and skeleton should not introduce lint, format, or type errors.
+Expected: Passes — new test files and skeleton should not introduce lint, format, eslint, or type errors.
 
 Run:
 ```bash
@@ -561,4 +561,5 @@ Expected: zero errors
 - [ ] `tests/client/tabs.test.ts` has 14 test specs with TC IDs in descriptions
 - [ ] New tab tests fail against current stubs, with clear assertions for Green
 - [ ] All 58 previous tests still pass
+- [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes with zero errors

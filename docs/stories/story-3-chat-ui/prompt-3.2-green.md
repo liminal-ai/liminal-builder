@@ -315,7 +315,7 @@ Required translation rules:
 ### Files NOT to Modify
 
 - No server files beyond `server/websocket.ts`
-- Prefer not to modify tests. If a Red test has a clear invalid assumption, make the smallest correction that preserves TC intent and document it.
+- Do NOT modify tests in Green. Red tests are the contract and must remain unchanged.
 - No shell files (shell.js, sidebar.js, tabs.js)
 - No HTML files (the HTML structure from Story 0 should be sufficient)
 
@@ -323,8 +323,8 @@ Required translation rules:
 
 - Do NOT implement beyond this story's scope (no session management, no tab management)
 - Do NOT modify server files other than `server/websocket.ts`
-- Prefer not to modify tests; if required for correctness, apply minimal TC-preserving fixes and document why.
 - Do NOT modify files outside the specified list
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - Use exact type names and field names from the inlined definitions
 - All postMessage handlers must verify `event.origin`
 - Deferred markdown rendering: raw text during streaming, `marked` + `DOMPurify` on `session:complete` only
@@ -343,13 +343,9 @@ Required translation rules:
 Run the following commands:
 
 ```bash
-# Full quality gate (format, lint, eslint, eslint-plugin tests, typecheck, test)
-bun run verify
-```
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
 
-**Expected:** All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
-
-```bash
 # Typecheck should pass
 bun run typecheck
 
@@ -359,6 +355,9 @@ bun run test:client
 
 # Or run specifically:
 bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/client/portlet.test.ts --passWithNoTests
+
+# Green quality gate (verify + fail if new test-file changes appear after baseline)
+bun run green-verify
 ```
 
 **Expected outcome:**
@@ -376,7 +375,7 @@ bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/clien
 - [ ] All 5 input tests pass (TC-3.1b, TC-3.5a, TC-3.5b, TC-3.7a, TC-3.7c)
 - [ ] All 3 portlet tests pass (TC-3.1a, TC-5.4a, TC-3.7b)
 - [ ] All 28 prior tests still pass
-- [ ] `bun run verify` passes
+- [ ] `bun run green-verify` passes
 - [ ] `bun run typecheck` passes
 - [ ] No server files modified except `server/websocket.ts`
-- [ ] No test files modified
+- [ ] No new test-file changes beyond the recorded baseline

@@ -1,66 +1,121 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { EventEmitter } from "events";
-import { AgentManager } from "../../server/acp/agent-manager";
+import { EventEmitter } from "node:events";
+import {
+	AgentManager,
+	type AgentProcess,
+	type AgentProcessStdin,
+	type AgentProcessStdout,
+} from "../../server/acp/agent-manager";
 import { AcpClient } from "../../server/acp/acp-client";
 
 const mock = vi.fn;
+type CollectedEvent = {
+	event: string | symbol;
+	args: Record<string, unknown>[];
+};
+type InitializeResult = {
+	protocolVersion: number;
+	agentInfo: { name: string; title: string; version: string };
+	agentCapabilities: { loadSession: boolean };
+};
 
-interface MockProcess {
-	stdin: { write: Function; close: Function };
-	stdout: AsyncIterable<string>;
-	stderr: AsyncIterable<string>;
+interface MockProcess extends AgentProcess {
+	stdin: {
+		write: (chunk: string) => void;
+		close: () => void;
+	};
+	stdout: AgentProcessStdout;
+	stderr: AgentProcessStdout;
 	pid: number;
 	exited: Promise<number>;
-	kill: Function;
+	kill: (signal?: number | NodeJS.Signals) => void;
 	_resolveExit: (code: number) => void;
 }
 
+function createNeverAsyncIterable(): AsyncIterable<unknown> {
+	return {
+		[Symbol.asyncIterator]: () => ({
+			next: () => new Promise<IteratorResult<unknown>>(() => {}),
+		}),
+	};
+}
+
+function getErrorMessage(err: unknown): string {
+	return err instanceof Error ? err.message : String(err);
+}
+
+function getStringField(
+	record: Record<string, unknown> | undefined,
+	key: string,
+): string {
+	const value = record?.[key];
+	if (typeof value === "string") {
+		return value;
+	}
+	if (
+		typeof value === "number" ||
+		typeof value === "boolean" ||
+		typeof value === "bigint"
+	) {
+		return `${value}`;
+	}
+	return "";
+}
+
 function createMockProcess(pid = 1234): MockProcess {
-	let resolveExit: (code: number) => void;
+	let resolveExit: (code: number) => void = () => {};
 	const exited = new Promise<number>((resolve) => {
 		resolveExit = resolve;
 	});
 
 	return {
 		stdin: { write: mock(() => {}), close: mock(() => {}) },
-		stdout: {
-			[Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
-		} as any,
-		stderr: {
-			[Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
-		} as any,
+		stdout: createNeverAsyncIterable(),
+		stderr: createNeverAsyncIterable(),
 		pid,
 		exited,
 		kill: mock(() => {}),
-		_resolveExit: resolveExit!,
+		_resolveExit: resolveExit,
 	};
 }
 
-function collectEvents(emitter: EventEmitter): Array<{ event: string; args: any[] }> {
-	const events: Array<{ event: string; args: any[] }> = [];
+function collectEvents(emitter: EventEmitter): CollectedEvent[] {
+	const events: CollectedEvent[] = [];
 	const originalEmit = emitter.emit.bind(emitter);
-	emitter.emit = (event: string, ...args: any[]) => {
-		events.push({ event, args });
+	emitter.emit = ((event: string | symbol, ...args: unknown[]) => {
+		const normalizedArgs = args.map((arg) => {
+			if (typeof arg === "object" && arg !== null) {
+				return arg as Record<string, unknown>;
+			}
+			return { value: arg };
+		});
+		events.push({ event, args: normalizedArgs });
 		return originalEmit(event, ...args);
-	};
+	}) as typeof emitter.emit;
 	return events;
 }
 
 describe("AgentManager", () => {
 	let emitter: EventEmitter;
 	let manager: AgentManager;
-	let events: Array<{ event: string; args: any[] }>;
-	let mockSpawn: ReturnType<typeof vi.fn<(cmd: string[], opts: any) => MockProcess>>;
-	let mockAcpInitialize: ReturnType<typeof mock>;
+	let events: CollectedEvent[];
+	let mockSpawn: ReturnType<
+		typeof vi.fn<(cmd: string[], opts: Record<string, unknown>) => MockProcess>
+	>;
+	let mockAcpInitialize: ReturnType<
+		typeof vi.fn<() => Promise<InitializeResult>>
+	>;
 
 	beforeEach(() => {
 		emitter = new EventEmitter();
 		events = collectEvents(emitter);
 
 		const proc = createMockProcess();
-		mockSpawn = vi.fn<(cmd: string[], opts: any) => MockProcess>(() => proc);
+		mockSpawn = vi.fn<
+			(cmd: string[], opts: Record<string, unknown>) => MockProcess
+		>(() => proc);
 
-		mockAcpInitialize = mock(() =>
+		mockAcpInitialize = vi.fn<() => Promise<InitializeResult>>(() =>
 			Promise.resolve({
 				protocolVersion: 1,
 				agentInfo: { name: "mock", title: "Mock", version: "1.0" },
@@ -70,12 +125,17 @@ describe("AgentManager", () => {
 
 		manager = new AgentManager(emitter, {
 			spawn: mockSpawn,
-			createClient: (stdin: any, stdout: any) => {
-				const client = Object.create(AcpClient.prototype);
+			createClient: (
+				_stdin: AgentProcessStdin,
+				_stdout: AgentProcessStdout,
+			) => {
+				const client = Object.create(AcpClient.prototype) as AcpClient;
 				client.initialize = mockAcpInitialize;
 				client.close = mock(() => Promise.resolve());
 				client.onError = mock(() => {});
-				client.sessionNew = mock(() => Promise.resolve({ sessionId: "test-session" }));
+				client.sessionNew = mock(() =>
+					Promise.resolve({ sessionId: "test-session" }),
+				);
 				return client;
 			},
 		});
@@ -135,7 +195,9 @@ describe("AgentManager", () => {
 
 		expect(manager.getStatus("claude-code")).toBe("disconnected");
 		const statusEvents = events.filter((e) => e.event === "agent:status");
-		expect(statusEvents.some((e) => e.args[0]?.status === "disconnected")).toBe(true);
+		expect(statusEvents.some((e) => e.args[0]?.status === "disconnected")).toBe(
+			true,
+		);
 	});
 
 	it("TC-5.2c: reconnecting on auto-retry", async () => {
@@ -174,7 +236,9 @@ describe("AgentManager", () => {
 
 		expect(manager.getStatus("claude-code")).toBe("connected");
 		const statusEvents = events.filter((e) => e.event === "agent:status");
-		expect(statusEvents.some((e) => e.args[0]?.status === "connected")).toBe(true);
+		expect(statusEvents.some((e) => e.args[0]?.status === "connected")).toBe(
+			true,
+		);
 	});
 
 	it("TC-5.3a: shutdown terminates all", async () => {
@@ -194,7 +258,9 @@ describe("AgentManager", () => {
 
 	it("TC-5.5a: ENOENT shows install message", async () => {
 		mockSpawn.mockImplementation(() => {
-			const err = new Error("spawn claude-code-acp ENOENT") as any;
+			const err = new Error("spawn claude-code-acp ENOENT") as Error & {
+				code?: string;
+			};
 			err.code = "ENOENT";
 			throw err;
 		});
@@ -202,13 +268,15 @@ describe("AgentManager", () => {
 		try {
 			await manager.ensureAgent("claude-code");
 			expect(true).toBe(false);
-		} catch (err: any) {
-			expect(err.message).toContain("Check that it's installed");
+		} catch (err: unknown) {
+			expect(getErrorMessage(err)).toContain("Check that it's installed");
 		}
 
 		const errorEvents = events.filter((e) => e.event === "error");
 		expect(errorEvents.length).toBeGreaterThan(0);
-		expect(errorEvents[0].args[0].message).toContain("Check that it's installed");
+		expect(getStringField(errorEvents[0].args[0], "message")).toContain(
+			"Check that it's installed",
+		);
 	});
 
 	it("TC-5.5b: handshake failure shows connect error", async () => {
@@ -219,13 +287,15 @@ describe("AgentManager", () => {
 		try {
 			await manager.ensureAgent("claude-code");
 			expect(true).toBe(false);
-		} catch (err: any) {
-			expect(err.message).toContain("Could not connect");
+		} catch (err: unknown) {
+			expect(getErrorMessage(err)).toContain("Could not connect");
 		}
 
 		const errorEvents = events.filter((e) => e.event === "error");
 		expect(errorEvents.length).toBeGreaterThan(0);
-		expect(errorEvents[0].args[0].message).toContain("Could not connect");
+		expect(getStringField(errorEvents[0].args[0], "message")).toContain(
+			"Could not connect",
+		);
 	});
 
 	it("TC-5.6b: agent survives WS disconnect", async () => {

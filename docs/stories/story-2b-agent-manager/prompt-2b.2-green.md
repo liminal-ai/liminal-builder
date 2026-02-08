@@ -75,10 +75,11 @@ Keep this union type unchanged for forward compatibility. Story 2b implements on
 // server/acp/agent-manager.ts -- types to export
 
 export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | 'reconnecting';
+type AgentProcess = ReturnType<typeof Bun.spawn>;
 
 export interface AgentState {
   status: AgentStatus;
-  process: any | null;
+  process: AgentProcess | null;
   client: AcpClient | null;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
@@ -105,8 +106,8 @@ if (!cmdConfig) {
 
 ```typescript
 export interface AgentManagerDeps {
-  spawn: (cmd: string[], opts: any) => any;
-  createClient: (stdin: any, stdout: any) => AcpClient;
+  spawn: (cmd: string[], opts: Record<string, unknown>) => AgentProcess;
+  createClient: (stdin: AgentProcess['stdin'], stdout: AgentProcess['stdout']) => AcpClient;
 }
 
 const DEFAULT_DEPS: AgentManagerDeps = {
@@ -269,18 +270,19 @@ import { AppError } from '../errors';
 import { AcpClient } from './acp-client';
 
 export type AgentStatus = 'idle' | 'starting' | 'connected' | 'disconnected' | 'reconnecting';
+type AgentProcess = ReturnType<typeof Bun.spawn>;
 
 export interface AgentState {
   status: AgentStatus;
-  process: any | null;
+  process: AgentProcess | null;
   client: AcpClient | null;
   reconnectAttempts: number;
   reconnectTimer: ReturnType<typeof setTimeout> | null;
 }
 
 export interface AgentManagerDeps {
-  spawn: (cmd: string[], opts: any) => any;
-  createClient: (stdin: any, stdout: any) => AcpClient;
+  spawn: (cmd: string[], opts: Record<string, unknown>) => AgentProcess;
+  createClient: (stdin: AgentProcess['stdin'], stdout: AgentProcess['stdout']) => AcpClient;
 }
 
 const ACP_COMMANDS: Partial<Record<CliType, { cmd: string; args: string[]; displayName: string }>> = {
@@ -402,13 +404,13 @@ export class AgentManager {
     state.status = 'starting';
     this.emitter.emit('agent:status', { cliType, status: 'starting' });
 
-    let proc: any;
+    let proc: AgentProcess;
     try {
       proc = this.deps.spawn(
         [cmdConfig.cmd, ...cmdConfig.args],
         { stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' }
       );
-    } catch (err: any) {
+    } catch (err) {
       // ENOENT -- CLI not installed
       state.status = 'disconnected';
       const message = `Could not start ${cmdConfig.displayName}. Check that it's installed.`;
@@ -427,7 +429,7 @@ export class AgentManager {
 
     try {
       await client.initialize();
-    } catch (err: any) {
+    } catch (err) {
       // Handshake failure
       state.status = 'disconnected';
       try { proc.kill?.(); } catch {}
@@ -525,8 +527,9 @@ export class AgentManager {
 ## Constraints
 
 - Only modify `server/acp/agent-manager.ts` and `server/websocket.ts`
-- Prefer not to modify tests; if a Red test has a clear invalid assumption, make the smallest fix that preserves TC intent and document it.
 - Do NOT modify `server/acp/acp-client.ts`, `server/acp/acp-types.ts`, or `shared/types.ts`
+- Do NOT modify test files in Green. Red tests are the contract and must remain unchanged.
+- Before implementation starts, run `bun run guard:test-baseline-record`.
 - Implement only Story 2b WS bridge behavior (`session:create/open/send/cancel` routing, `requestId` pass-through, and `agent:status/error` forwarding)
 - Do NOT implement Codex runtime command/config (`ACP_COMMANDS` codex entry, dual CLI process runtime) in Story 2b
 - The implementation must work with the mock dependency injection from the tests
@@ -543,6 +546,9 @@ export class AgentManager {
 
 Run:
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 bun run test -- tests/server/agent-manager.test.ts
 ```
 
@@ -564,11 +570,11 @@ bun run typecheck
 
 Run:
 ```bash
-# Full quality gate (format, lint, eslint, eslint-plugin tests, typecheck, test)
-bun run verify
+# Green quality gate (verify + fail if new test-file changes appear after baseline)
+bun run green-verify
 ```
 
-**Expected:** All `bun run verify` checks pass.
+**Expected:** `bun run verify` checks pass and no new test-file changes appear after baseline.
 
 ## Done When
 
@@ -578,8 +584,9 @@ bun run verify
 - [ ] `server/websocket.ts` preserves `requestId` correlation for `session:created`, `session:history`, and `error` responses
 - [ ] `bun run test -- tests/server/agent-manager.test.ts` -- tests pass
 - [ ] `bun run test` -- total server tests pass (no regressions)
-- [ ] `bun run verify` -- quality gate passes (format, lint, eslint, typecheck, test)
+- [ ] `bun run green-verify` -- quality gate passes (format, lint, eslint, typecheck, test, no new test-file changes beyond baseline)
 - [ ] `bun run typecheck` -- zero errors
+- [ ] No new test-file changes beyond the recorded baseline
 - [ ] AgentManager correctly:
   - Spawns agent on first `ensureAgent()` call (idle -> starting -> connected)
   - Reuses existing client on subsequent `ensureAgent()` calls

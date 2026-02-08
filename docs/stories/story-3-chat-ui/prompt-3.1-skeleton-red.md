@@ -312,11 +312,11 @@ Each test file should:
 Run the following commands:
 
 ```bash
-# Full quality gate (format, lint, eslint, typecheck, test)
-bun run verify
+# Red quality gate (format, lint, eslint, eslint-plugin tests, typecheck)
+bun run red-verify
 ```
 
-**Expected:** Passes — new test files and stub updates should not introduce lint, format, or type errors.
+**Expected:** Passes — new test files and stub updates should not introduce lint, format, eslint, or type errors.
 
 ```bash
 # Typecheck should pass
@@ -331,6 +331,7 @@ bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/clien
 ```
 
 **Expected outcome:**
+- `bun run red-verify`: pass
 - `bun run typecheck`: 0 errors
 - Prior tests: 28 pass, 0 fail
 - New tests: failing outcomes attributable to unimplemented Story 3 behavior
@@ -344,5 +345,6 @@ bunx vitest run tests/client/chat.test.ts tests/client/input.test.ts tests/clien
 - [ ] `tests/client/input.test.ts` exists with 5 tests, initially failing against Story 3 stubs
 - [ ] `tests/client/portlet.test.ts` exists with 3 tests, initially failing against Story 3 stubs
 - [ ] All 28 prior tests still pass
+- [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes
 - [ ] No server files modified

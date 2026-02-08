@@ -19,6 +19,10 @@
 		"test:client": "vitest run tests/client --passWithNoTests",
 		"test:integration": "vitest run tests/integration --passWithNoTests",
 		"test:e2e": "echo \"No e2e tests configured yet\"",
+		"guard:test-baseline-record": "bun run tools/green-test-guard.js baseline-record",
+		"guard:no-test-changes": "bun run tools/green-test-guard.js check",
+		"red-verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck",
+		"green-verify": "bun run verify && bun run guard:no-test-changes",
 		"verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck && bun run test",
 		"verify-all": "bun run verify && bun run test:client && bun run test:integration && bun run test:e2e"
 	},

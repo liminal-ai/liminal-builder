@@ -531,9 +531,9 @@ Add these styles for the tab bar if not already present:
 
 ## Constraints
 
-- Prefer not to modify tests; if a Red test has an invalid assumption, make the smallest TC-preserving correction and document it.
-- If a TC-preserving test correction is required, you MAY edit `tests/client/tabs.test.ts` only.
-- Do NOT modify files outside `client/shell/tabs.js`, `client/shell/shell.css`, and (if needed) `tests/client/tabs.test.ts`
+- Do NOT modify tests in Green. Red tests are the contract and must remain unchanged.
+- Before implementation starts, run `bun run guard:test-baseline-record`.
+- Do NOT modify files outside `client/shell/tabs.js` and `client/shell/shell.css`
 - Do NOT add new dependencies
 - The tab system is purely client-side -- no WebSocket messages for tab operations
 - localStorage key MUST be `liminal:tabs`
@@ -549,6 +549,9 @@ Add these styles for the tab bar if not already present:
 
 Run:
 ```bash
+# Before implementation starts, record the test-change baseline
+bun run guard:test-baseline-record
+
 bun run test && bun run test:client
 ```
 
@@ -565,17 +568,18 @@ Expected: zero errors
 
 Run:
 ```bash
-bun run verify
+bun run green-verify
 ```
 
-Expected: All `bun run verify` checks pass (format:check, biome lint, eslint, eslint-plugin tests, typecheck, server tests).
+Expected: `bun run verify` checks pass and no new test-file changes appear after baseline.
 
 ## Done When
 
 - [ ] All 14 tests in `tests/client/tabs.test.ts` PASS
 - [ ] All 58 previous tests still PASS
 - [ ] `bun run typecheck` passes with zero errors
-- [ ] `bun run verify` passes
+- [ ] `bun run green-verify` passes
+- [ ] No new test-file changes beyond the recorded baseline
 - [ ] `client/shell/tabs.js` fully implements: openTab, activateTab, closeTab, updateTabTitle, hasTab, getActiveTab, getTabCount, getTabOrder, reorderTabs, init (and `initTabs` compatibility export)
 - [ ] Iframe lifecycle works: create on open, CSS toggle on switch, remove on close
 - [ ] Deduplication works: opening already-tabbed session activates existing tab

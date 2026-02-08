@@ -53,9 +53,9 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach, vi } 
 import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyWebsocket from '@fastify/websocket';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, mkdirSync, rmSync } from 'fs';
-import { join } from 'path';
-import { tmpdir } from 'os';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { JsonStore } from '../../server/store/json-store';
 import { ProjectStore } from '../../server/projects/project-store';
 import { SessionManager } from '../../server/sessions/session-manager';
@@ -161,7 +161,11 @@ function createMockAcpProcess(opts: { failCreate?: boolean } = {}): MockAcpProce
       .filter(Boolean);
 
     for (const line of lines) {
-      const req = JSON.parse(line) as { id?: number; method?: string; params?: any };
+      const req = JSON.parse(line) as {
+        id?: number;
+        method?: string;
+        params?: { sessionId?: string };
+      };
 
       if (req.method === 'initialize' && req.id != null) {
         stdout.write(JSON.stringify(makeRpcResponse(req.id, MOCK_INIT_RESULT)) + '\n');
@@ -266,9 +270,9 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     );
     expect(response.type).toBe('project:added');
     expect(response.project).toBeDefined();
-    expect((response.project as any).path).toBe(projectPath);
-    expect((response.project as any).name).toBe('project-add');
-    expect(typeof (response.project as any).id).toBe('string');
+    expect((response.project as { path: string }).path).toBe(projectPath);
+    expect((response.project as { name: string }).name).toBe('project-add');
+    expect(typeof (response.project as { id: string }).id).toBe('string');
   });
 
   test('session:create round-trip — sends session:create, receives session:created', async () => {
@@ -279,7 +283,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
       { type: 'project:add', path: projectPath, requestId: 'req-2' },
       'project:added'
     );
-    const projectId = (addResp.project as any).id;
+    const projectId = (addResp.project as { id: string }).id;
 
     // When/Then:
     const response = await sendAndReceive(
@@ -296,7 +300,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     // Given: session created
     const projectPath = makeProjectDir(tempRoot, 'project-stream');
     const addResp = await sendAndReceive(ws, { type: 'project:add', path: projectPath, requestId: 'req-4' }, 'project:added');
-    const projectId = (addResp.project as any).id;
+    const projectId = (addResp.project as { id: string }).id;
     const createResp = await sendAndReceive(ws, { type: 'session:create', projectId, cliType: 'claude-code', requestId: 'req-5' }, 'session:created');
     const sessionId = createResp.sessionId as string;
 
@@ -321,7 +325,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     // Given: session created and prompt in progress
     const projectPath = makeProjectDir(tempRoot, 'project-cancel');
     const addResp = await sendAndReceive(ws, { type: 'project:add', path: projectPath, requestId: 'req-6' }, 'project:added');
-    const projectId = (addResp.project as any).id;
+    const projectId = (addResp.project as { id: string }).id;
     const createResp = await sendAndReceive(ws, { type: 'session:create', projectId, cliType: 'claude-code', requestId: 'req-7' }, 'session:created');
     const sessionId = createResp.sessionId as string;
 
@@ -344,7 +348,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
     // Given: project added
     const projectPath = makeProjectDir(tempRoot, 'project-remove');
     const addResp = await sendAndReceive(ws, { type: 'project:add', path: projectPath, requestId: 'req-8' }, 'project:added');
-    const projectId = (addResp.project as any).id;
+    const projectId = (addResp.project as { id: string }).id;
 
     // When/Then:
     const response = await sendAndReceive(
@@ -365,7 +369,7 @@ describe('WebSocket Integration: Round-Trip Message Flow', () => {
       { type: 'project:add', path: projectPath, requestId: 'req-10a' },
       'project:added'
     );
-    const projectId = (addResp.project as any).id;
+    const projectId = (addResp.project as { id: string }).id;
 
     // When/Then:
     const response = await sendAndReceive(
@@ -506,11 +510,11 @@ export function updateAgentStatus(cliType, status) {
 
 Run:
 ```bash
-# Full quality gate (format, lint, eslint, typecheck, test)
-bun run verify
+# Red quality gate (format, lint, eslint, eslint-plugin tests, typecheck)
+bun run red-verify
 ```
 
-Expected: Passes — new test additions, stubs, and CSS should not introduce lint, format, or type errors.
+Expected: Passes — new test additions, stubs, and CSS should not introduce lint, format, eslint, or type errors.
 
 Run:
 ```bash
@@ -538,4 +542,5 @@ Expected: zero errors
 - [ ] Reconnect button stub added to `client/shell/sidebar.js`
 - [ ] New Story 6 tests fail in RED for implementation-relevant reasons
 - [ ] All 72 previous tests still pass
+- [ ] `bun run red-verify` passes
 - [ ] `bun run typecheck` passes with zero errors

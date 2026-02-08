@@ -10,16 +10,32 @@ export type AgentStatus =
 	| "disconnected"
 	| "reconnecting";
 
+export type AgentProcessStdin = unknown;
+
+export type AgentProcessStdout = unknown;
+
+export interface AgentProcess {
+	stdin: AgentProcessStdin;
+	stdout: AgentProcessStdout;
+	stderr?: unknown;
+	exited: Promise<number>;
+	kill?: (signal?: number | NodeJS.Signals) => unknown;
+	pid?: number;
+}
+
 export interface AgentState {
 	status: AgentStatus;
-	process: any | null;
+	process: AgentProcess | null;
 	client: AcpClient | null;
 	reconnectAttempts: number;
 }
 
 export interface AgentManagerDeps {
-	spawn: (cmd: string[], opts: any) => any;
-	createClient: (stdin: any, stdout: any) => AcpClient;
+	spawn: (cmd: string[], opts: Record<string, unknown>) => AgentProcess;
+	createClient: (
+		stdin: AgentProcessStdin,
+		stdout: AgentProcessStdout,
+	) => AcpClient;
 }
 
 /**
@@ -31,18 +47,16 @@ export interface AgentManagerDeps {
  */
 export class AgentManager {
 	private readonly agents = new Map<CliType, AgentState>();
+	// biome-ignore lint/correctness/noUnusedPrivateClassMembers: used by Green implementation
 	private readonly deps: AgentManagerDeps;
 	public readonly emitter: EventEmitter;
 
 	constructor(emitter: EventEmitter, deps?: Partial<AgentManagerDeps>) {
 		this.emitter = emitter;
 		this.deps = {
-			spawn: (cmd, opts) =>
-				Bun.spawn({
-					cmd,
-					...(opts as Record<string, unknown>),
-				}),
-			createClient: (stdin, stdout) => new AcpClient(stdin, stdout),
+			spawn: (cmd, opts) => Bun.spawn({ cmd, ...opts }),
+			createClient: (stdin, stdout) =>
+				new AcpClient(stdin as WritableStream, stdout as ReadableStream),
 			...deps,
 		};
 
