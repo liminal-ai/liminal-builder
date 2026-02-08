@@ -1,9 +1,12 @@
 import type { WebSocket } from "@fastify/websocket";
 import type { ClientMessage, ServerMessage } from "../shared/types";
+import type { AgentManager, AgentStatus } from "./acp/agent-manager";
 import type { ProjectStore } from "./projects/project-store";
+import type { CliType } from "./sessions/session-types";
 
 export interface WebSocketDeps {
 	projectStore: ProjectStore;
+	agentManager: AgentManager;
 }
 
 function sendEnvelope(socket: WebSocket, message: ServerMessage): void {
@@ -68,11 +71,34 @@ function toErrorMessage(error: unknown): string {
 export function handleWebSocket(socket: WebSocket, deps: WebSocketDeps): void {
 	console.log("[ws] Client connected");
 
+	const onAgentStatus = (payload: { cliType: CliType; status: AgentStatus }) => {
+		if (payload.status === "idle") {
+			return;
+		}
+		sendEnvelope(socket, {
+			type: "agent:status",
+			cliType: payload.cliType,
+			status: payload.status,
+		});
+	};
+
+	const onAgentError = (payload: { cliType: CliType; message: string }) => {
+		sendEnvelope(socket, {
+			type: "error",
+			message: payload.message,
+		});
+	};
+
+	deps.agentManager.emitter.on("agent:status", onAgentStatus);
+	deps.agentManager.emitter.on("error", onAgentError);
+
 	socket.on("message", (raw: Buffer | string) => {
 		void handleIncomingMessage(socket, raw, deps);
 	});
 
 	socket.on("close", () => {
+		deps.agentManager.emitter.off("agent:status", onAgentStatus);
+		deps.agentManager.emitter.off("error", onAgentError);
 		console.log("[ws] Client disconnected");
 	});
 
@@ -170,10 +196,74 @@ async function routeMessage(
 			break;
 		}
 
-		case "session:open":
-		case "session:create":
-		case "session:send":
-		case "session:cancel":
+		case "session:create": {
+			try {
+				const client = await deps.agentManager.ensureAgent("claude-code");
+				const result = await client.sessionNew({ cwd: "." });
+				sendEnvelope(socket, {
+					type: "session:created",
+					sessionId: result.sessionId,
+					projectId: message.projectId,
+					requestId: message.requestId,
+				});
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
+		case "session:open": {
+			try {
+				const client = await deps.agentManager.ensureAgent("claude-code");
+				const entries = await client.sessionLoad(message.sessionId, ".");
+				sendEnvelope(socket, {
+					type: "session:history",
+					sessionId: message.sessionId,
+					entries,
+					requestId: message.requestId,
+				});
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
+		case "session:send": {
+			try {
+				const client = await deps.agentManager.ensureAgent("claude-code");
+				await client.sessionPrompt(message.sessionId, message.content, () => {});
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
+		case "session:cancel": {
+			try {
+				const client = await deps.agentManager.ensureAgent("claude-code");
+				client.sessionCancel(message.sessionId);
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
 		case "session:archive":
 		case "session:reconnect":
 		case "session:list": {

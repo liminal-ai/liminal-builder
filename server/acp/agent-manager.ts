@@ -1,6 +1,6 @@
 import { NotImplementedError } from "../errors";
 import type { CliType } from "../sessions/session-types";
-import type { AcpClient } from "./acp-client";
+import { AcpClient } from "./acp-client";
 import type { EventEmitter } from "node:events";
 
 export type AgentStatus =
@@ -10,6 +10,18 @@ export type AgentStatus =
 	| "disconnected"
 	| "reconnecting";
 
+export interface AgentState {
+	status: AgentStatus;
+	process: any | null;
+	client: AcpClient | null;
+	reconnectAttempts: number;
+}
+
+export interface AgentManagerDeps {
+	spawn: (cmd: string[], opts: any) => any;
+	createClient: (stdin: any, stdout: any) => AcpClient;
+}
+
 /**
  * Manages ACP agent process lifecycle for all CLI types.
  * One process per CLI type, spawned on demand, monitored for health.
@@ -18,7 +30,29 @@ export type AgentStatus =
  *         AC-5.5 (start failure)
  */
 export class AgentManager {
-	constructor(public emitter: EventEmitter) {}
+	private readonly agents = new Map<CliType, AgentState>();
+	private readonly deps: AgentManagerDeps;
+	public readonly emitter: EventEmitter;
+
+	constructor(emitter: EventEmitter, deps?: Partial<AgentManagerDeps>) {
+		this.emitter = emitter;
+		this.deps = {
+			spawn: (cmd, opts) =>
+				Bun.spawn({
+					cmd,
+					...(opts as Record<string, unknown>),
+				}),
+			createClient: (stdin, stdout) => new AcpClient(stdin, stdout),
+			...deps,
+		};
+
+		this.agents.set("claude-code", {
+			status: "idle",
+			process: null,
+			client: null,
+			reconnectAttempts: 0,
+		});
+	}
 
 	/** Get or spawn agent for CLI type. Emits status events. */
 	async ensureAgent(_cliType: CliType): Promise<AcpClient> {
