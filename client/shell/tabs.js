@@ -12,20 +12,17 @@ const STORAGE_KEY = STORAGE_KEYS.TABS;
 const iframes = new Map();
 
 // Current active tab session ID (or null)
-// biome-ignore lint/style/useConst: reassigned in Story 5 Green
 let activeTab = null;
 
 // Tab order array (session IDs in display order)
-// biome-ignore lint/style/useConst: reassigned in Story 5 Green
-let tabOrder = [];
+const tabOrder = [];
 
 // DOM references (set during init)
-// biome-ignore lint/style/useConst: reassigned in Story 5 Green
 let tabBar = null;
-// biome-ignore lint/style/useConst: reassigned in Story 5 Green
 let portletContainer = null;
-// biome-ignore lint/style/useConst: reassigned in Story 5 Green
 let emptyState = null;
+let tabBarDragOverHandler = null;
+let tabBarDropHandler = null;
 
 /**
  * Initialize the tab system.
@@ -39,10 +36,53 @@ let emptyState = null;
  * @param {HTMLElement} emptyStateEl - The empty state element
  */
 export function init(tabBarEl, containerEl, emptyStateEl) {
-	void tabBarEl;
-	void containerEl;
-	void emptyStateEl;
-	throw new Error("Not implemented");
+	if (tabBar && tabBarDragOverHandler) {
+		tabBar.removeEventListener("dragover", tabBarDragOverHandler);
+	}
+	if (tabBar && tabBarDropHandler) {
+		tabBar.removeEventListener("drop", tabBarDropHandler);
+	}
+
+	tabBar = tabBarEl ?? document.getElementById("tab-bar");
+	portletContainer =
+		containerEl ?? document.getElementById("portlet-container");
+	emptyState = emptyStateEl ?? document.getElementById("empty-state");
+
+	if (!tabBar || !portletContainer || !emptyState) {
+		throw new Error("tabs.init: required DOM elements missing");
+	}
+
+	tabBarDragOverHandler = (event) => {
+		event.preventDefault();
+		if (event.dataTransfer) {
+			event.dataTransfer.dropEffect = "move";
+		}
+	};
+	tabBar.addEventListener("dragover", tabBarDragOverHandler);
+
+	tabBarDropHandler = (event) => {
+		event.preventDefault();
+		const draggedId = event.dataTransfer?.getData("text/plain");
+		const target = event.target;
+		const dropTarget =
+			target instanceof Element ? target.closest(".tab") : null;
+		if (!dropTarget || !draggedId) {
+			return;
+		}
+		const targetId = dropTarget.dataset.sessionId;
+		if (!targetId || draggedId === targetId) {
+			return;
+		}
+		reorderTabs(draggedId, targetId);
+	};
+	tabBar.addEventListener("drop", tabBarDropHandler);
+
+	if (iframes.size === 0) {
+		restoreTabState();
+	}
+	if (iframes.size === 0) {
+		toggleEmptyState(true);
+	}
 }
 
 // Keep compatibility with Story 0 shell import surface.
@@ -56,10 +96,27 @@ export const initTabs = init;
  * @param {string} cliType - CLI type ("claude-code" or "codex")
  */
 export function openTab(sessionId, title, cliType) {
-	void sessionId;
-	void title;
-	void cliType;
-	throw new Error("Not implemented");
+	if (iframes.has(sessionId)) {
+		activateTab(sessionId);
+		return;
+	}
+
+	if (!portletContainer) {
+		throw new Error("tabs.openTab: init must be called before openTab");
+	}
+
+	const iframe = document.createElement("iframe");
+	iframe.src = `/portlet/index.html?sessionId=${encodeURIComponent(sessionId)}`;
+	iframe.dataset.sessionId = sessionId;
+	iframe.className = "portlet-iframe";
+	portletContainer.appendChild(iframe);
+	iframes.set(sessionId, iframe);
+
+	renderTabElement(sessionId, title, cliType);
+	tabOrder.push(sessionId);
+	activateTab(sessionId);
+	toggleEmptyState(false);
+	persistTabState();
 }
 
 /**
@@ -69,8 +126,25 @@ export function openTab(sessionId, title, cliType) {
  * @param {string} sessionId - Session ID to activate (or null for empty state)
  */
 export function activateTab(sessionId) {
-	void sessionId;
-	throw new Error("Not implemented");
+	if (sessionId === null) {
+		for (const [, iframe] of iframes) {
+			iframe.style.display = "none";
+		}
+		activeTab = null;
+		updateTabBarHighlight(null);
+		toggleEmptyState(true);
+		persistTabState();
+		return;
+	}
+
+	for (const [id, iframe] of iframes) {
+		iframe.style.display = id === sessionId ? "block" : "none";
+	}
+
+	activeTab = sessionId;
+	updateTabBarHighlight(sessionId);
+	toggleEmptyState(false);
+	persistTabState();
 }
 
 /**
@@ -80,8 +154,31 @@ export function activateTab(sessionId) {
  * @param {string} sessionId - Session ID to close
  */
 export function closeTab(sessionId) {
-	void sessionId;
-	throw new Error("Not implemented");
+	const iframe = iframes.get(sessionId);
+	if (!iframe) {
+		return;
+	}
+
+	iframe.remove();
+	iframes.delete(sessionId);
+	removeTabElement(sessionId);
+
+	const orderIndex = tabOrder.indexOf(sessionId);
+	if (orderIndex !== -1) {
+		tabOrder.splice(orderIndex, 1);
+	}
+
+	if (activeTab === sessionId) {
+		if (tabOrder.length > 0) {
+			const newIndex =
+				orderIndex < tabOrder.length ? orderIndex : tabOrder.length - 1;
+			activateTab(tabOrder[newIndex] ?? null);
+		} else {
+			activateTab(null);
+		}
+	}
+
+	persistTabState();
 }
 
 /**
@@ -91,9 +188,18 @@ export function closeTab(sessionId) {
  * @param {string} title - New title
  */
 export function updateTabTitle(sessionId, title) {
-	void sessionId;
-	void title;
-	throw new Error("Not implemented");
+	if (!tabBar) {
+		return;
+	}
+	const tabEl = tabBar.querySelector(`.tab[data-session-id="${sessionId}"]`);
+	if (!tabEl) {
+		return;
+	}
+	const titleEl = tabEl.querySelector(".tab-title");
+	if (titleEl) {
+		titleEl.textContent = title;
+	}
+	persistTabState();
 }
 
 /**
@@ -102,8 +208,7 @@ export function updateTabTitle(sessionId, title) {
  * @returns {boolean}
  */
 export function hasTab(sessionId) {
-	void sessionId;
-	throw new Error("Not implemented");
+	return iframes.has(sessionId);
 }
 
 /**
@@ -111,7 +216,7 @@ export function hasTab(sessionId) {
  * @returns {string|null}
  */
 export function getActiveTab() {
-	throw new Error("Not implemented");
+	return activeTab;
 }
 
 /**
@@ -119,7 +224,7 @@ export function getActiveTab() {
  * @returns {number}
  */
 export function getTabCount() {
-	throw new Error("Not implemented");
+	return iframes.size;
 }
 
 /**
@@ -127,7 +232,7 @@ export function getTabCount() {
  * @returns {string[]}
  */
 export function getTabOrder() {
-	throw new Error("Not implemented");
+	return [...tabOrder];
 }
 
 /**
@@ -136,9 +241,22 @@ export function getTabOrder() {
  * @param {string} targetId - Session ID of the drop target
  */
 export function reorderTabs(draggedId, targetId) {
-	void draggedId;
-	void targetId;
-	throw new Error("Not implemented");
+	const draggedIndex = tabOrder.indexOf(draggedId);
+	const targetIndex = tabOrder.indexOf(targetId);
+	if (draggedIndex === -1 || targetIndex === -1) {
+		return;
+	}
+	if (draggedIndex === targetIndex) {
+		return;
+	}
+
+	tabOrder.splice(draggedIndex, 1);
+	// "Drop on tab" is consistently interpreted as insert before target.
+	const insertIndex =
+		draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+	tabOrder.splice(insertIndex, 0, draggedId);
+	reorderTabBarDOM();
+	persistTabState();
 }
 
 // ---- Internal helpers ----
@@ -157,10 +275,44 @@ export function reorderTabs(draggedId, targetId) {
  * @returns {HTMLElement} The created tab element
  */
 function renderTabElement(sessionId, title, cliType) {
-	void sessionId;
-	void title;
-	void cliType;
-	throw new Error("Not implemented");
+	if (!tabBar) {
+		throw new Error("tabs.renderTabElement: tab bar is not initialized");
+	}
+
+	const tab = document.createElement("div");
+	tab.className = "tab";
+	tab.dataset.sessionId = sessionId;
+	tab.draggable = true;
+
+	const indicator = document.createElement("span");
+	indicator.className = "tab-cli-indicator";
+	indicator.dataset.cliType = cliType;
+	indicator.textContent = cliType === "claude-code" ? "CC" : "CX";
+
+	const titleSpan = document.createElement("span");
+	titleSpan.className = "tab-title";
+	titleSpan.textContent = title;
+
+	const closeBtn = document.createElement("button");
+	closeBtn.className = "tab-close";
+	closeBtn.type = "button";
+	closeBtn.textContent = "\u00d7";
+	closeBtn.addEventListener("click", (event) => {
+		event.stopPropagation();
+		closeTab(sessionId);
+	});
+
+	tab.appendChild(indicator);
+	tab.appendChild(titleSpan);
+	tab.appendChild(closeBtn);
+
+	tab.addEventListener("click", () => {
+		activateTab(sessionId);
+	});
+
+	setupDragHandlers(tab, sessionId);
+	tabBar.appendChild(tab);
+	return tab;
 }
 
 /**
@@ -168,8 +320,13 @@ function renderTabElement(sessionId, title, cliType) {
  * @param {string} sessionId
  */
 function removeTabElement(sessionId) {
-	void sessionId;
-	throw new Error("Not implemented");
+	if (!tabBar) {
+		return;
+	}
+	const tab = tabBar.querySelector(`.tab[data-session-id="${sessionId}"]`);
+	if (tab) {
+		tab.remove();
+	}
 }
 
 /**
@@ -177,8 +334,17 @@ function removeTabElement(sessionId) {
  * @param {string} sessionId - Active session ID (or null)
  */
 function updateTabBarHighlight(sessionId) {
-	void sessionId;
-	throw new Error("Not implemented");
+	if (!tabBar) {
+		return;
+	}
+	const tabs = tabBar.querySelectorAll(".tab");
+	for (const tab of tabs) {
+		if (tab.dataset.sessionId === sessionId) {
+			tab.classList.add("active");
+		} else {
+			tab.classList.remove("active");
+		}
+	}
 }
 
 /**
@@ -192,7 +358,36 @@ function updateTabBarHighlight(sessionId) {
  * Called after every tab operation (open, close, switch, reorder).
  */
 function persistTabState() {
-	throw new Error("Not implemented");
+	if (!tabBar) {
+		return;
+	}
+
+	const tabMeta = {};
+	for (const tab of tabBar.querySelectorAll(".tab")) {
+		const sessionId = tab.dataset.sessionId;
+		if (!sessionId) {
+			continue;
+		}
+		tabMeta[sessionId] = {
+			title: tab.querySelector(".tab-title")?.textContent || "New Session",
+			cliType:
+				tab.querySelector(".tab-cli-indicator")?.dataset.cliType ||
+				"claude-code",
+		};
+	}
+
+	const state = {
+		openTabs: [...iframes.keys()],
+		activeTab,
+		tabOrder: [...tabOrder],
+		tabMeta,
+	};
+
+	try {
+		localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+	} catch (error) {
+		console.warn("Failed to persist tab state:", error);
+	}
 }
 
 /**
@@ -207,7 +402,70 @@ function persistTabState() {
  * } | null}
  */
 function restoreTabState() {
-	throw new Error("Not implemented");
+	if (!portletContainer) {
+		return null;
+	}
+
+	try {
+		const saved = localStorage.getItem(STORAGE_KEY);
+		if (!saved) {
+			return null;
+		}
+
+		const state = JSON.parse(saved);
+		if (!state || !Array.isArray(state.openTabs)) {
+			return null;
+		}
+
+		const openTabs = Array.isArray(state.openTabs) ? state.openTabs : [];
+		const savedOrder = Array.isArray(state.tabOrder)
+			? state.tabOrder
+			: openTabs;
+		const tabMeta =
+			typeof state.tabMeta === "object" && state.tabMeta !== null
+				? state.tabMeta
+				: {};
+
+		for (const sessionId of savedOrder) {
+			if (!openTabs.includes(sessionId)) {
+				continue;
+			}
+
+			const info =
+				typeof tabMeta[sessionId] === "object" && tabMeta[sessionId] !== null
+					? tabMeta[sessionId]
+					: {};
+			const title =
+				typeof info.title === "string" && info.title.length > 0
+					? info.title
+					: "New Session";
+			const cliType =
+				typeof info.cliType === "string" && info.cliType.length > 0
+					? info.cliType
+					: "claude-code";
+
+			const iframe = document.createElement("iframe");
+			iframe.src = `/portlet/index.html?sessionId=${encodeURIComponent(sessionId)}`;
+			iframe.dataset.sessionId = sessionId;
+			iframe.className = "portlet-iframe";
+			portletContainer.appendChild(iframe);
+			iframes.set(sessionId, iframe);
+
+			renderTabElement(sessionId, title, cliType);
+			tabOrder.push(sessionId);
+		}
+
+		if (state.activeTab && iframes.has(state.activeTab)) {
+			activateTab(state.activeTab);
+		} else if (iframes.size > 0) {
+			activateTab(tabOrder[0] ?? null);
+		}
+
+		return state;
+	} catch (error) {
+		console.warn("Failed to restore tab state:", error);
+		return null;
+	}
 }
 
 /**
@@ -217,9 +475,17 @@ function restoreTabState() {
  * @param {string} sessionId
  */
 function setupDragHandlers(tabElement, sessionId) {
-	void tabElement;
-	void sessionId;
-	throw new Error("Not implemented");
+	tabElement.addEventListener("dragstart", (event) => {
+		if (event.dataTransfer) {
+			event.dataTransfer.setData("text/plain", sessionId);
+			event.dataTransfer.effectAllowed = "move";
+		}
+		tabElement.classList.add("dragging");
+	});
+
+	tabElement.addEventListener("dragend", () => {
+		tabElement.classList.remove("dragging");
+	});
 }
 
 /**
@@ -227,8 +493,22 @@ function setupDragHandlers(tabElement, sessionId) {
  * @param {boolean} show
  */
 function toggleEmptyState(show) {
-	void show;
-	throw new Error("Not implemented");
+	if (!emptyState) {
+		return;
+	}
+	emptyState.style.display = show ? "" : "none";
+}
+
+function reorderTabBarDOM() {
+	if (!tabBar) {
+		return;
+	}
+	for (const sessionId of tabOrder) {
+		const tab = tabBar.querySelector(`.tab[data-session-id="${sessionId}"]`);
+		if (tab) {
+			tabBar.appendChild(tab);
+		}
+	}
 }
 
 // ---- Relay lookup API (used by shell.js postMessage relay) ----

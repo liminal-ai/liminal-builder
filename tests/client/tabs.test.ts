@@ -321,18 +321,21 @@ describe("Tab Management", () => {
 
 	// === AC-4.6: Drag-and-drop reorder ===
 
-	test("TC-4.6a: drag reorder — order A, C, B", () => {
+	test("TC-4.6a: drag reorder uses consistent insert-before-target semantics", () => {
 		tabs.init(tabBar, portletContainer, emptyState);
 		tabs.openTab("claude-code:A", "A", "claude-code");
 		tabs.openTab("claude-code:B", "B", "claude-code");
 		tabs.openTab("claude-code:C", "C", "claude-code");
+		tabs.openTab("claude-code:D", "D", "claude-code");
 
-		tabs.reorderTabs("claude-code:C", "claude-code:B");
+		// Rightward drag: dropping B on D should place B before D.
+		tabs.reorderTabs("claude-code:B", "claude-code:D");
 
 		expect(tabs.getTabOrder()).toEqual([
 			"claude-code:A",
 			"claude-code:C",
 			"claude-code:B",
+			"claude-code:D",
 		]);
 	});
 
@@ -341,13 +344,15 @@ describe("Tab Management", () => {
 		tabs.openTab("claude-code:A", "A", "claude-code");
 		tabs.openTab("claude-code:B", "B", "claude-code");
 		tabs.openTab("claude-code:C", "C", "claude-code");
-		tabs.reorderTabs("claude-code:C", "claude-code:B");
+		tabs.openTab("claude-code:D", "D", "claude-code");
+		tabs.reorderTabs("claude-code:B", "claude-code:D");
 
 		const stored = parseStoredTabs(localStorage.getItem("liminal:tabs"));
 		expect(stored.tabOrder).toEqual([
 			"claude-code:A",
 			"claude-code:C",
 			"claude-code:B",
+			"claude-code:D",
 		]);
 	});
 

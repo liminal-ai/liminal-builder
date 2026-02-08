@@ -63,7 +63,7 @@ Verify that the following acceptance criteria are covered by the specified test 
 | AC-4.4 | TC-4.4c | Close last tab shows empty state | `tests/client/tabs.test.ts` |
 | AC-4.5 | TC-4.5a | Tab shows title and CLI type | `tests/client/tabs.test.ts` |
 | AC-4.5 | TC-4.5b | New session shows placeholder title | `tests/client/tabs.test.ts` |
-| AC-4.6 | TC-4.6a | Drag reorder | `tests/client/tabs.test.ts` |
+| AC-4.6 | TC-4.6a | Drag reorder (drop-on-target inserts **before** target in both directions) | `tests/client/tabs.test.ts` |
 | AC-4.6 | TC-4.6b | Order persists | `tests/client/tabs.test.ts` |
 | AC-4.7 | TC-4.7a | Tabs restore | `tests/client/tabs.test.ts` |
 
@@ -77,6 +77,8 @@ PostMessage relay integration tests (no TC — these cover cross-story integrati
 | -- | -- | Messages for unknown sessions silently dropped | `tests/client/tabs.test.ts` |
 
 **Action:** Open `tests/client/tabs.test.ts` and verify each TC ID appears in a test description, plus the 4 relay tests exist. If any are missing, report which ones.
+
+**Verification note (2026-02-08):** Reorder semantics were normalized to be direction-invariant: dropping a tab on another tab always inserts the dragged tab **before** the target tab, including rightward drags.
 
 ### Step 4: Implementation Spot Checks
 

@@ -53,6 +53,81 @@
 	gap: 1px;
 }
 
+/* Tab bar */
+#tab-bar {
+	display: flex;
+	gap: 0;
+	overflow-x: auto;
+	background: var(--bg-secondary, #1a1b26);
+	border-bottom: 1px solid var(--border, var(--border-color, #292e42));
+	min-height: 36px;
+}
+
+.tab {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	cursor: pointer;
+	border-right: 1px solid var(--border, var(--border-color, #292e42));
+	background: var(--bg-secondary, #1a1b26);
+	color: var(--text-muted, var(--fg-muted, #565f89));
+	font-size: 13px;
+	white-space: nowrap;
+	user-select: none;
+	transition: background 0.1s;
+}
+
+.tab:hover {
+	background: var(--bg-tertiary, #24283b);
+}
+
+.tab.active {
+	background: var(--bg-primary, #1a1b26);
+	color: var(--text-primary, var(--fg-primary, #c0caf5));
+	border-bottom: 2px solid var(--accent, var(--accent-blue, #7aa2f7));
+}
+
+.tab.dragging {
+	opacity: 0.5;
+}
+
+.tab-cli-indicator {
+	font-size: 10px;
+	font-weight: 600;
+	padding: 1px 4px;
+	border-radius: 3px;
+	background: var(--bg-tertiary, #24283b);
+}
+
+.tab-cli-indicator[data-cli-type="claude-code"] {
+	color: var(--claude-color, #d4a0ff);
+}
+
+.tab-cli-indicator[data-cli-type="codex"] {
+	color: var(--codex-color, #73daca);
+}
+
+.tab-title {
+	max-width: 150px;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.tab-close {
+	background: none;
+	border: none;
+	color: var(--text-muted, var(--fg-muted, #565f89));
+	cursor: pointer;
+	font-size: 14px;
+	padding: 0 2px;
+	line-height: 1;
+}
+
+.tab-close:hover {
+	color: var(--text-primary, var(--fg-primary, #c0caf5));
+}
+
 .portlet-container {
 	flex: 1;
 	position: relative;
@@ -68,6 +143,12 @@
 	border: none;
 }
 
+.portlet-iframe {
+	width: 100%;
+	height: 100%;
+	border: none;
+}
+
 .empty-state {
 	display: flex;
 	align-items: center;
@@ -75,6 +156,15 @@
 	height: 100%;
 	color: var(--fg-muted);
 	font-size: 14px;
+}
+
+#empty-state {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: var(--text-muted, var(--fg-muted, #565f89));
+	font-size: 16px;
 }
 
 /* Button */

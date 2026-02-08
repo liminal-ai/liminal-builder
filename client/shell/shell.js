@@ -18,7 +18,9 @@ let ws = null;
 /** @type {((msg: object) => void)[]} */
 const messageHandlers = [];
 
-const SESSION_SCOPED_TYPES = new Set([
+const PORTLET_WS_TYPES = new Set(["session:send", "session:cancel"]);
+const PORTLET_LOCAL_TYPES = new Set(["portlet:ready", "portlet:title"]);
+const PORTLET_MESSAGE_TYPES = new Set([
 	"session:history",
 	"session:update",
 	"session:chunk",
@@ -26,6 +28,8 @@ const SESSION_SCOPED_TYPES = new Set([
 	"session:cancelled",
 	"session:error",
 ]);
+/** @type {((event: MessageEvent) => void) | null} */
+let relayMessageHandler = null;
 
 /**
  * Register a handler for incoming WebSocket messages.
@@ -65,10 +69,47 @@ export function sendMessage(message) {
  * @param {function} sendMessageFn - The WebSocket send function
  */
 export function setupPortletRelay(sendMessageFn) {
-	void sendMessageFn;
-	void getSessionIdBySource;
-	void updateTabTitle;
-	throw new Error("Not implemented");
+	if (relayMessageHandler) {
+		window.removeEventListener("message", relayMessageHandler);
+	}
+
+	relayMessageHandler = (event) => {
+		if (event.origin !== window.location.origin) {
+			return;
+		}
+
+		const data = event.data;
+		if (!data || typeof data.type !== "string") {
+			return;
+		}
+
+		if (
+			!PORTLET_WS_TYPES.has(data.type) &&
+			!PORTLET_LOCAL_TYPES.has(data.type)
+		) {
+			return;
+		}
+
+		const sessionId = getSessionIdBySource(event.source);
+		if (!sessionId) {
+			return;
+		}
+
+		if (data.type === "portlet:ready") {
+			return;
+		}
+
+		if (data.type === "portlet:title") {
+			if (typeof data.title === "string") {
+				updateTabTitle(sessionId, data.title);
+			}
+			return;
+		}
+
+		sendMessageFn({ ...data, sessionId });
+	};
+
+	window.addEventListener("message", relayMessageHandler);
 }
 
 /**
@@ -89,9 +130,22 @@ export function setupPortletRelay(sendMessageFn) {
  * @param {object} message - The parsed WebSocket message (has type, sessionId, etc.)
  */
 export function routeToPortlet(message) {
-	void message;
-	void getIframe;
-	throw new Error("Not implemented");
+	if (!message || typeof message.type !== "string") {
+		return;
+	}
+	if (!PORTLET_MESSAGE_TYPES.has(message.type)) {
+		return;
+	}
+	if (typeof message.sessionId !== "string" || message.sessionId.length === 0) {
+		return;
+	}
+
+	const iframe = getIframe(message.sessionId);
+	if (!iframe || !iframe.contentWindow) {
+		return;
+	}
+
+	iframe.contentWindow.postMessage(message, window.location.origin);
 }
 
 /**
@@ -121,8 +175,11 @@ function connect() {
 				handler(msg);
 			});
 
-			if (msg?.type === "session:created") {
-				// Story 5: TODO — wire in Green
+			if (
+				msg?.type === "session:created" &&
+				typeof msg.sessionId === "string" &&
+				msg.sessionId.length > 0
+			) {
 				openTab(
 					msg.sessionId,
 					msg.title || "New Session",
@@ -130,10 +187,7 @@ function connect() {
 				);
 			}
 
-			if (SESSION_SCOPED_TYPES.has(msg?.type)) {
-				// Story 5: TODO — wire in Green
-				routeToPortlet(msg);
-			}
+			routeToPortlet(msg);
 		} catch (err) {
 			console.error("[shell] Failed to handle server message:", err);
 		}
@@ -154,6 +208,5 @@ document.addEventListener("DOMContentLoaded", () => {
 	connect();
 	initSidebar(sendMessage, onMessage);
 	initTabs();
+	setupPortletRelay(sendMessage);
 });
-
-void setupPortletRelay;
