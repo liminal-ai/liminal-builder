@@ -1,7 +1,6 @@
 /**
- * Portlet entry point stub.
- * Handles postMessage communication with the shell.
- * Will be implemented in Story 3.
+ * Portlet entry point.
+ * Handles postMessage communication with the shell and local UI state.
  */
 
 import * as chat from "./chat.js";
@@ -197,6 +196,7 @@ export function handleShellMessage(msg) {
 
 		case "agent:status":
 			handleAgentStatus(msg.status);
+			updateConnectionStatus(msg.status);
 			break;
 
 		case "session:error":
@@ -244,6 +244,58 @@ export function handleAgentStatus(status) {
 			break;
 		default:
 			break;
+	}
+}
+
+/**
+ * Update visual connection status indicator in the session header.
+ * Placeholder for Story 6 Green implementation.
+ *
+ * @param {"starting" | "connected" | "disconnected" | "reconnecting"} status
+ */
+export function updateConnectionStatus(status) {
+	let dot = document.querySelector(".connection-status");
+
+	if (!dot) {
+		dot = document.createElement("span");
+		dot.className = "connection-status";
+
+		const header =
+			document.querySelector(".session-header") ||
+			document.querySelector(".portlet-header") ||
+			document.getElementById("agent-status");
+		if (header) {
+			header.prepend(dot);
+		} else {
+			document.body.prepend(dot);
+		}
+	}
+
+	dot.classList.remove("connected", "disconnected", "reconnecting", "starting");
+	dot.classList.add(status);
+
+	const titles = {
+		connected: "Agent connected",
+		disconnected: "Agent disconnected",
+		reconnecting: "Reconnecting to agent...",
+		starting: "Starting agent...",
+	};
+	dot.title = titles[status] || status;
+
+	const inputDisabled = status !== "connected";
+	const inputBar = document.querySelector(
+		".input-bar textarea, #message-input",
+	);
+	const sendBtn = document.querySelector(".send-button, #send-btn");
+
+	if (
+		inputBar instanceof HTMLTextAreaElement ||
+		inputBar instanceof HTMLInputElement
+	) {
+		inputBar.disabled = inputDisabled;
+	}
+	if (sendBtn instanceof HTMLButtonElement) {
+		sendBtn.disabled = inputDisabled;
 	}
 }
 

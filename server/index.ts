@@ -14,6 +14,7 @@ import { handleWebSocket } from "./websocket";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CLIENT_DIR = join(import.meta.dir, "..", "client");
+const NODE_MODULES_DIR = join(import.meta.dir, "..", "node_modules");
 const PROJECTS_FILE = join(homedir(), ".liminal-builder", "projects.json");
 const SESSIONS_FILE = join(homedir(), ".liminal-builder", "sessions.json");
 
@@ -36,10 +37,15 @@ async function main() {
 		projectStore,
 	);
 
+	await app.register(fastifyStatic, {
+		root: NODE_MODULES_DIR,
+		prefix: "/vendor/",
+	});
 	// Static file serving for the client
 	await app.register(fastifyStatic, {
 		root: CLIENT_DIR,
 		prefix: "/",
+		decorateReply: false,
 	});
 
 	// WebSocket support
@@ -53,6 +59,30 @@ async function main() {
 	// Start server
 	await app.listen({ port: PORT, host: "0.0.0.0" });
 	console.log(`Liminal Builder running at http://localhost:${PORT}`);
+
+	let shuttingDown = false;
+	const shutdown = async (signal: string) => {
+		if (shuttingDown) {
+			return;
+		}
+		shuttingDown = true;
+		console.log(`\n[server] Received ${signal}, shutting down...`);
+		try {
+			await agentManager.shutdownAll();
+			await app.close();
+			process.exit(0);
+		} catch (error) {
+			console.error("[server] Shutdown failed:", error);
+			process.exit(1);
+		}
+	};
+
+	process.on("SIGINT", () => {
+		void shutdown("SIGINT");
+	});
+	process.on("SIGTERM", () => {
+		void shutdown("SIGTERM");
+	});
 }
 
 main().catch((err) => {

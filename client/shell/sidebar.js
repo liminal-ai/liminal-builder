@@ -1,4 +1,5 @@
 import { STORAGE_KEYS } from "../shared/constants.js";
+import { closeTab as closeShellTab, hasTab as hasShellTab } from "./tabs.js";
 
 const COLLAPSED_KEY = STORAGE_KEYS.COLLAPSED;
 
@@ -20,6 +21,20 @@ function escapeCssSelector(value) {
 let currentProjects = [];
 let currentSessionsByProject = {};
 let sendMessageRef = () => {};
+let resyncSessionsListener = null;
+
+function requestSessionListsForExpandedProjects() {
+	const collapsedState = getCollapsedState();
+	for (const project of currentProjects) {
+		if (collapsedState[project.id] === true) {
+			continue;
+		}
+		sendMessageRef({
+			type: "session:list",
+			projectId: project.id,
+		});
+	}
+}
 
 function parseCliType(sessionId) {
 	if (typeof sessionId !== "string") {
@@ -33,12 +48,20 @@ function parseCliType(sessionId) {
 	return maybeCliType === "codex" ? "codex" : "claude-code";
 }
 
-function closeTab(tabId) {
-	if (typeof tabId !== "string" || tabId.length === 0) {
+function closeSessionTab(sessionId) {
+	if (typeof sessionId !== "string" || sessionId.length === 0) {
 		return;
 	}
+
+	// Keep tabs module state and localStorage in sync when available.
+	if (hasShellTab(sessionId)) {
+		closeShellTab(sessionId);
+		return;
+	}
+
+	// Fallback for isolated/sidebar-only contexts.
 	const tabs = document.querySelectorAll(
-		`.tab[data-session-id="${escapeCssSelector(tabId)}"]`,
+		`.tab[data-session-id="${escapeCssSelector(sessionId)}"]`,
 	);
 	for (const tab of tabs) {
 		tab.remove();
@@ -81,6 +104,17 @@ function removeSessionFromState(sessionId) {
 export function initSidebar(sendMessage = () => {}, onMessage = () => {}) {
 	sendMessageRef = sendMessage;
 
+	if (resyncSessionsListener) {
+		window.removeEventListener(
+			"liminal:resync-sessions",
+			resyncSessionsListener,
+		);
+	}
+	resyncSessionsListener = () => {
+		requestSessionListsForExpandedProjects();
+	};
+	window.addEventListener("liminal:resync-sessions", resyncSessionsListener);
+
 	const addButton = document.getElementById("add-project-btn");
 	if (addButton) {
 		addButton.addEventListener("click", () => {
@@ -104,12 +138,7 @@ export function initSidebar(sendMessage = () => {}, onMessage = () => {}) {
 					sendMessageRef,
 					currentSessionsByProject,
 				);
-				for (const project of currentProjects) {
-					sendMessageRef({
-						type: "session:list",
-						projectId: project.id,
-					});
-				}
+				requestSessionListsForExpandedProjects();
 				break;
 			}
 			case "project:added": {
@@ -187,7 +216,7 @@ export function initSidebar(sendMessage = () => {}, onMessage = () => {}) {
 			case "session:archived": {
 				if (typeof message.sessionId === "string") {
 					const projectId = removeSessionFromState(message.sessionId);
-					closeTab(message.sessionId);
+					closeSessionTab(message.sessionId);
 					if (projectId) {
 						renderProjects(
 							currentProjects,
@@ -219,6 +248,15 @@ export function initSidebar(sendMessage = () => {}, onMessage = () => {}) {
 							currentSessionsByProject,
 						);
 					}
+				}
+				break;
+			}
+			case "agent:status": {
+				if (
+					typeof message.cliType === "string" &&
+					typeof message.status === "string"
+				) {
+					updateAgentStatus(message.cliType, message.status);
 				}
 				break;
 			}
@@ -387,7 +425,7 @@ export function renderSessions(projectId, sessions) {
 			sendMessageRef({ type: "session:archive", sessionId: session.id });
 			removeSessionFromState(session.id);
 			renderProjects(currentProjects, sendMessageRef, currentSessionsByProject);
-			closeTab(session.id);
+			closeSessionTab(session.id);
 		});
 		sessionItem.appendChild(archiveButton);
 
@@ -548,5 +586,46 @@ function getCollapsedState() {
 		return parsed;
 	} catch {
 		return {};
+	}
+}
+
+/**
+ * Show or hide the reconnect button for a CLI type.
+ * Called when agent:status messages arrive.
+ *
+ * @param {string} cliType - "claude-code" or "codex"
+ * @param {"connected" | "disconnected" | "reconnecting" | "starting"} status
+ */
+export function updateAgentStatus(cliType, status) {
+	const existingBtn = document.querySelector(
+		`.reconnect-btn[data-cli-type="${escapeCssSelector(cliType)}"]`,
+	);
+
+	if (status === "disconnected") {
+		if (existingBtn) {
+			return;
+		}
+
+		const button = document.createElement("button");
+		button.className = "reconnect-btn";
+		button.dataset.cliType = cliType;
+		button.textContent = `Reconnect ${cliType === "codex" ? "Codex" : "Claude Code"}`;
+		button.addEventListener("click", () => {
+			window.dispatchEvent(
+				new CustomEvent("liminal:reconnect", {
+					detail: { cliType },
+				}),
+			);
+		});
+
+		const sidebar = document.getElementById("sidebar");
+		if (sidebar) {
+			sidebar.appendChild(button);
+		}
+		return;
+	}
+
+	if (existingBtn) {
+		existingBtn.remove();
 	}
 }

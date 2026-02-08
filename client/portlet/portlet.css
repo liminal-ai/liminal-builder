@@ -63,3 +63,40 @@
 	background: var(--accent-red);
 	color: var(--bg-primary);
 }
+
+/* Connection status indicator */
+.connection-status {
+	display: inline-block;
+	width: 8px;
+	height: 8px;
+	border-radius: 50%;
+	margin-right: 6px;
+}
+
+.connection-status.connected {
+	background-color: #9ece6a;
+}
+
+.connection-status.disconnected {
+	background-color: #f7768e;
+}
+
+.connection-status.reconnecting {
+	background-color: #e0af68;
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+.connection-status.starting {
+	background-color: #e0af68;
+	animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+	0%,
+	100% {
+		opacity: 1;
+	}
+	50% {
+		opacity: 0.4;
+	}
+}

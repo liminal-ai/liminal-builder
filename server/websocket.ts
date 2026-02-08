@@ -27,6 +27,7 @@ export interface WebSocketDeps {
 	agentManager: {
 		emitter: Pick<EventEmitter, "on" | "off">;
 		ensureAgent: (cliType: CliType) => Promise<AcpClient>;
+		reconnect?: (cliType: CliType) => Promise<void>;
 	};
 	sessionManager?: Pick<
 		SessionManager,
@@ -48,6 +49,19 @@ type PromptBridgeState = {
 	toolEntryIds: Map<string, string>;
 	toolTitles: Map<string, string>;
 };
+
+type InFlightPromptState = {
+	assistantEntryId: string | null;
+	cancelRequested: boolean;
+	completionTimer: ReturnType<typeof setTimeout> | null;
+};
+
+const SESSION_COMPLETE_GRACE_MS = 75;
+const AGENT_ONLY_DISABLED_MESSAGES = new Set<ClientMessage["type"]>([
+	"session:list",
+	"session:archive",
+]);
+let agentOnlyModeWarningLogged = false;
 
 function sendEnvelope(socket: WebSocketLike, message: ServerMessage): void {
 	socket.send(JSON.stringify(message));
@@ -328,6 +342,16 @@ export function handleWebSocket(
 ): void {
 	console.log("[ws] Client connected");
 	const sessionCwdByCanonicalId = new Map<string, string>();
+	const inFlightPrompts = new Map<string, InFlightPromptState>();
+	const disabledMessageTypes = deps.sessionManager
+		? new Set<ClientMessage["type"]>()
+		: AGENT_ONLY_DISABLED_MESSAGES;
+	if (!deps.sessionManager && !agentOnlyModeWarningLogged) {
+		agentOnlyModeWarningLogged = true;
+		console.warn(
+			"[ws] session manager unavailable: session:list and session:archive are disabled for this connection",
+		);
+	}
 
 	const onAgentStatus = (payload: {
 		cliType: CliType;
@@ -354,10 +378,24 @@ export function handleWebSocket(
 	deps.agentManager.emitter.on("error", onAgentError);
 
 	socket.on("message", (raw: Buffer | string) => {
-		void handleIncomingMessage(socket, raw, deps, sessionCwdByCanonicalId);
+		void handleIncomingMessage(
+			socket,
+			raw,
+			deps,
+			sessionCwdByCanonicalId,
+			inFlightPrompts,
+			disabledMessageTypes,
+		);
 	});
 
 	socket.on("close", () => {
+		for (const state of inFlightPrompts.values()) {
+			if (state.completionTimer) {
+				clearTimeout(state.completionTimer);
+				state.completionTimer = null;
+			}
+		}
+		inFlightPrompts.clear();
 		deps.agentManager.emitter.off("agent:status", onAgentStatus);
 		deps.agentManager.emitter.off("error", onAgentError);
 		console.log("[ws] Client disconnected");
@@ -373,6 +411,8 @@ async function handleIncomingMessage(
 	raw: Buffer | string,
 	deps: WebSocketDeps,
 	sessionCwdByCanonicalId: Map<string, string>,
+	inFlightPrompts: Map<string, InFlightPromptState>,
+	disabledMessageTypes: Set<ClientMessage["type"]>,
 ): Promise<void> {
 	try {
 		const parsed = JSON.parse(
@@ -391,7 +431,21 @@ async function handleIncomingMessage(
 
 		const message = parsed;
 		console.log("[ws] Received:", message.type);
-		await routeMessage(socket, message, deps, sessionCwdByCanonicalId);
+		if (disabledMessageTypes.has(message.type)) {
+			sendEnvelope(socket, {
+				type: "error",
+				requestId: message.requestId,
+				message: `${message.type} is unavailable in agent-only mode`,
+			});
+			return;
+		}
+		await routeMessage(
+			socket,
+			message,
+			deps,
+			sessionCwdByCanonicalId,
+			inFlightPrompts,
+		);
 	} catch (error) {
 		console.error("[ws] Failed to handle message:", error);
 		sendEnvelope(socket, {
@@ -406,6 +460,7 @@ async function routeMessage(
 	message: ClientMessage,
 	deps: WebSocketDeps,
 	sessionCwdByCanonicalId: Map<string, string>,
+	inFlightPrompts: Map<string, InFlightPromptState>,
 ): Promise<void> {
 	switch (message.type) {
 		case "project:add": {
@@ -542,6 +597,12 @@ async function routeMessage(
 					toolEntryIds: new Map<string, string>(),
 					toolTitles: new Map<string, string>(),
 				};
+				const inFlightState: InFlightPromptState = {
+					assistantEntryId: null,
+					cancelRequested: false,
+					completionTimer: null,
+				};
+				inFlightPrompts.set(message.sessionId, inFlightState);
 
 				const promptResult = deps.sessionManager
 					? await deps.sessionManager.sendMessage(
@@ -553,6 +614,9 @@ async function routeMessage(
 									event,
 									bridgeState,
 								);
+								if (bridgeState.assistantEntryId) {
+									inFlightState.assistantEntryId = bridgeState.assistantEntryId;
+								}
 								for (const outbound of outboundMessages) {
 									sendEnvelope(socket, outbound);
 								}
@@ -572,6 +636,10 @@ async function routeMessage(
 										event,
 										bridgeState,
 									);
+									if (bridgeState.assistantEntryId) {
+										inFlightState.assistantEntryId =
+											bridgeState.assistantEntryId;
+									}
 									for (const outbound of outboundMessages) {
 										sendEnvelope(socket, outbound);
 									}
@@ -588,22 +656,57 @@ async function routeMessage(
 					});
 				}
 
+				inFlightState.assistantEntryId = bridgeState.assistantEntryId;
 				if (bridgeState.assistantEntryId !== null) {
-					if (promptResult.stopReason === "cancelled") {
+					const sendCancelled = () => {
 						sendEnvelope(socket, {
 							type: "session:cancelled",
 							sessionId: message.sessionId,
-							entryId: bridgeState.assistantEntryId,
+							entryId: bridgeState.assistantEntryId as string,
 						});
-					} else {
+					};
+
+					const sendComplete = () => {
 						sendEnvelope(socket, {
 							type: "session:complete",
 							sessionId: message.sessionId,
-							entryId: bridgeState.assistantEntryId,
+							entryId: bridgeState.assistantEntryId as string,
 						});
+					};
+
+					if (
+						promptResult.stopReason === "cancelled" ||
+						inFlightState.cancelRequested
+					) {
+						sendCancelled();
+						inFlightPrompts.delete(message.sessionId);
+					} else if (deps.sessionManager) {
+						// session:cancel can race with prompt completion in local integration.
+						inFlightState.completionTimer = setTimeout(() => {
+							const latestState = inFlightPrompts.get(message.sessionId);
+							inFlightPrompts.delete(message.sessionId);
+							if (!latestState) {
+								return;
+							}
+							if (latestState.cancelRequested) {
+								sendCancelled();
+								return;
+							}
+							sendComplete();
+						}, SESSION_COMPLETE_GRACE_MS);
+					} else {
+						sendComplete();
+						inFlightPrompts.delete(message.sessionId);
 					}
+				} else {
+					inFlightPrompts.delete(message.sessionId);
 				}
 			} catch (error) {
+				const inFlightState = inFlightPrompts.get(message.sessionId);
+				if (inFlightState?.completionTimer) {
+					clearTimeout(inFlightState.completionTimer);
+				}
+				inFlightPrompts.delete(message.sessionId);
 				sendEnvelope(socket, {
 					type: "error",
 					requestId: message.requestId,
@@ -618,6 +721,26 @@ async function routeMessage(
 				const routing = parseSessionRouting(message.sessionId);
 				const client = await deps.agentManager.ensureAgent(routing.cliType);
 				client.sessionCancel(routing.acpSessionId);
+
+				const inFlightState = inFlightPrompts.get(message.sessionId);
+				if (inFlightState) {
+					inFlightState.cancelRequested = true;
+					const hadCompletionTimer = inFlightState.completionTimer !== null;
+
+					if (inFlightState.completionTimer) {
+						clearTimeout(inFlightState.completionTimer);
+						inFlightState.completionTimer = null;
+					}
+
+					if (hadCompletionTimer && inFlightState.assistantEntryId) {
+						sendEnvelope(socket, {
+							type: "session:cancelled",
+							sessionId: message.sessionId,
+							entryId: inFlightState.assistantEntryId,
+						});
+						inFlightPrompts.delete(message.sessionId);
+					}
+				}
 			} catch (error) {
 				sendEnvelope(socket, {
 					type: "error",
@@ -630,16 +753,7 @@ async function routeMessage(
 
 		case "session:archive": {
 			try {
-				if (!deps.sessionManager) {
-					sendEnvelope(socket, {
-						type: "error",
-						requestId: message.requestId,
-						message: "Handler not implemented: session:archive",
-					});
-					break;
-				}
-
-				deps.sessionManager.archiveSession(message.sessionId);
+				deps.sessionManager?.archiveSession(message.sessionId);
 				sendEnvelope(socket, {
 					type: "session:archived",
 					sessionId: message.sessionId,
@@ -657,16 +771,8 @@ async function routeMessage(
 
 		case "session:list": {
 			try {
-				if (!deps.sessionManager) {
-					sendEnvelope(socket, {
-						type: "error",
-						requestId: message.requestId,
-						message: "Handler not implemented: session:list",
-					});
-					break;
-				}
-
-				const sessions = deps.sessionManager.listSessions(message.projectId);
+				const sessions =
+					deps.sessionManager?.listSessions(message.projectId) ?? [];
 				sendEnvelope(socket, {
 					type: "session:list",
 					projectId: message.projectId,
@@ -683,11 +789,28 @@ async function routeMessage(
 		}
 
 		case "session:reconnect": {
-			sendEnvelope(socket, {
-				type: "error",
-				requestId: message.requestId,
-				message: `Handler not implemented: ${message.type}`,
-			});
+			try {
+				if (!deps.agentManager.reconnect) {
+					sendEnvelope(socket, {
+						type: "error",
+						requestId: message.requestId,
+						message: "session:reconnect is unavailable",
+					});
+					break;
+				}
+				sendEnvelope(socket, {
+					type: "agent:status",
+					cliType: message.cliType,
+					status: "reconnecting",
+				});
+				await deps.agentManager.reconnect(message.cliType);
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
 			break;
 		}
 	}

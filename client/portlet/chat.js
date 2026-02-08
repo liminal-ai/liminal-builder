@@ -1,7 +1,6 @@
 /**
- * Chat rendering stub.
+ * Chat rendering module.
  * Renders chat entries (user, assistant, tool-call, thinking).
- * Will be implemented in Story 3.
  */
 
 import { renderMarkdown } from "../shared/markdown.js";

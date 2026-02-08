@@ -1,7 +1,6 @@
 /**
- * Input bar stub.
+ * Input bar module.
  * Manages text input, send action, disabled state.
- * Will be implemented in Story 3.
  */
 
 /** @type {HTMLElement | null} */

@@ -47,7 +47,11 @@ const ACP_COMMANDS: Partial<
 		args: [],
 		displayName: "Claude Code",
 	},
-	// codex runtime entry deferred to Story 6
+	codex: {
+		cmd: "codex-acp",
+		args: [],
+		displayName: "Codex",
+	},
 };
 
 const MAX_RECONNECT_ATTEMPTS = 5;
@@ -79,13 +83,8 @@ export class AgentManager {
 		this.emitter = emitter;
 		this.deps = { ...DEFAULT_DEPS, ...deps };
 
-		this.agents.set("claude-code", {
-			status: "idle",
-			process: null,
-			client: null,
-			reconnectAttempts: 0,
-			reconnectTimer: null,
-		});
+		this.agents.set("claude-code", this.createIdleState());
+		this.agents.set("codex", this.createIdleState());
 	}
 
 	/** Get or spawn agent for CLI type. Emits status events. */
@@ -188,6 +187,16 @@ export class AgentManager {
 		};
 		this.agents.set(cliType, state);
 		return state;
+	}
+
+	private createIdleState(): AgentState {
+		return {
+			status: "idle",
+			process: null,
+			client: null,
+			reconnectAttempts: 0,
+			reconnectTimer: null,
+		};
 	}
 
 	private isEnoentError(error: unknown): boolean {

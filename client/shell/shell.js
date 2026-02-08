@@ -2,6 +2,7 @@ import { initSidebar } from "./sidebar.js";
 import {
 	getIframe,
 	getSessionIdBySource,
+	getTabOrder,
 	initTabs,
 	openTab,
 	updateTabTitle,
@@ -14,6 +15,14 @@ import {
 
 /** @type {WebSocket | null} */
 let ws = null;
+let wsState = "connecting";
+let reconnectAttempt = 0;
+let reconnectTimer = null;
+
+const WS_RECONNECT_BASE_MS = 500;
+const WS_RECONNECT_MAX_MS = 5000;
+const WS_RECONNECT_JITTER_MIN = 0.8;
+const WS_RECONNECT_JITTER_MAX = 1.2;
 
 /** @type {((msg: object) => void)[]} */
 const messageHandlers = [];
@@ -30,6 +39,7 @@ const PORTLET_MESSAGE_TYPES = new Set([
 ]);
 /** @type {((event: MessageEvent) => void) | null} */
 let relayMessageHandler = null;
+let shellEventListenersBound = false;
 
 /**
  * Register a handler for incoming WebSocket messages.
@@ -44,6 +54,10 @@ export function onMessage(handler) {
  * @param {object} message - ClientMessage object
  */
 export function sendMessage(message) {
+	wsSend(message);
+}
+
+function wsSend(message) {
 	if (ws && ws.readyState === WebSocket.OPEN) {
 		ws.send(JSON.stringify(message));
 	} else {
@@ -149,9 +163,105 @@ export function routeToPortlet(message) {
 }
 
 /**
+ * Broadcast a message to all open portlets.
+ * Used for non-session-targeted messages such as agent:status.
+ * @param {object} message
+ */
+export function broadcastToPortlets(message) {
+	for (const sessionId of getTabOrder()) {
+		const iframe = getIframe(sessionId);
+		if (!iframe || !iframe.contentWindow) {
+			continue;
+		}
+		iframe.contentWindow.postMessage(message, window.location.origin);
+	}
+}
+
+function inferCliTypeFromSessionId(sessionId) {
+	if (typeof sessionId !== "string") {
+		return "claude-code";
+	}
+	return sessionId.startsWith("codex:") ? "codex" : "claude-code";
+}
+
+function handleServerMessage(msg) {
+	messageHandlers.forEach((handler) => {
+		handler(msg);
+	});
+
+	if (
+		msg?.type === "session:created" &&
+		typeof msg.sessionId === "string" &&
+		msg.sessionId.length > 0
+	) {
+		openTab(
+			msg.sessionId,
+			msg.title || "New Session",
+			msg.cliType || inferCliTypeFromSessionId(msg.sessionId),
+		);
+	}
+
+	routeToPortlet(msg);
+	if (msg?.type === "agent:status") {
+		broadcastToPortlets(msg);
+	}
+}
+
+function updateWSStatusUI(state) {
+	const indicator = document.getElementById("ws-status");
+	if (!indicator) {
+		return;
+	}
+	indicator.dataset.state = state;
+}
+
+function requestSessionListsForExpandedProjects() {
+	window.dispatchEvent(new CustomEvent("liminal:resync-sessions"));
+}
+
+function reopenRestoredTabs() {
+	window.dispatchEvent(new CustomEvent("liminal:resync-open-tabs"));
+}
+
+function resyncState() {
+	// project:list rehydrates the sidebar and project tree after reconnect/refresh.
+	wsSend({ type: "project:list" });
+	// Sidebar listens for this and requests session:list for expanded projects.
+	requestSessionListsForExpandedProjects();
+	// Shell listens for this and re-opens restored tabs by sending session:open.
+	reopenRestoredTabs();
+}
+
+function scheduleReconnect() {
+	if (reconnectTimer) {
+		return;
+	}
+
+	const baseDelay = Math.min(
+		WS_RECONNECT_BASE_MS * 2 ** reconnectAttempt,
+		WS_RECONNECT_MAX_MS,
+	);
+	const jitterRange = WS_RECONNECT_JITTER_MAX - WS_RECONNECT_JITTER_MIN;
+	const jitterFactor = WS_RECONNECT_JITTER_MIN + Math.random() * jitterRange;
+	const delay = Math.min(
+		Math.round(baseDelay * jitterFactor),
+		WS_RECONNECT_MAX_MS,
+	);
+
+	reconnectTimer = setTimeout(() => {
+		reconnectTimer = null;
+		reconnectAttempt += 1;
+		connectWebSocket();
+	}, delay);
+}
+
+/**
  * Connect to the WebSocket server.
  */
-function connect() {
+function connectWebSocket() {
+	wsState = reconnectAttempt === 0 ? "connecting" : "reconnecting";
+	updateWSStatusUI(wsState);
+
 	const protocol = location.protocol === "https:" ? "wss:" : "ws:";
 	const url = `${protocol}//${location.host}/ws`;
 
@@ -159,6 +269,10 @@ function connect() {
 
 	ws.addEventListener("open", () => {
 		console.log("[shell] WebSocket connected");
+		wsState = "connected";
+		reconnectAttempt = 0;
+		updateWSStatusUI(wsState);
+		resyncState();
 	});
 
 	ws.addEventListener("message", (event) => {
@@ -171,23 +285,7 @@ function connect() {
 		}
 
 		try {
-			messageHandlers.forEach((handler) => {
-				handler(msg);
-			});
-
-			if (
-				msg?.type === "session:created" &&
-				typeof msg.sessionId === "string" &&
-				msg.sessionId.length > 0
-			) {
-				openTab(
-					msg.sessionId,
-					msg.title || "New Session",
-					msg.cliType || "claude-code",
-				);
-			}
-
-			routeToPortlet(msg);
+			handleServerMessage(msg);
 		} catch (err) {
 			console.error("[shell] Failed to handle server message:", err);
 		}
@@ -195,18 +293,42 @@ function connect() {
 
 	ws.addEventListener("close", () => {
 		console.log("[shell] WebSocket disconnected");
-		// Reconnection will be implemented in a later story
+		wsState = "disconnected";
+		updateWSStatusUI(wsState);
+		scheduleReconnect();
 	});
 
 	ws.addEventListener("error", (err) => {
-		console.error("[shell] WebSocket error:", err);
+		console.warn("[shell] WebSocket error:", err);
+	});
+}
+
+function bindShellEventListeners() {
+	if (shellEventListenersBound) {
+		return;
+	}
+	shellEventListenersBound = true;
+
+	window.addEventListener("liminal:reconnect", (event) => {
+		const cliType = event.detail?.cliType;
+		if (cliType !== "claude-code" && cliType !== "codex") {
+			return;
+		}
+		wsSend({ type: "session:reconnect", cliType });
+	});
+
+	window.addEventListener("liminal:resync-open-tabs", () => {
+		for (const sessionId of getTabOrder()) {
+			wsSend({ type: "session:open", sessionId });
+		}
 	});
 }
 
 // Initialize on DOM ready
 document.addEventListener("DOMContentLoaded", () => {
-	connect();
-	initSidebar(sendMessage, onMessage);
 	initTabs();
 	setupPortletRelay(sendMessage);
+	initSidebar(sendMessage, onMessage);
+	bindShellEventListeners();
+	connectWebSocket();
 });
