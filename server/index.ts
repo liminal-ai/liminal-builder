@@ -7,12 +7,15 @@ import { join } from "node:path";
 import { AgentManager } from "./acp/agent-manager";
 import type { Project } from "./projects/project-types";
 import { ProjectStore } from "./projects/project-store";
+import { SessionManager } from "./sessions/session-manager";
+import type { SessionMeta } from "./sessions/session-types";
 import { JsonStore } from "./store/json-store";
 import { handleWebSocket } from "./websocket";
 
 const PORT = Number(process.env.PORT) || 3000;
 const CLIENT_DIR = join(import.meta.dir, "..", "client");
 const PROJECTS_FILE = join(homedir(), ".liminal-builder", "projects.json");
+const SESSIONS_FILE = join(homedir(), ".liminal-builder", "sessions.json");
 
 async function main() {
 	const app = Fastify({ logger: true });
@@ -22,7 +25,16 @@ async function main() {
 		[],
 	);
 	const projectStore = new ProjectStore(projectsStore);
+	const sessionsStore = new JsonStore<SessionMeta[]>(
+		{ filePath: SESSIONS_FILE, writeDebounceMs: 500 },
+		[],
+	);
 	const agentManager = new AgentManager(new EventEmitter());
+	const sessionManager = new SessionManager(
+		sessionsStore,
+		agentManager,
+		projectStore,
+	);
 
 	// Static file serving for the client
 	await app.register(fastifyStatic, {
@@ -35,7 +47,7 @@ async function main() {
 
 	// WebSocket endpoint
 	app.get("/ws", { websocket: true }, (socket, _req) => {
-		handleWebSocket(socket, { projectStore, agentManager });
+		handleWebSocket(socket, { projectStore, agentManager, sessionManager });
 	});
 
 	// Start server

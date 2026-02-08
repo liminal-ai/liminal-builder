@@ -36,3 +36,21 @@ export interface SessionListItem {
 }
 
 export type CliType = "claude-code" | "codex";
+
+/** Valid CLI type values for runtime validation */
+export const VALID_CLI_TYPES: ReadonlySet<string> = new Set([
+	"claude-code",
+	"codex",
+]);
+
+/** Result of SessionManager.sendMessage — extends AcpPromptResult with optional title update */
+export interface SessionPromptResult {
+	stopReason:
+		| "end_turn"
+		| "max_tokens"
+		| "max_turn_requests"
+		| "refusal"
+		| "cancelled";
+	/** Set when the session title was derived from the first user message */
+	titleUpdated?: string;
+}

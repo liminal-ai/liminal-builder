@@ -1,11 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { ChatEntry, ClientMessage, ServerMessage } from "../shared/types";
-import type { AcpUpdateEvent } from "./acp/acp-types";
+import type { AcpPromptResult, AcpUpdateEvent } from "./acp/acp-types";
 import type { AcpClient } from "./acp/acp-client";
 import type { AgentStatus } from "./acp/agent-manager";
 import type { ProjectStore } from "./projects/project-store";
-import type { CliType } from "./sessions/session-types";
+import type { CliType, SessionPromptResult } from "./sessions/session-types";
+import type { SessionManager } from "./sessions/session-manager";
 
 type WebSocketLike = {
 	send: (payload: string) => void;
@@ -27,6 +28,14 @@ export interface WebSocketDeps {
 		emitter: Pick<EventEmitter, "on" | "off">;
 		ensureAgent: (cliType: CliType) => Promise<AcpClient>;
 	};
+	sessionManager?: Pick<
+		SessionManager,
+		| "listSessions"
+		| "createSession"
+		| "openSession"
+		| "archiveSession"
+		| "sendMessage"
+	>;
 }
 
 type SessionRouting = {
@@ -72,6 +81,15 @@ function toCanonicalSessionId(cliType: CliType, sessionId: string): string {
 		return sessionId;
 	}
 	return `${cliType}:${parsed.acpSessionId}`;
+}
+
+function getDerivedTitle(
+	result: SessionPromptResult | AcpPromptResult,
+): string | undefined {
+	if ("titleUpdated" in result) {
+		return result.titleUpdated;
+	}
+	return undefined;
 }
 
 function mapToolStatus(
@@ -445,17 +463,26 @@ async function routeMessage(
 
 		case "session:create": {
 			try {
-				const projectPath = await getProjectPath(
-					deps.projectStore,
-					message.projectId,
-				);
-				const client = await deps.agentManager.ensureAgent(message.cliType);
-				const result = await client.sessionNew({ cwd: projectPath });
-				const canonicalSessionId = toCanonicalSessionId(
-					message.cliType,
-					result.sessionId,
-				);
-				sessionCwdByCanonicalId.set(canonicalSessionId, projectPath);
+				let canonicalSessionId: string;
+				if (deps.sessionManager) {
+					canonicalSessionId = await deps.sessionManager.createSession(
+						message.projectId,
+						message.cliType,
+					);
+				} else {
+					const projectPath = await getProjectPath(
+						deps.projectStore,
+						message.projectId,
+					);
+					const client = await deps.agentManager.ensureAgent(message.cliType);
+					const result = await client.sessionNew({ cwd: projectPath });
+					canonicalSessionId = toCanonicalSessionId(
+						message.cliType,
+						result.sessionId,
+					);
+					sessionCwdByCanonicalId.set(canonicalSessionId, projectPath);
+				}
+
 				sendEnvelope(socket, {
 					type: "session:created",
 					sessionId: canonicalSessionId,
@@ -474,18 +501,22 @@ async function routeMessage(
 
 		case "session:open": {
 			try {
-				const routing = parseSessionRouting(message.sessionId);
-				const canonicalSessionId = toCanonicalSessionId(
-					routing.cliType,
-					message.sessionId,
-				);
-				const sessionCwd =
-					sessionCwdByCanonicalId.get(canonicalSessionId) ?? ".";
-				const client = await deps.agentManager.ensureAgent(routing.cliType);
-				const entries = await client.sessionLoad(
-					routing.acpSessionId,
-					sessionCwd,
-				);
+				const entries = deps.sessionManager
+					? await deps.sessionManager.openSession(message.sessionId)
+					: await (async () => {
+							const routing = parseSessionRouting(message.sessionId);
+							const canonicalSessionId = toCanonicalSessionId(
+								routing.cliType,
+								message.sessionId,
+							);
+							const sessionCwd =
+								sessionCwdByCanonicalId.get(canonicalSessionId) ?? ".";
+							const client = await deps.agentManager.ensureAgent(
+								routing.cliType,
+							);
+							return client.sessionLoad(routing.acpSessionId, sessionCwd);
+						})();
+
 				sendEnvelope(socket, {
 					type: "session:history",
 					sessionId: message.sessionId,
@@ -496,7 +527,9 @@ async function routeMessage(
 				sendEnvelope(socket, {
 					type: "error",
 					requestId: message.requestId,
-					message: toErrorMessage(error),
+					message: deps.sessionManager
+						? "Could not load session"
+						: toErrorMessage(error),
 				});
 			}
 			break;
@@ -504,28 +537,56 @@ async function routeMessage(
 
 		case "session:send": {
 			try {
-				const routing = parseSessionRouting(message.sessionId);
-				const client = await deps.agentManager.ensureAgent(routing.cliType);
 				const bridgeState: PromptBridgeState = {
 					assistantEntryId: null,
 					toolEntryIds: new Map<string, string>(),
 					toolTitles: new Map<string, string>(),
 				};
 
-				const promptResult = await client.sessionPrompt(
-					routing.acpSessionId,
-					message.content,
-					(event) => {
-						const outboundMessages = createPromptBridgeMessages(
+				const promptResult = deps.sessionManager
+					? await deps.sessionManager.sendMessage(
 							message.sessionId,
-							event,
-							bridgeState,
-						);
-						for (const outbound of outboundMessages) {
-							sendEnvelope(socket, outbound);
-						}
-					},
-				);
+							message.content,
+							(event) => {
+								const outboundMessages = createPromptBridgeMessages(
+									message.sessionId,
+									event,
+									bridgeState,
+								);
+								for (const outbound of outboundMessages) {
+									sendEnvelope(socket, outbound);
+								}
+							},
+						)
+					: await (async () => {
+							const routing = parseSessionRouting(message.sessionId);
+							const client = await deps.agentManager.ensureAgent(
+								routing.cliType,
+							);
+							return client.sessionPrompt(
+								routing.acpSessionId,
+								message.content,
+								(event) => {
+									const outboundMessages = createPromptBridgeMessages(
+										message.sessionId,
+										event,
+										bridgeState,
+									);
+									for (const outbound of outboundMessages) {
+										sendEnvelope(socket, outbound);
+									}
+								},
+							);
+						})();
+
+				const derivedTitle = getDerivedTitle(promptResult);
+				if (derivedTitle) {
+					sendEnvelope(socket, {
+						type: "session:title-updated",
+						sessionId: message.sessionId,
+						title: derivedTitle,
+					});
+				}
 
 				if (bridgeState.assistantEntryId !== null) {
 					if (promptResult.stopReason === "cancelled") {
@@ -567,9 +628,61 @@ async function routeMessage(
 			break;
 		}
 
-		case "session:archive":
-		case "session:reconnect":
+		case "session:archive": {
+			try {
+				if (!deps.sessionManager) {
+					sendEnvelope(socket, {
+						type: "error",
+						requestId: message.requestId,
+						message: "Handler not implemented: session:archive",
+					});
+					break;
+				}
+
+				deps.sessionManager.archiveSession(message.sessionId);
+				sendEnvelope(socket, {
+					type: "session:archived",
+					sessionId: message.sessionId,
+					requestId: message.requestId,
+				});
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
 		case "session:list": {
+			try {
+				if (!deps.sessionManager) {
+					sendEnvelope(socket, {
+						type: "error",
+						requestId: message.requestId,
+						message: "Handler not implemented: session:list",
+					});
+					break;
+				}
+
+				const sessions = deps.sessionManager.listSessions(message.projectId);
+				sendEnvelope(socket, {
+					type: "session:list",
+					projectId: message.projectId,
+					sessions,
+				});
+			} catch (error) {
+				sendEnvelope(socket, {
+					type: "error",
+					requestId: message.requestId,
+					message: toErrorMessage(error),
+				});
+			}
+			break;
+		}
+
+		case "session:reconnect": {
 			sendEnvelope(socket, {
 				type: "error",
 				requestId: message.requestId,

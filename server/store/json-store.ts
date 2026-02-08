@@ -1,5 +1,6 @@
 import type { StoreConfig, VersionedFile } from "./store-types";
 import { mkdir, rename, readFile, writeFile } from "node:fs/promises";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 export class JsonStore<T> {
@@ -28,6 +29,36 @@ export class JsonStore<T> {
 			}
 			return this.defaultData;
 		}
+	}
+
+	/** Synchronous read for use in constructors where async is not available.
+	 *  Returns defaultData when the file does not exist. */
+	readSync(): T {
+		try {
+			const raw = readFileSync(this.config.filePath, "utf-8");
+			const parsed = JSON.parse(raw) as VersionedFile<T>;
+			return parsed.data;
+		} catch (err: unknown) {
+			const code =
+				typeof err === "object" && err !== null && "code" in err
+					? (err as { code?: string }).code
+					: undefined;
+			if (code === "ENOENT") {
+				return this.defaultData;
+			}
+			return this.defaultData;
+		}
+	}
+
+	/** Synchronous atomic write using writeFileSync + renameSync.
+	 *  For use where callers must remain synchronous (e.g. archiveSession). */
+	writeSyncBlocking(data: T): void {
+		const dir = dirname(this.config.filePath);
+		mkdirSync(dir, { recursive: true });
+		const tmpPath = `${this.config.filePath}.tmp`;
+		const versioned: VersionedFile<T> = { version: 1, data };
+		writeFileSync(tmpPath, JSON.stringify(versioned, null, 2), "utf-8");
+		renameSync(tmpPath, this.config.filePath);
 	}
 
 	/**
