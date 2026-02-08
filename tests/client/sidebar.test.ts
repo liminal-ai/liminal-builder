@@ -46,6 +46,17 @@ type SidebarModule = {
 		sendMessage: (msg: object) => void,
 	) => void;
 	toggleCollapse: (projectId: string) => void;
+	showCliPicker: (projectId: string) => void;
+	hideCliPicker: () => void;
+	renderSessions: (
+		projectId: string,
+		sessions: Array<{
+			id: string;
+			title: string;
+			lastActiveAt: string;
+			cliType: string;
+		}>,
+	) => void;
 };
 
 const SIDEBAR_MODULE_PATH = "../../client/shell/sidebar.js";
@@ -164,5 +175,122 @@ describe("Sidebar", () => {
 		);
 		expect(sessionList).not.toBeNull();
 		expect(sessionList?.hidden).toBe(true);
+	});
+
+	it("TC-2.2b: CLI type selection shows Claude Code and Codex", async () => {
+		const { renderProjects } = await importSidebar();
+
+		const mockProjects = [
+			{
+				id: "proj-1",
+				path: "/test/alpha",
+				name: "alpha",
+				addedAt: "2026-01-15T10:00:00.000Z",
+			},
+		];
+
+		renderProjects(mockProjects, mockSendMessage, { "proj-1": [] });
+
+		const newSessionButton = document.querySelector<HTMLButtonElement>(
+			'.new-session-btn[data-project-id="proj-1"]',
+		);
+		expect(newSessionButton).not.toBeNull();
+
+		newSessionButton?.click();
+
+		const picker = document.querySelector<HTMLElement>(
+			'.cli-picker[data-project-id="proj-1"]',
+		);
+		expect(picker).not.toBeNull();
+		expect(picker?.hidden).toBe(false);
+		expect(picker?.textContent).toContain("Claude Code");
+		expect(picker?.textContent).toContain("Codex");
+	});
+
+	it("TC-2.2c: cancel CLI selection returns to previous state", async () => {
+		const { renderProjects } = await importSidebar();
+
+		const mockProjects = [
+			{
+				id: "proj-1",
+				path: "/test/alpha",
+				name: "alpha",
+				addedAt: "2026-01-15T10:00:00.000Z",
+			},
+		];
+
+		renderProjects(mockProjects, mockSendMessage, { "proj-1": [] });
+
+		const newSessionButton = document.querySelector<HTMLButtonElement>(
+			'.new-session-btn[data-project-id="proj-1"]',
+		);
+		expect(newSessionButton).not.toBeNull();
+		newSessionButton?.click();
+
+		const cancelButton = document.querySelector<HTMLButtonElement>(
+			'.cli-picker-cancel[data-project-id="proj-1"]',
+		);
+		expect(cancelButton).not.toBeNull();
+		cancelButton?.click();
+
+		const picker = document.querySelector<HTMLElement>(
+			'.cli-picker[data-project-id="proj-1"]',
+		);
+		expect(picker).not.toBeNull();
+		expect(picker?.hidden).toBe(true);
+		expect(
+			sentMessages.some(
+				(msg) =>
+					"type" in msg &&
+					typeof msg.type === "string" &&
+					msg.type === "session:create",
+			),
+		).toBe(false);
+	});
+
+	it("TC-2.4b: archive closes associated tab", async () => {
+		const { renderProjects } = await importSidebar();
+
+		const mockProjects = [
+			{
+				id: "proj-1",
+				path: "/test/alpha",
+				name: "alpha",
+				addedAt: "2026-01-15T10:00:00.000Z",
+			},
+		];
+
+		const mockSessions = [
+			{
+				id: "claude-code:s1",
+				title: "Session 1",
+				lastActiveAt: "2026-01-15T14:00:00.000Z",
+				cliType: "claude-code",
+			},
+		];
+
+		const tabs = document.createElement("div");
+		tabs.id = "tab-list";
+		tabs.innerHTML =
+			'<button class="tab" data-session-id="claude-code:s1"></button>';
+		document.body.appendChild(tabs);
+
+		renderProjects(mockProjects, mockSendMessage, { "proj-1": mockSessions });
+
+		const archiveButton = document.querySelector<HTMLButtonElement>(
+			'.archive-session-btn[data-session-id="claude-code:s1"]',
+		);
+		expect(archiveButton).not.toBeNull();
+
+		archiveButton?.click();
+
+		const sessionItem = document.querySelector(
+			'.session-item[data-session-id="claude-code:s1"]',
+		);
+		const tab = document.querySelector(
+			'.tab[data-session-id="claude-code:s1"]',
+		);
+		expect(sessionItem).toBeNull();
+		expect(tab).toBeNull();
 	});
 });

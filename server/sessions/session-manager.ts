@@ -4,6 +4,7 @@ import type { SessionMeta, SessionListItem, CliType } from "./session-types";
 import type { AgentManager } from "../acp/agent-manager";
 import type { AcpUpdateEvent, AcpPromptResult } from "../acp/acp-types";
 import type { ChatEntry } from "../../shared/types";
+import type { ProjectStore } from "../projects/project-store";
 
 /**
  * Manages session metadata and coordinates with ACP agents.
@@ -16,46 +17,67 @@ import type { ChatEntry } from "../../shared/types";
  * Covers: AC-2.1-2.5 (session CRUD, listing, persistence)
  */
 export class SessionManager {
-	constructor(
-		public store: JsonStore<SessionMeta[]>,
-		public agentManager: AgentManager,
-	) {}
+	private sessions: SessionMeta[];
 
-	/** Create session via ACP session/new and record local metadata. */
-	async createSession(
-		_projectId: string,
-		_cliType: CliType,
-		_projectPath: string,
-	): Promise<string> {
+	constructor(
+		private readonly store: JsonStore<SessionMeta[]>,
+		private readonly agentManager: AgentManager,
+		private readonly projectStore: ProjectStore,
+	) {
+		this.sessions = [];
+		void this.store.read().then((sessions) => {
+			this.sessions = sessions;
+		});
+	}
+
+	/** Create session via ACP session/new and record local metadata.
+	 *  Title defaults to "New Session" until first user message. */
+	async createSession(_projectId: string, _cliType: CliType): Promise<string> {
+		void this.agentManager;
+		void this.projectStore;
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.createSession");
 	}
 
-	/** Open session via ACP session/load, collect replayed history. */
+	/** Open session via ACP session/load, collect replayed history.
+	 *  Does NOT update lastActiveAt (only message send/receive updates it). */
 	async openSession(_canonicalId: string): Promise<ChatEntry[]> {
+		void this.agentManager;
+		void this.projectStore;
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.openSession");
 	}
 
-	/** List sessions for a project (entirely from local metadata). */
+	/** List sessions for a project (entirely from local metadata).
+	 *  Filters out archived sessions. Sorts by lastActiveAt descending. */
 	listSessions(_projectId: string): SessionListItem[] {
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.listSessions");
 	}
 
-	/** Archive a session (local operation). */
+	/** Archive a session (local operation) */
 	archiveSession(_canonicalId: string): void {
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.archiveSession");
 	}
 
-	/** Send message to session via ACP session/prompt. */
+	/** Send message to session via ACP session/prompt.
+	 *  Updates title (from first user message) and lastActiveAt (on send).
+	 *  Also updates lastActiveAt when agent response completes (on receive).
+	 *  onEvent fires for each streaming update. */
 	async sendMessage(
 		_canonicalId: string,
 		_content: string,
 		_onEvent: (event: AcpUpdateEvent) => void,
 	): Promise<AcpPromptResult> {
+		void this.agentManager;
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.sendMessage");
 	}
 
-	/** Update session title. */
+	/** Update session title (e.g., derived from first user message) */
 	updateTitle(_canonicalId: string, _title: string): void {
+		void this.sessions;
 		throw new NotImplementedError("SessionManager.updateTitle");
 	}
 
@@ -69,15 +91,10 @@ export class SessionManager {
 		cliType: CliType;
 		acpId: string;
 	} {
-		const colonIndex = canonicalId.indexOf(":");
-		if (colonIndex === -1) {
-			throw new Error(`Invalid canonical ID: ${canonicalId}`);
-		}
-		// The cliType may contain colons (e.g., "claude-code"), so we split on the LAST colon
-		// Actually, cliType is "claude-code" or "codex" which use hyphens not colons.
-		// So the first colon is always the delimiter.
-		const cliType = canonicalId.substring(0, colonIndex) as CliType;
-		const acpId = canonicalId.substring(colonIndex + 1);
-		return { cliType, acpId };
+		const colonIdx = canonicalId.indexOf(":");
+		return {
+			cliType: canonicalId.substring(0, colonIdx) as CliType,
+			acpId: canonicalId.substring(colonIdx + 1),
+		};
 	}
 }

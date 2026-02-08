@@ -2,6 +2,13 @@ import { STORAGE_KEYS } from "../shared/constants.js";
 
 const COLLAPSED_KEY = STORAGE_KEYS.COLLAPSED;
 
+class NotImplementedError extends Error {
+	constructor(methodName) {
+		super(`Not implemented: ${methodName}`);
+		this.name = "NotImplementedError";
+	}
+}
+
 let currentProjects = [];
 let currentSessionsByProject = {};
 let sendMessageRef = () => {};
@@ -153,18 +160,65 @@ export function renderProjects(projects, sendMessage, sessionsByProject = {}) {
 		sessionList.dataset.projectId = project.id;
 		sessionList.hidden = isCollapsed;
 
+		const newSessionButton = document.createElement("button");
+		newSessionButton.className = "new-session-btn";
+		newSessionButton.dataset.projectId = project.id;
+		newSessionButton.textContent = "New Session";
+		newSessionButton.addEventListener("click", () => {
+			showCliPicker(project.id);
+		});
+		sessionList.appendChild(newSessionButton);
+
 		const sessions = sessionsByProject[project.id] ?? [];
 		for (const session of sessions) {
 			const sessionItem = document.createElement("div");
 			sessionItem.className = "session-item";
 			sessionItem.dataset.sessionId = session.id;
-			sessionItem.textContent = session.title;
+
+			const sessionTitle = document.createElement("span");
+			sessionTitle.className = "session-title";
+			sessionTitle.textContent = session.title;
+			sessionItem.appendChild(sessionTitle);
+
+			const archiveButton = document.createElement("button");
+			archiveButton.className = "archive-session-btn";
+			archiveButton.dataset.sessionId = session.id;
+			archiveButton.textContent = "Archive";
+			archiveButton.addEventListener("click", () => {
+				sendMessage({ type: "session:archive", sessionId: session.id });
+			});
+			sessionItem.appendChild(archiveButton);
+
 			sessionList.appendChild(sessionItem);
 		}
 
 		group.appendChild(sessionList);
 		container.appendChild(group);
 	}
+}
+
+/**
+ * Render sessions for a project.
+ *
+ * @param {string} _projectId
+ * @param {Array<{id: string, title: string, lastActiveAt: string, cliType: string}>} _sessions
+ */
+export function renderSessions(_projectId, _sessions) {
+	throw new NotImplementedError("renderSessions");
+}
+
+/**
+ * Show CLI picker for creating a session.
+ *
+ * @param {string} _projectId
+ */
+export function showCliPicker(_projectId) {
+	throw new NotImplementedError("showCliPicker");
+}
+
+/** Hide CLI picker UI. */
+export function hideCliPicker() {
+	throw new NotImplementedError("hideCliPicker");
 }
 
 /**
