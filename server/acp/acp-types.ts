@@ -43,6 +43,11 @@ export interface AcpInitializeResult {
 	agentCapabilities: {
 		loadSession?: boolean;
 		promptCapabilities?: { image?: boolean; embeddedContext?: boolean };
+		sessionCapabilities?: {
+			list?: Record<string, unknown>;
+			resume?: Record<string, unknown>;
+			fork?: Record<string, unknown>;
+		};
 	};
 }
 
@@ -88,7 +93,13 @@ export type AcpUpdateEvent =
 			entries: Array<{ content: string; priority: string; status: string }>;
 	  }
 	| { type: "config_options_update"; options: unknown[] }
-	| { type: "current_mode_update"; currentModeId: string };
+	| { type: "current_mode_update"; currentModeId: string }
+	| { type: "available_commands_update"; availableCommands?: unknown[] }
+	| {
+			type: string;
+			content?: AcpContentBlock[];
+			[key: string]: unknown;
+	  };
 
 /** ACP permission request (agent -> client) */
 export interface AcpPermissionRequest {

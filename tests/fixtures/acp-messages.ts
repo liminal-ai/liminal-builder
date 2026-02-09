@@ -155,8 +155,10 @@ export function mockInitializeResponse(
 	id: number,
 	overrides?: Partial<{
 		loadSession: boolean;
+		canResumeSession: boolean;
 	}>,
 ) {
+	const canResumeSession = overrides?.canResumeSession ?? false;
 	return {
 		jsonrpc: "2.0" as const,
 		id,
@@ -170,6 +172,9 @@ export function mockInitializeResponse(
 			agentCapabilities: {
 				loadSession: overrides?.loadSession ?? true,
 				promptCapabilities: { image: false, embeddedContext: false },
+				...(canResumeSession
+					? { sessionCapabilities: { resume: {}, list: {} } }
+					: {}),
 			},
 		},
 	};

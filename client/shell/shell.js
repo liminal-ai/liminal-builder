@@ -1,4 +1,5 @@
 import { initSidebar } from "./sidebar.js";
+import { initSidebarResizer } from "./sidebar-resizer.js";
 import {
 	getIframe,
 	getSessionIdBySource,
@@ -18,6 +19,8 @@ let ws = null;
 let wsState = "connecting";
 let reconnectAttempt = 0;
 let reconnectTimer = null;
+/** @type {object[]} */
+const wsSendQueue = [];
 
 const WS_RECONNECT_BASE_MS = 500;
 const WS_RECONNECT_MAX_MS = 5000;
@@ -61,7 +64,20 @@ function wsSend(message) {
 	if (ws && ws.readyState === WebSocket.OPEN) {
 		ws.send(JSON.stringify(message));
 	} else {
-		console.warn("[shell] WebSocket not connected, cannot send:", message);
+		wsSendQueue.push(message);
+	}
+}
+
+function flushQueuedMessages() {
+	if (!(ws && ws.readyState === WebSocket.OPEN)) {
+		return;
+	}
+	while (wsSendQueue.length > 0) {
+		const next = wsSendQueue.shift();
+		if (!next) {
+			continue;
+		}
+		ws.send(JSON.stringify(next));
 	}
 }
 
@@ -272,6 +288,7 @@ function connectWebSocket() {
 		wsState = "connected";
 		reconnectAttempt = 0;
 		updateWSStatusUI(wsState);
+		flushQueuedMessages();
 		resyncState();
 	});
 
@@ -328,6 +345,7 @@ function bindShellEventListeners() {
 document.addEventListener("DOMContentLoaded", () => {
 	initTabs();
 	setupPortletRelay(sendMessage);
+	initSidebarResizer();
 	initSidebar(sendMessage, onMessage);
 	bindShellEventListeners();
 	connectWebSocket();

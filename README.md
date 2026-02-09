@@ -95,8 +95,11 @@ Built using [Liminal Spec](https://github.com/anthropics/claude-code) — a spec
 # Install dependencies
 bun install
 
-# Start development server
+# Start development server (server watch + Tailwind watch)
 bun run dev
+
+# Build Tailwind stylesheet once
+bun run build:tailwind
 
 # Run tests
 bun test

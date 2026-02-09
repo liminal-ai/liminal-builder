@@ -217,6 +217,11 @@ export function renderAll(entries) {
 	finalizedEntryIds.clear();
 
 	for (const entry of entries) {
+		// History entries have already completed, so assistant turns should
+		// render as finalized markdown immediately on load.
+		if (entry?.type === "assistant") {
+			finalizedEntryIds.add(entry.entryId);
+		}
 		renderEntry(entry);
 	}
 

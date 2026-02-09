@@ -60,6 +60,7 @@ export type ServerMessage =
 			requestId?: string;
 	  }
 	| { type: "session:cancelled"; sessionId: string; entryId: string }
+	| { type: "session:error"; sessionId: string; message: string }
 	| { type: "session:archived"; sessionId: string; requestId?: string }
 	| { type: "session:title-updated"; sessionId: string; title: string }
 	| {

@@ -12,6 +12,19 @@ import {
 } from "../fixtures/acp-messages";
 import type { AcpUpdateEvent } from "../../server/acp/acp-types";
 
+async function waitUntil(
+	condition: () => boolean,
+	timeoutMs = 250,
+): Promise<void> {
+	const startedAt = Date.now();
+	while (!condition()) {
+		if (Date.now() - startedAt > timeoutMs) {
+			throw new Error("Timed out waiting for condition");
+		}
+		await new Promise((resolve) => setTimeout(resolve, 0));
+	}
+}
+
 describe("AcpClient", () => {
 	let mock: ReturnType<typeof createMockStdio>;
 	let client: AcpClient;
@@ -80,7 +93,7 @@ describe("AcpClient", () => {
 			jsonrpc: "2.0",
 			id: 2,
 			method: "session/new",
-			params: { cwd: "/home/user/project" },
+			params: { cwd: "/home/user/project", mcpServers: [] },
 		});
 
 		expect(result.sessionId).toBe("sess-abc123");
@@ -133,7 +146,61 @@ describe("AcpClient", () => {
 		const sent = mock.getSentMessages();
 		expect(sent[1]).toMatchObject({
 			method: "session/load",
-			params: { sessionId: "sess-123", cwd: "/home/user/project" },
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
+		});
+	});
+
+	it("sessionLoad falls back to session/load when session/resume is unavailable", async () => {
+		mock.pushMessage(
+			mockInitializeResponse(1, {
+				canResumeSession: true,
+			}),
+		);
+		await client.initialize();
+
+		mock.pushMessage({
+			jsonrpc: "2.0",
+			id: 2,
+			error: {
+				code: -32601,
+				message: "Method not found",
+			},
+		});
+
+		const historyPromise = client.sessionLoad("sess-123", "/home/user/project");
+		await waitUntil(() => {
+			const sent = mock.getSentMessages();
+			return sent.some(
+				(msg) =>
+					typeof msg === "object" &&
+					msg !== null &&
+					(msg as { method?: unknown }).method === "session/load",
+			);
+		});
+		mock.pushMessage(mockSessionLoadResponse(3));
+		const history = await historyPromise;
+		expect(history).toEqual([]);
+
+		const sent = mock.getSentMessages();
+		expect(sent[1]).toMatchObject({
+			method: "session/resume",
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
+		});
+		expect(sent[2]).toMatchObject({
+			method: "session/load",
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
 		});
 	});
 
@@ -176,6 +243,30 @@ describe("AcpClient", () => {
 
 		// Prompt completed with stopReason
 		expect(result.stopReason).toBe("end_turn");
+	});
+
+	it("normalizes sessionUpdate payloads that omit the type field", async () => {
+		mock.pushMessage(mockInitializeResponse(1));
+		await client.initialize();
+
+		mock.pushMessages([
+			mockUpdateNotification("sess-123", {
+				sessionUpdate: "agent_message_chunk",
+				content: { type: "text", text: "hello from normalized event" },
+			}),
+			mockSessionPromptResponse(2, "end_turn"),
+		]);
+
+		const events: AcpUpdateEvent[] = [];
+		await client.sessionPrompt("sess-123", "Hello", (event) =>
+			events.push(event),
+		);
+
+		expect(events).toHaveLength(1);
+		expect(events[0]).toMatchObject({
+			type: "agent_message_chunk",
+			content: [{ type: "text", text: "hello from normalized event" }],
+		});
 	});
 
 	it("sessionPrompt resolves with stopReason on completion", async () => {

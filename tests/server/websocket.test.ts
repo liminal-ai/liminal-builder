@@ -444,6 +444,31 @@ describe("handleWebSocket", () => {
 		});
 	});
 
+	it("ignores unknown streaming update shapes without crashing session:send", async () => {
+		harness.sessionPrompt.mockImplementation(
+			async (_sessionId, _content, onEvent) => {
+				onEvent({
+					type: "available_commands_update",
+					availableCommands: [],
+				});
+				return { stopReason: "end_turn" };
+			},
+		);
+
+		harness.socket.emitMessage({
+			type: "session:send",
+			sessionId: "claude-code:session-unknown-update",
+			content: "hi",
+			requestId: "req-unknown",
+		});
+		await flushAsync();
+
+		const messages = harness.socket.getMessages();
+		expect(messagesOfType(messages, "error")).toHaveLength(0);
+		expect(messagesOfType(messages, "session:complete")).toHaveLength(0);
+		expect(messagesOfType(messages, "session:update")).toHaveLength(0);
+	});
+
 	it("emits session:cancelled when prompt stopReason is cancelled", async () => {
 		harness.sessionPrompt.mockImplementation(
 			async (_sessionId, _content, onEvent) => {
@@ -617,6 +642,34 @@ describe("handleWebSocket", () => {
 		await flushAsync();
 
 		expect(harness.sessionCancel).toHaveBeenCalledWith("cancel-123");
+	});
+
+	it("emits session:error when session:open fails", async () => {
+		harness.sessionLoad.mockRejectedValue(new Error("Session not found"));
+
+		harness.socket.emitMessage({
+			type: "session:open",
+			sessionId: "claude-code:missing-session",
+			requestId: "open-error-1",
+		});
+		await flushAsync();
+
+		const messages = harness.socket.getMessages();
+		const sessionErrors = messagesOfType(messages, "session:error");
+		const errors = messagesOfType(messages, "error");
+
+		expect(sessionErrors).toHaveLength(1);
+		expect(sessionErrors[0]).toMatchObject({
+			type: "session:error",
+			sessionId: "claude-code:missing-session",
+			message: "Session not found",
+		});
+		expect(errors).toHaveLength(1);
+		expect(errors[0]).toMatchObject({
+			type: "error",
+			requestId: "open-error-1",
+			message: "Session not found",
+		});
 	});
 
 	it("forwards non-idle agent status events over websocket", async () => {

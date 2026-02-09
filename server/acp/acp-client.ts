@@ -73,14 +73,17 @@ export class AcpClient {
 
 	/** session/new -- Create a new session with working directory */
 	async sessionNew(params: { cwd: string }): Promise<AcpCreateResult> {
-		return this.sendRequest<AcpCreateResult>("session/new", params);
+		return this.sendRequest<AcpCreateResult>("session/new", {
+			cwd: params.cwd,
+			mcpServers: [],
+		});
 	}
 
-	/** session/load -- Resume session. Agent replays history as session/update
-	 *  notifications before responding. Collects replayed events into ChatEntry[].
-	 *  Requires agent capability: loadSession */
+	/** Resume session history. Depending on adapter version, this is either
+	 *  session/load or session/resume. Replayed session/update notifications are
+	 *  collected into ChatEntry[]. */
 	async sessionLoad(sessionId: string, cwd: string): Promise<ChatEntry[]> {
-		if (!this.canLoadSession) {
+		if (!this.canLoadSession && !this.canResumeSession) {
 			throw new Error("Agent does not support session/load");
 		}
 
@@ -94,7 +97,7 @@ export class AcpClient {
 		});
 
 		try {
-			await this.sendRequest("session/load", { sessionId, cwd });
+			await this.loadWithSupportedMethod(sessionId, cwd);
 			return history;
 		} finally {
 			this.eventHandlers.delete(sessionId);
@@ -116,7 +119,7 @@ export class AcpClient {
 		try {
 			return await this.sendRequest<AcpPromptResult>("session/prompt", {
 				sessionId,
-				content: [{ type: "text", text: content }],
+				prompt: [{ type: "text", text: content }],
 			});
 		} finally {
 			this.eventHandlers.delete(sessionId);
@@ -173,6 +176,11 @@ export class AcpClient {
 	/** Whether agent supports session/load */
 	get canLoadSession(): boolean {
 		return this.agentCapabilities?.loadSession ?? false;
+	}
+
+	/** Whether agent supports session/resume */
+	get canResumeSession(): boolean {
+		return this.agentCapabilities?.sessionCapabilities?.resume !== undefined;
 	}
 
 	private async sendRequest<T>(
@@ -302,7 +310,11 @@ export class AcpClient {
 
 		this.pendingRequests.delete(id);
 		if (this.isRecord(error) && typeof error.message === "string") {
-			pending.reject(new Error(error.message));
+			let errorMessage = error.message;
+			if (this.isRecord(error.data) && typeof error.data.details === "string") {
+				errorMessage = `${errorMessage}: ${error.data.details}`;
+			}
+			pending.reject(new Error(errorMessage));
 			return;
 		}
 
@@ -324,7 +336,12 @@ export class AcpClient {
 			return;
 		}
 
-		this.eventHandlers.get(sessionId)?.(update as AcpUpdateEvent);
+		const normalized = this.normalizeUpdateEvent(update);
+		if (!normalized) {
+			return;
+		}
+
+		this.eventHandlers.get(sessionId)?.(normalized);
 	}
 
 	private handleAgentRequest(
@@ -380,40 +397,158 @@ export class AcpClient {
 					type: "thinking",
 					content: this.extractFirstText(event.content),
 				};
-			case "tool_call":
+			case "tool_call": {
+				const toolCallId =
+					typeof event.toolCallId === "string"
+						? event.toolCallId
+						: crypto.randomUUID();
+				const toolName =
+					typeof event.title === "string" && event.title.length > 0
+						? event.title
+						: "Tool call";
 				return {
 					entryId,
 					type: "tool-call",
-					toolCallId: event.toolCallId,
-					name: event.title,
-					status: this.mapToolStatus(event.status),
+					toolCallId,
+					name: toolName,
+					status: this.mapToolStatus(
+						typeof event.status === "string" ? event.status : undefined,
+					),
 				};
+			}
 			case "tool_call_update":
 			case "plan":
 			case "config_options_update":
 			case "current_mode_update":
+			case "available_commands_update":
+				return null;
+			default:
 				return null;
 		}
 	}
 
 	private mapToolStatus(
-		status: "pending" | "in_progress" | "completed" | "failed",
+		status: string | undefined,
 	): "running" | "complete" | "error" {
 		switch (status) {
 			case "pending":
 			case "in_progress":
+			case "running":
+			case undefined:
 				return "running";
 			case "completed":
+			case "complete":
 				return "complete";
 			case "failed":
+			case "error":
 				return "error";
+			default:
+				return "running";
 		}
 	}
 
-	private extractFirstText(
-		content: Array<{ type: "text"; text: string }>,
-	): string {
-		return content[0]?.text ?? "";
+	private extractFirstText(content: unknown): string {
+		const blocks = this.normalizeContentBlocks(content);
+		return blocks?.[0]?.text ?? "";
+	}
+
+	private normalizeUpdateEvent(
+		update: Record<string, unknown>,
+	): AcpUpdateEvent | null {
+		const type = this.getUpdateType(update);
+		if (!type) {
+			return null;
+		}
+
+		const normalized: Record<string, unknown> = {
+			...update,
+			type,
+		};
+		delete normalized.sessionUpdate;
+
+		if ("content" in normalized) {
+			normalized.content = this.normalizeContentBlocks(normalized.content);
+		}
+
+		return normalized as AcpUpdateEvent;
+	}
+
+	private getUpdateType(update: Record<string, unknown>): string | null {
+		if (typeof update.type === "string") {
+			return update.type;
+		}
+		if (typeof update.sessionUpdate === "string") {
+			return update.sessionUpdate;
+		}
+		return null;
+	}
+
+	private normalizeContentBlocks(
+		content: unknown,
+	): Array<{ type: "text"; text: string }> | undefined {
+		if (Array.isArray(content)) {
+			return content
+				.filter((candidate) => this.isRecord(candidate))
+				.flatMap((candidate) => {
+					if (candidate.type === "text" && typeof candidate.text === "string") {
+						return [{ type: "text" as const, text: candidate.text }];
+					}
+					return [];
+				});
+		}
+
+		if (this.isRecord(content)) {
+			if (content.type === "text" && typeof content.text === "string") {
+				return [{ type: "text", text: content.text }];
+			}
+		}
+
+		return undefined;
+	}
+
+	private async loadWithSupportedMethod(
+		sessionId: string,
+		cwd: string,
+	): Promise<void> {
+		const params = { sessionId, cwd, mcpServers: [] };
+
+		// Claude Code ACP resumes session context with session/resume, but replays
+		// chat history via session/load once resumed.
+		if (this.canResumeSession) {
+			try {
+				await this.sendRequest("session/resume", params);
+			} catch (error: unknown) {
+				const err = this.toError(error);
+				if (
+					!(this.canLoadSession && err.message.includes("Method not found"))
+				) {
+					throw err;
+				}
+			}
+			if (!this.canLoadSession) {
+				return;
+			}
+			try {
+				await this.sendRequest("session/load", params);
+			} catch (error: unknown) {
+				const err = this.toError(error);
+				if (
+					err.message.includes("Method not found") ||
+					err.message.includes("Session not found")
+				) {
+					return;
+				}
+				throw err;
+			}
+			return;
+		}
+
+		if (this.canLoadSession) {
+			await this.sendRequest("session/load", params);
+			return;
+		}
+
+		throw new Error("Agent does not support session/load");
 	}
 
 	private emitError(error: Error): void {

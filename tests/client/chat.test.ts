@@ -128,6 +128,24 @@ describe("Portlet Chat UI", () => {
 		expect(container.querySelector("code")).not.toBeNull();
 	});
 
+	it("history assistant entries render markdown immediately", async () => {
+		const chat = await importChat();
+		const container = getChatContainer();
+
+		chat.init(container);
+		chat.renderAll([
+			{
+				entryId: "assistant-history-1",
+				type: "assistant",
+				content: "# History heading\\n\\n`snippet`",
+				timestamp: "2026-02-09T00:00:00.000Z",
+			},
+		]);
+
+		expect(container.querySelector("h1")).not.toBeNull();
+		expect(container.querySelector("code")).not.toBeNull();
+	});
+
 	it("TC-3.3a: tool call shows name and running indicator", async () => {
 		const chat = await importChat();
 		const container = getChatContainer();

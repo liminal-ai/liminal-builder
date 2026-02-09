@@ -1,5 +1,9 @@
 import { STORAGE_KEYS } from "../shared/constants.js";
-import { closeTab as closeShellTab, hasTab as hasShellTab } from "./tabs.js";
+import {
+	closeTab as closeShellTab,
+	hasTab as hasShellTab,
+	openTab as openShellTab,
+} from "./tabs.js";
 
 const COLLAPSED_KEY = STORAGE_KEYS.COLLAPSED;
 
@@ -398,6 +402,19 @@ export function renderSessions(projectId, sessions) {
 		sessionItem.className = "session-item";
 		sessionItem.dataset.sessionId = session.id;
 		sessionItem.addEventListener("click", () => {
+			try {
+				openShellTab(
+					session.id,
+					typeof session.title === "string" && session.title.length > 0
+						? session.title
+						: "New Session",
+					typeof session.cliType === "string"
+						? session.cliType
+						: parseCliType(session.id),
+				);
+			} catch (error) {
+				console.warn("[sidebar] Failed to open session tab:", error);
+			}
 			sendMessageRef({ type: "session:open", sessionId: session.id });
 		});
 
@@ -491,7 +508,14 @@ export function showCliPicker(projectId) {
 		picker.appendChild(claudeButton);
 		picker.appendChild(codexButton);
 		picker.appendChild(cancelButton);
-		sessionList.appendChild(picker);
+		const newSessionBtn = sessionList.querySelector(
+			`.new-session-btn[data-project-id="${escapedProjectId}"]`,
+		);
+		if (newSessionBtn?.nextSibling) {
+			sessionList.insertBefore(picker, newSessionBtn.nextSibling);
+		} else {
+			sessionList.appendChild(picker);
+		}
 	}
 
 	picker.hidden = false;

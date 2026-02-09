@@ -107,24 +107,47 @@ function getDerivedTitle(
 }
 
 function mapToolStatus(
-	status: "pending" | "in_progress" | "completed" | "failed" | undefined,
+	status: string | undefined,
 ): "running" | "complete" | "error" {
 	switch (status) {
 		case "completed":
+		case "complete":
 			return "complete";
 		case "failed":
+		case "error":
 			return "error";
 		case "pending":
 		case "in_progress":
+		case "running":
 		case undefined:
+			return "running";
+		default:
 			return "running";
 	}
 }
 
-function extractFirstText(
-	content: Array<{ type: "text"; text: string }> | undefined,
-): string {
-	return content?.[0]?.text ?? "";
+function extractFirstText(content: unknown): string {
+	if (Array.isArray(content)) {
+		const first = content.find(
+			(candidate): candidate is { type: "text"; text: string } =>
+				typeof candidate === "object" &&
+				candidate !== null &&
+				(candidate as { type?: unknown }).type === "text" &&
+				typeof (candidate as { text?: unknown }).text === "string",
+		);
+		return first?.text ?? "";
+	}
+
+	if (
+		typeof content === "object" &&
+		content !== null &&
+		(content as { type?: unknown }).type === "text" &&
+		typeof (content as { text?: unknown }).text === "string"
+	) {
+		return (content as { text: string }).text;
+	}
+
+	return "";
 }
 
 function createTextEntry(
@@ -204,18 +227,32 @@ function createPromptBridgeMessages(
 		}
 
 		case "tool_call": {
-			const existingEntryId = bridgeState.toolEntryIds.get(event.toolCallId);
+			const legacyToolCallId = (event as { tool_call_id?: unknown })
+				.tool_call_id;
+			const toolCallId =
+				typeof event.toolCallId === "string"
+					? event.toolCallId
+					: typeof legacyToolCallId === "string"
+						? legacyToolCallId
+						: randomUUID();
+			const title =
+				typeof event.title === "string" && event.title.length > 0
+					? event.title
+					: "Tool call";
+			const existingEntryId = bridgeState.toolEntryIds.get(toolCallId);
 			const entryId = existingEntryId ?? randomUUID();
-			bridgeState.toolEntryIds.set(event.toolCallId, entryId);
-			bridgeState.toolTitles.set(event.toolCallId, event.title);
+			bridgeState.toolEntryIds.set(toolCallId, entryId);
+			bridgeState.toolTitles.set(toolCallId, title);
 
-			const status = mapToolStatus(event.status);
+			const status = mapToolStatus(
+				typeof event.status === "string" ? event.status : undefined,
+			);
 			const content = extractFirstText(event.content);
 			const entry: ChatEntry = {
 				entryId,
 				type: "tool-call",
-				toolCallId: event.toolCallId,
-				name: event.title,
+				toolCallId,
+				name: title,
 				status,
 			};
 			if (status === "complete" && content.length > 0) {
@@ -229,17 +266,27 @@ function createPromptBridgeMessages(
 		}
 
 		case "tool_call_update": {
-			const existingEntryId = bridgeState.toolEntryIds.get(event.toolCallId);
+			const legacyToolCallId = (event as { tool_call_id?: unknown })
+				.tool_call_id;
+			const toolCallId =
+				typeof event.toolCallId === "string"
+					? event.toolCallId
+					: typeof legacyToolCallId === "string"
+						? legacyToolCallId
+						: randomUUID();
+			const existingEntryId = bridgeState.toolEntryIds.get(toolCallId);
 			const entryId = existingEntryId ?? randomUUID();
-			bridgeState.toolEntryIds.set(event.toolCallId, entryId);
-			const title = bridgeState.toolTitles.get(event.toolCallId) ?? "Tool call";
+			bridgeState.toolEntryIds.set(toolCallId, entryId);
+			const title = bridgeState.toolTitles.get(toolCallId) ?? "Tool call";
 
-			const status = mapToolStatus(event.status);
+			const status = mapToolStatus(
+				typeof event.status === "string" ? event.status : undefined,
+			);
 			const content = extractFirstText(event.content);
 			const entry: ChatEntry = {
 				entryId,
 				type: "tool-call",
-				toolCallId: event.toolCallId,
+				toolCallId,
 				name: title,
 				status,
 			};
@@ -256,6 +303,9 @@ function createPromptBridgeMessages(
 		case "plan":
 		case "config_options_update":
 		case "current_mode_update":
+		case "available_commands_update":
+			return [];
+		default:
 			return [];
 	}
 }
@@ -579,12 +629,16 @@ async function routeMessage(
 					requestId: message.requestId,
 				});
 			} catch (error) {
+				const messageText = toErrorMessage(error);
+				sendEnvelope(socket, {
+					type: "session:error",
+					sessionId: message.sessionId,
+					message: messageText,
+				});
 				sendEnvelope(socket, {
 					type: "error",
 					requestId: message.requestId,
-					message: deps.sessionManager
-						? "Could not load session"
-						: toErrorMessage(error),
+					message: messageText,
 				});
 			}
 			break;
@@ -702,15 +756,21 @@ async function routeMessage(
 					inFlightPrompts.delete(message.sessionId);
 				}
 			} catch (error) {
+				const messageText = toErrorMessage(error);
 				const inFlightState = inFlightPrompts.get(message.sessionId);
 				if (inFlightState?.completionTimer) {
 					clearTimeout(inFlightState.completionTimer);
 				}
 				inFlightPrompts.delete(message.sessionId);
 				sendEnvelope(socket, {
+					type: "session:error",
+					sessionId: message.sessionId,
+					message: messageText,
+				});
+				sendEnvelope(socket, {
 					type: "error",
 					requestId: message.requestId,
-					message: toErrorMessage(error),
+					message: messageText,
 				});
 			}
 			break;
