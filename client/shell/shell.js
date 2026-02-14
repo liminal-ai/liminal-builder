@@ -1,6 +1,7 @@
 import { initSidebar } from "./sidebar.js";
 import { initSidebarResizer } from "./sidebar-resizer.js";
 import {
+	getActiveTab,
 	getIframe,
 	getSessionIdBySource,
 	getTabOrder,
@@ -335,7 +336,20 @@ function bindShellEventListeners() {
 	});
 
 	window.addEventListener("liminal:resync-open-tabs", () => {
-		for (const sessionId of getTabOrder()) {
+		const activeSessionId = getActiveTab();
+		if (typeof activeSessionId === "string" && activeSessionId.length > 0) {
+			wsSend({ type: "session:open", sessionId: activeSessionId });
+		}
+	});
+
+	window.addEventListener("liminal:tab-activated", (event) => {
+		const sessionId = event.detail?.sessionId;
+		const needsHistoryLoad = event.detail?.needsHistoryLoad === true;
+		if (
+			needsHistoryLoad &&
+			typeof sessionId === "string" &&
+			sessionId.length > 0
+		) {
 			wsSend({ type: "session:open", sessionId });
 		}
 	});

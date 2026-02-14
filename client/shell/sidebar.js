@@ -315,7 +315,8 @@ export function renderProjects(projects, sendMessage, sessionsByProject = {}) {
 		const collapseButton = document.createElement("button");
 		collapseButton.className = "collapse-toggle";
 		collapseButton.dataset.projectId = project.id;
-		collapseButton.textContent = isCollapsed ? ">" : "v";
+		collapseButton.textContent = isCollapsed ? "▸" : "▾";
+		collapseButton.setAttribute("aria-label", "Toggle project");
 		collapseButton.addEventListener("click", () => {
 			toggleCollapse(project.id);
 		});
@@ -329,7 +330,9 @@ export function renderProjects(projects, sendMessage, sessionsByProject = {}) {
 		const removeButton = document.createElement("button");
 		removeButton.className = "remove-project-btn";
 		removeButton.dataset.projectId = project.id;
-		removeButton.textContent = "x";
+		removeButton.textContent = "×";
+		removeButton.title = "Remove project";
+		removeButton.setAttribute("aria-label", "Remove project");
 		removeButton.addEventListener("click", () => {
 			sendMessage({ type: "project:remove", projectId: project.id });
 		});
@@ -402,6 +405,7 @@ export function renderSessions(projectId, sessions) {
 		sessionItem.className = "session-item";
 		sessionItem.dataset.sessionId = session.id;
 		sessionItem.addEventListener("click", () => {
+			const wasAlreadyOpen = hasShellTab(session.id);
 			try {
 				openShellTab(
 					session.id,
@@ -415,7 +419,9 @@ export function renderSessions(projectId, sessions) {
 			} catch (error) {
 				console.warn("[sidebar] Failed to open session tab:", error);
 			}
-			sendMessageRef({ type: "session:open", sessionId: session.id });
+			if (!wasAlreadyOpen) {
+				sendMessageRef({ type: "session:open", sessionId: session.id });
+			}
 		});
 
 		const sessionBadge = document.createElement("span");
@@ -426,6 +432,7 @@ export function renderSessions(projectId, sessions) {
 		const sessionTitle = document.createElement("span");
 		sessionTitle.className = "session-title";
 		sessionTitle.textContent = session.title;
+		sessionTitle.title = session.title;
 		sessionItem.appendChild(sessionTitle);
 
 		const sessionTime = document.createElement("span");
@@ -437,6 +444,8 @@ export function renderSessions(projectId, sessions) {
 		archiveButton.className = "archive-session-btn";
 		archiveButton.dataset.sessionId = session.id;
 		archiveButton.textContent = "Archive";
+		archiveButton.title = "Archive session";
+		archiveButton.setAttribute("aria-label", "Archive session");
 		archiveButton.addEventListener("click", (event) => {
 			event.stopPropagation();
 			sendMessageRef({ type: "session:archive", sessionId: session.id });
@@ -571,7 +580,7 @@ export function toggleCollapse(projectId) {
 
 	const collapseButton = group.querySelector(".collapse-toggle");
 	if (collapseButton) {
-		collapseButton.textContent = isNowCollapsed ? ">" : "v";
+		collapseButton.textContent = isNowCollapsed ? "▸" : "▾";
 	}
 
 	const collapsedState = getCollapsedState();

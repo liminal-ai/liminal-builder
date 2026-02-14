@@ -18,6 +18,11 @@ type WritableLike = {
 };
 
 type ReadableLike = AsyncIterable<unknown>;
+type ReplayConsumer = (entry: ChatEntry) => void;
+type ReplayState = {
+	pendingTextEntry: Extract<ChatEntry, { type: "user" | "assistant" }> | null;
+	toolEntriesByCallId: Map<string, Extract<ChatEntry, { type: "tool-call" }>>;
+};
 
 export class AcpClient {
 	private nextId = 1;
@@ -82,18 +87,32 @@ export class AcpClient {
 	/** Resume session history. Depending on adapter version, this is either
 	 *  session/load or session/resume. Replayed session/update notifications are
 	 *  collected into ChatEntry[]. */
-	async sessionLoad(sessionId: string, cwd: string): Promise<ChatEntry[]> {
+	async sessionLoad(
+		sessionId: string,
+		cwd: string,
+		onReplayEntry?: ReplayConsumer,
+	): Promise<ChatEntry[]> {
+		return this.sessionLoadWithReplay(sessionId, cwd, onReplayEntry);
+	}
+
+	/** session/load with optional replay callback for progressive history rendering. */
+	async sessionLoadWithReplay(
+		sessionId: string,
+		cwd: string,
+		onReplayEntry?: ReplayConsumer,
+	): Promise<ChatEntry[]> {
 		if (!this.canLoadSession && !this.canResumeSession) {
 			throw new Error("Agent does not support session/load");
 		}
 
 		const history: ChatEntry[] = [];
+		const replayState: ReplayState = {
+			pendingTextEntry: null,
+			toolEntriesByCallId: new Map(),
+		};
 
 		this.eventHandlers.set(sessionId, (event: AcpUpdateEvent) => {
-			const entry = this.updateEventToChatEntry(event);
-			if (entry) {
-				history.push(entry);
-			}
+			this.applyReplayEvent(history, replayState, event, onReplayEntry);
 		});
 
 		try {
@@ -424,6 +443,160 @@ export class AcpClient {
 				return null;
 			default:
 				return null;
+		}
+	}
+
+	private emitReplayEntry(
+		entry: ChatEntry,
+		onReplayEntry: ReplayConsumer | undefined,
+	): void {
+		onReplayEntry?.(entry);
+	}
+
+	private appendTextReplay(
+		history: ChatEntry[],
+		replayState: ReplayState,
+		entryType: "user" | "assistant",
+		text: string,
+		onReplayEntry: ReplayConsumer | undefined,
+	): void {
+		if (text.length === 0) {
+			return;
+		}
+
+		const pending = replayState.pendingTextEntry;
+		if (pending && pending.type === entryType) {
+			pending.content += text;
+			this.emitReplayEntry(pending, onReplayEntry);
+			return;
+		}
+
+		const entry: Extract<ChatEntry, { type: "user" | "assistant" }> = {
+			entryId: crypto.randomUUID(),
+			type: entryType,
+			content: text,
+			timestamp: new Date().toISOString(),
+		};
+		replayState.pendingTextEntry = entry;
+		history.push(entry);
+		this.emitReplayEntry(entry, onReplayEntry);
+	}
+
+	private applyReplayEvent(
+		history: ChatEntry[],
+		replayState: ReplayState,
+		event: AcpUpdateEvent,
+		onReplayEntry: ReplayConsumer | undefined,
+	): void {
+		switch (event.type) {
+			case "user_message_chunk":
+				this.appendTextReplay(
+					history,
+					replayState,
+					"user",
+					this.extractFirstText(event.content),
+					onReplayEntry,
+				);
+				return;
+			case "agent_message_chunk":
+				this.appendTextReplay(
+					history,
+					replayState,
+					"assistant",
+					this.extractFirstText(event.content),
+					onReplayEntry,
+				);
+				return;
+			case "agent_thought_chunk": {
+				replayState.pendingTextEntry = null;
+				const content = this.extractFirstText(event.content);
+				if (content.length === 0) {
+					return;
+				}
+				const entry: Extract<ChatEntry, { type: "thinking" }> = {
+					entryId: crypto.randomUUID(),
+					type: "thinking",
+					content,
+				};
+				history.push(entry);
+				this.emitReplayEntry(entry, onReplayEntry);
+				return;
+			}
+			case "tool_call": {
+				replayState.pendingTextEntry = null;
+				const toolCallId =
+					typeof event.toolCallId === "string"
+						? event.toolCallId
+						: crypto.randomUUID();
+				const status = this.mapToolStatus(
+					typeof event.status === "string" ? event.status : undefined,
+				);
+				const toolName =
+					typeof event.title === "string" && event.title.length > 0
+						? event.title
+						: "Tool call";
+				const existing = replayState.toolEntriesByCallId.get(toolCallId);
+				const entry =
+					existing ??
+					({
+						entryId: crypto.randomUUID(),
+						type: "tool-call",
+						toolCallId,
+						name: toolName,
+						status,
+					} satisfies Extract<ChatEntry, { type: "tool-call" }>);
+				entry.name = toolName;
+				entry.status = status;
+				const content = this.extractFirstText(event.content);
+				if (status === "complete" && content.length > 0) {
+					entry.result = content;
+				}
+				if (status === "error" && content.length > 0) {
+					entry.error = content;
+				}
+				if (!existing) {
+					replayState.toolEntriesByCallId.set(toolCallId, entry);
+					history.push(entry);
+				}
+				this.emitReplayEntry(entry, onReplayEntry);
+				return;
+			}
+			case "tool_call_update": {
+				replayState.pendingTextEntry = null;
+				const toolCallId =
+					typeof event.toolCallId === "string"
+						? event.toolCallId
+						: crypto.randomUUID();
+				const existing = replayState.toolEntriesByCallId.get(toolCallId);
+				const status = this.mapToolStatus(
+					typeof event.status === "string" ? event.status : undefined,
+				);
+				const entry =
+					existing ??
+					({
+						entryId: crypto.randomUUID(),
+						type: "tool-call",
+						toolCallId,
+						name: "Tool call",
+						status,
+					} satisfies Extract<ChatEntry, { type: "tool-call" }>);
+				entry.status = status;
+				const content = this.extractFirstText(event.content);
+				if (status === "complete" && content.length > 0) {
+					entry.result = content;
+				}
+				if (status === "error" && content.length > 0) {
+					entry.error = content;
+				}
+				if (!existing) {
+					replayState.toolEntriesByCallId.set(toolCallId, entry);
+					history.push(entry);
+				}
+				this.emitReplayEntry(entry, onReplayEntry);
+				return;
+			}
+			default:
+				return;
 		}
 	}
 

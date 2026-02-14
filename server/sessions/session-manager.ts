@@ -57,7 +57,10 @@ export class SessionManager {
 
 	/** Open session via ACP session/load, collect replayed history.
 	 *  Does NOT update lastActiveAt (only message send/receive updates it). */
-	async openSession(canonicalId: string): Promise<ChatEntry[]> {
+	async openSession(
+		canonicalId: string,
+		onReplayEntry?: (entry: ChatEntry) => void,
+	): Promise<ChatEntry[]> {
 		const session = this.findSession(canonicalId);
 		if (!session) {
 			throw new Error("Session not found");
@@ -67,7 +70,7 @@ export class SessionManager {
 		const client = await this.agentManager.ensureAgent(cliType);
 		const cwd = await this.resolveProjectPath(session.projectId);
 
-		return client.sessionLoad(acpId, cwd);
+		return client.sessionLoad(acpId, cwd, onReplayEntry);
 	}
 
 	/** List sessions for a project (entirely from local metadata).

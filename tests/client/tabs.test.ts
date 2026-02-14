@@ -377,7 +377,7 @@ describe("Tab Management", () => {
 		tabs.init(tabBar, portletContainer, emptyState);
 
 		expect(tabs.getTabCount()).toBe(3);
-		expect(portletContainer.querySelectorAll("iframe").length).toBe(3);
+		expect(portletContainer.querySelectorAll("iframe").length).toBe(1);
 		expect(tabs.getActiveTab()).toBe("claude-code:s2");
 	});
 
@@ -399,13 +399,42 @@ describe("Tab Management", () => {
 		tabs.init(tabBar, portletContainer, emptyState);
 
 		expect(tabs.getTabCount()).toBe(3);
-		expect(portletContainer.querySelectorAll("iframe").length).toBe(3);
+		expect(portletContainer.querySelectorAll("iframe").length).toBe(1);
 		expect(tabs.getActiveTab()).toBe("codex:s2");
 		expect(tabs.getTabOrder()).toEqual([
 			"claude-code:s1",
 			"codex:s2",
 			"claude-code:s3",
 		]);
+	});
+
+	test("restored inactive tab hydrates iframe on first activation", () => {
+		localStorage.setItem(
+			"liminal:tabs",
+			JSON.stringify({
+				openTabs: ["claude-code:s1", "codex:s2", "claude-code:s3"],
+				activeTab: "codex:s2",
+				tabOrder: ["claude-code:s1", "codex:s2", "claude-code:s3"],
+				tabMeta: {
+					"claude-code:s1": { title: "Session 1", cliType: "claude-code" },
+					"codex:s2": { title: "Session 2", cliType: "codex" },
+					"claude-code:s3": { title: "Session 3", cliType: "claude-code" },
+				},
+			}),
+		);
+
+		const activatedSpy = vi.fn();
+		window.addEventListener("liminal:tab-activated", activatedSpy);
+
+		tabs.init(tabBar, portletContainer, emptyState);
+		expect(tabs.getIframe("claude-code:s1")).toBeUndefined();
+		expect(portletContainer.querySelectorAll("iframe").length).toBe(1);
+
+		tabs.activateTab("claude-code:s1");
+
+		expect(portletContainer.querySelectorAll("iframe").length).toBe(2);
+		expect(tabs.getIframe("claude-code:s1")).toBeDefined();
+		expect(activatedSpy).toHaveBeenCalled();
 	});
 
 	// === TC-2.3b (from Story 4, tested here): Open already-tabbed session ===

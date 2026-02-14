@@ -293,4 +293,85 @@ describe("Sidebar", () => {
 		expect(sessionItem).toBeNull();
 		expect(tab).toBeNull();
 	});
+
+	it("clicking closed session opens and requests history", async () => {
+		vi.doMock("../../client/shell/tabs.js", () => ({
+			closeTab: vi.fn(),
+			hasTab: vi.fn(() => false),
+			openTab: vi.fn(),
+		}));
+		const { renderProjects } = await importSidebar();
+
+		const mockProjects = [
+			{
+				id: "proj-1",
+				path: "/test/alpha",
+				name: "alpha",
+				addedAt: "2026-01-15T10:00:00.000Z",
+			},
+		];
+		const mockSessions = [
+			{
+				id: "claude-code:s1",
+				title: "Session 1",
+				lastActiveAt: "2026-01-15T14:00:00.000Z",
+				cliType: "claude-code",
+			},
+		];
+
+		renderProjects(mockProjects, mockSendMessage, { "proj-1": mockSessions });
+		const sessionItem = document.querySelector<HTMLElement>(
+			'.session-item[data-session-id="claude-code:s1"]',
+		);
+		expect(sessionItem).not.toBeNull();
+		sessionItem?.click();
+
+		expect(sentMessages).toContainEqual({
+			type: "session:open",
+			sessionId: "claude-code:s1",
+		});
+	});
+
+	it("clicking already-open session does not re-request history", async () => {
+		vi.doMock("../../client/shell/tabs.js", () => ({
+			closeTab: vi.fn(),
+			hasTab: vi.fn(() => true),
+			openTab: vi.fn(),
+		}));
+		const { renderProjects } = await importSidebar();
+
+		const mockProjects = [
+			{
+				id: "proj-1",
+				path: "/test/alpha",
+				name: "alpha",
+				addedAt: "2026-01-15T10:00:00.000Z",
+			},
+		];
+		const mockSessions = [
+			{
+				id: "claude-code:s1",
+				title: "Session 1",
+				lastActiveAt: "2026-01-15T14:00:00.000Z",
+				cliType: "claude-code",
+			},
+		];
+
+		renderProjects(mockProjects, mockSendMessage, { "proj-1": mockSessions });
+		const sessionItem = document.querySelector<HTMLElement>(
+			'.session-item[data-session-id="claude-code:s1"]',
+		);
+		expect(sessionItem).not.toBeNull();
+		sessionItem?.click();
+
+		expect(
+			sentMessages.some(
+				(message) =>
+					"type" in message &&
+					message.type === "session:open" &&
+					"sessionId" in message &&
+					message.sessionId === "claude-code:s1",
+			),
+		).toBe(false);
+	});
 });

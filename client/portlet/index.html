@@ -15,13 +15,42 @@
       <!-- Chat entries rendered by chat.js -->
     </div>
     <button id="scroll-to-bottom" class="scroll-to-bottom" hidden>Scroll to bottom</button>
-    <div id="input-bar" class="input-bar">
-      <textarea id="message-input" class="message-input"
-        placeholder="Send a message..."
-        rows="1"></textarea>
-      <button id="send-btn" class="btn btn-send">Send</button>
-      <button id="cancel-btn" class="btn btn-cancel" hidden>Cancel</button>
-      <div id="working-indicator" class="working-indicator" hidden>Working...</div>
+    <div class="composer-wrap">
+      <div class="composer-shell">
+        <div id="input-bar" class="input-bar">
+          <textarea id="message-input" class="message-input"
+            placeholder="Send a message..."
+            rows="3"></textarea>
+          <button id="cancel-btn" class="btn btn-cancel" hidden>Cancel</button>
+          <button
+            id="send-btn"
+            class="btn btn-send"
+            type="button"
+            aria-label="Send message"
+            data-mode="send"
+          >
+            <span class="btn-send-icon" aria-hidden="true"></span>
+          </button>
+        </div>
+        <div class="composer-meta composer-under">
+          <div class="composer-controls" role="group" aria-label="Session controls">
+            <span id="cli-pill" class="composer-pill" data-cli-type="unknown">Session</span>
+            <label class="composer-select-wrap" for="model-picker">
+              <span class="sr-only">Model picker</span>
+              <select id="model-picker" class="composer-select" aria-label="Model picker">
+                <option value="default">Model: default</option>
+              </select>
+            </label>
+            <label class="composer-select-wrap" for="thinking-picker">
+              <span class="sr-only">Thinking level picker</span>
+              <select id="thinking-picker" class="composer-select" aria-label="Thinking level picker">
+                <option value="default">Thinking: default</option>
+              </select>
+            </label>
+          </div>
+          <div id="working-indicator" class="working-indicator" hidden>Working...</div>
+        </div>
+      </div>
     </div>
   </div>
 

@@ -23,9 +23,112 @@ let onSendHandler = () => {};
 
 /** @type {() => void} */
 let onCancelHandler = () => {};
+/** @type {boolean} */
+let sendButtonCancelMode = false;
+
+const DEFAULT_MIN_ROWS = 3;
+const MAX_INPUT_LINES = 13;
+const FALLBACK_LINE_HEIGHT = 21;
+
+/**
+ * @param {number} value
+ * @returns {boolean}
+ */
+function isFinitePositive(value) {
+	return Number.isFinite(value) && value > 0;
+}
+
+/**
+ * @param {HTMLTextAreaElement} textarea
+ * @returns {number}
+ */
+function getLineHeight(textarea) {
+	const lineHeight = Number.parseFloat(getComputedStyle(textarea).lineHeight);
+	return isFinitePositive(lineHeight) ? lineHeight : FALLBACK_LINE_HEIGHT;
+}
+
+/**
+ * @param {HTMLTextAreaElement} textarea
+ * @param {number} lineHeight
+ * @returns {number}
+ */
+function getMinHeight(textarea, lineHeight) {
+	const rowsAttr = Number.parseInt(textarea.getAttribute("rows") ?? "", 10);
+	const rows = Number.isFinite(rowsAttr) && rowsAttr > 0 ? rowsAttr : DEFAULT_MIN_ROWS;
+	const rowsHeight = Math.ceil(rows * lineHeight);
+	const cssMinHeight = Number.parseFloat(getComputedStyle(textarea).minHeight);
+	return isFinitePositive(cssMinHeight) ? Math.max(rowsHeight, cssMinHeight) : rowsHeight;
+}
+
+/**
+ * @param {HTMLTextAreaElement} textarea
+ * @param {number} lineHeight
+ * @returns {number}
+ */
+function getMaxHeight(textarea, lineHeight) {
+	const linesCapHeight = Math.ceil(MAX_INPUT_LINES * lineHeight);
+	const cssMaxHeight = Number.parseFloat(getComputedStyle(textarea).maxHeight);
+	return isFinitePositive(cssMaxHeight)
+		? Math.min(linesCapHeight, cssMaxHeight)
+		: linesCapHeight;
+}
+
+function resizeMessageInput() {
+	if (!messageInput) {
+		return;
+	}
+
+	const lineHeight = getLineHeight(messageInput);
+	const minHeight = getMinHeight(messageInput, lineHeight);
+	const maxHeight = getMaxHeight(messageInput, lineHeight);
+
+	messageInput.style.height = "auto";
+	const nextHeight = Math.min(
+		maxHeight,
+		Math.max(minHeight, messageInput.scrollHeight),
+	);
+	messageInput.style.height = `${nextHeight}px`;
+	messageInput.style.overflowY = messageInput.scrollHeight > nextHeight ? "auto" : "hidden";
+}
+
+function submitCurrentMessage() {
+	if (!messageInput || messageInput.disabled) {
+		return;
+	}
+
+	const value = messageInput.value.trim();
+	if (value.length === 0) {
+		updateSendButtonState();
+		return;
+	}
+
+	onSendHandler(getValue());
+	clear();
+}
+
+/**
+ * @param {"send" | "cancel"} mode
+ */
+function setSendButtonMode(mode) {
+	if (!sendBtn) {
+		return;
+	}
+
+	sendButtonCancelMode = mode === "cancel";
+	sendBtn.dataset.mode = mode;
+	sendBtn.setAttribute(
+		"aria-label",
+		sendButtonCancelMode ? "Cancel response" : "Send message",
+	);
+}
 
 function updateSendButtonState() {
 	if (!sendBtn || !messageInput) {
+		return;
+	}
+
+	if (sendButtonCancelMode) {
+		sendBtn.disabled = false;
 		return;
 	}
 
@@ -56,31 +159,39 @@ export function init(container, onSend, onCancel) {
 	onCancelHandler = onCancel;
 
 	sendBtn?.addEventListener("click", () => {
-		if (!messageInput || messageInput.disabled) {
+		if (sendButtonCancelMode) {
+			onCancelHandler();
 			return;
 		}
-		const value = messageInput.value.trim();
-		if (value.length === 0) {
-			updateSendButtonState();
-			return;
-		}
-		onSendHandler(getValue());
-		clear();
+		submitCurrentMessage();
 	});
 
 	cancelBtn?.addEventListener("click", () => {
 		onCancelHandler();
 	});
 
+	messageInput?.addEventListener("keydown", (event) => {
+		if (event.key !== "Enter" || event.shiftKey) {
+			return;
+		}
+
+		event.preventDefault();
+		submitCurrentMessage();
+	});
+
 	messageInput?.addEventListener("input", () => {
+		resizeMessageInput();
 		updateSendButtonState();
 	});
 
 	hideWorking();
 	hideCancel();
+	setSendButtonMode("send");
 	if (sendBtn) {
 		sendBtn.disabled = false;
 	}
+	resizeMessageInput();
+	updateSendButtonState();
 }
 
 /**
@@ -103,6 +214,7 @@ export function enable() {
 		return;
 	}
 
+	setSendButtonMode("send");
 	messageInput.disabled = false;
 	updateSendButtonState();
 	hideWorking();
@@ -118,7 +230,9 @@ export function disable() {
 	}
 
 	messageInput.disabled = true;
-	sendBtn.disabled = true;
+	if (!sendButtonCancelMode) {
+		sendBtn.disabled = true;
+	}
 	showWorking();
 }
 
@@ -150,24 +264,26 @@ export function hideWorking() {
  * Show cancel control.
  */
 export function showCancel() {
-	if (!cancelBtn) {
-		return;
+	setSendButtonMode("cancel");
+	if (sendBtn) {
+		sendBtn.disabled = false;
 	}
-
-	cancelBtn.hidden = false;
-	cancelBtn.style.display = "block";
+	if (cancelBtn) {
+		cancelBtn.hidden = true;
+		cancelBtn.style.display = "none";
+	}
 }
 
 /**
  * Hide cancel control.
  */
 export function hideCancel() {
-	if (!cancelBtn) {
-		return;
+	setSendButtonMode("send");
+	if (cancelBtn) {
+		cancelBtn.hidden = true;
+		cancelBtn.style.display = "none";
 	}
-
-	cancelBtn.hidden = true;
-	cancelBtn.style.display = "none";
+	updateSendButtonState();
 }
 
 /**
@@ -187,6 +303,7 @@ export function clear() {
 	}
 
 	messageInput.value = "";
+	resizeMessageInput();
 	updateSendButtonState();
 }
 

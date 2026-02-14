@@ -611,6 +611,7 @@ describe("handleWebSocket", () => {
 		expect(harness.sessionLoad).toHaveBeenCalledWith(
 			"raw-acp-id",
 			"/tmp/project-1",
+			expect.any(Function),
 		);
 	});
 
@@ -623,7 +624,11 @@ describe("handleWebSocket", () => {
 		await flushAsync();
 
 		expect(harness.ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(harness.sessionLoad).toHaveBeenCalledWith("open-123", ".");
+		expect(harness.sessionLoad).toHaveBeenCalledWith(
+			"open-123",
+			".",
+			expect.any(Function),
+		);
 		const histories = messagesOfType(
 			harness.socket.getMessages(),
 			"session:history",

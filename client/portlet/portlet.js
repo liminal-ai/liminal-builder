@@ -21,6 +21,110 @@ const pendingOptimisticUserEntryIds = [];
 
 /** @type {boolean} */
 let bootstrapped = false;
+/** @type {"claude-code" | "codex" | "unknown"} */
+let activeCliType = "unknown";
+const MODEL_OPTIONS_BY_CLI = {
+	"claude-code": [
+		{ value: "claude-default", label: "Claude (default)" },
+		{ value: "claude-sonnet", label: "Claude Sonnet" },
+		{ value: "claude-opus", label: "Claude Opus" },
+	],
+	codex: [
+		{ value: "codex-default", label: "Codex (default)" },
+		{ value: "gpt-5-codex", label: "GPT-5 Codex" },
+		{ value: "gpt-5", label: "GPT-5" },
+	],
+	unknown: [{ value: "default", label: "Model: default" }],
+};
+const THINKING_OPTIONS = [
+	{ value: "adaptive", label: "Thinking: adaptive" },
+	{ value: "low", label: "Thinking: low" },
+	{ value: "medium", label: "Thinking: medium" },
+	{ value: "high", label: "Thinking: high" },
+];
+
+function setSelectOptions(select, options, fallbackValue) {
+	if (!(select instanceof HTMLSelectElement)) {
+		return;
+	}
+
+	const previousValue = select.value;
+	select.textContent = "";
+	for (const option of options) {
+		const element = document.createElement("option");
+		element.value = option.value;
+		element.textContent = option.label;
+		select.appendChild(element);
+	}
+
+	const nextValue = options.some((option) => option.value === previousValue)
+		? previousValue
+		: fallbackValue;
+	select.value = nextValue;
+}
+
+function inferCliTypeFromSessionId(sessionId) {
+	if (typeof sessionId !== "string") {
+		return "unknown";
+	}
+	if (sessionId.startsWith("claude-code:")) {
+		return "claude-code";
+	}
+	if (sessionId.startsWith("codex:")) {
+		return "codex";
+	}
+	return "unknown";
+}
+
+function updateComposerContext(cliType) {
+	const resolvedCliType =
+		cliType === "claude-code" || cliType === "codex" ? cliType : "unknown";
+	activeCliType = resolvedCliType;
+
+	const cliPill = document.getElementById("cli-pill");
+	if (cliPill instanceof HTMLElement) {
+		cliPill.dataset.cliType = resolvedCliType;
+		if (resolvedCliType === "claude-code") {
+			cliPill.textContent = "Claude Code";
+		} else if (resolvedCliType === "codex") {
+			cliPill.textContent = "Codex";
+		} else {
+			cliPill.textContent = "Session";
+		}
+	}
+
+	const modelPicker = document.getElementById("model-picker");
+	if (modelPicker instanceof HTMLSelectElement) {
+		const modelOptions =
+			MODEL_OPTIONS_BY_CLI[resolvedCliType] ?? MODEL_OPTIONS_BY_CLI.unknown;
+		setSelectOptions(
+			modelPicker,
+			modelOptions,
+			modelOptions[0]?.value ?? "default",
+		);
+	}
+
+	const thinkingPicker = document.getElementById("thinking-picker");
+	if (thinkingPicker instanceof HTMLSelectElement) {
+		const thinkingOptions =
+			resolvedCliType === "unknown"
+				? [{ value: "default", label: "Thinking: default" }]
+				: THINKING_OPTIONS;
+		setSelectOptions(
+			thinkingPicker,
+			thinkingOptions,
+			thinkingOptions[0]?.value ?? "default",
+		);
+	}
+}
+
+function hydrateComposerFromLocation() {
+	if (typeof window === "undefined") {
+		return;
+	}
+	const sessionId = new URL(window.location.href).searchParams.get("sessionId");
+	updateComposerContext(inferCliTypeFromSessionId(sessionId));
+}
 
 function getExpectedOrigin() {
 	if (typeof window === "undefined") {
@@ -76,6 +180,7 @@ function bootstrapPortlet() {
 		input.init(inputBar, sendMessage, cancelResponse);
 	}
 
+	hydrateComposerFromLocation();
 	bootstrapped = true;
 }
 
@@ -134,6 +239,7 @@ export function handleShellMessage(msg) {
 
 	switch (msg.type) {
 		case "session:history": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			entries.splice(0, entries.length, ...msg.entries);
 			pendingOptimisticUserEntryIds.length = 0;
 			chat.renderAll(entries);
@@ -141,6 +247,7 @@ export function handleShellMessage(msg) {
 		}
 
 		case "session:update": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			if (
 				msg.entry.type === "user" &&
 				pendingOptimisticUserEntryIds.length > 0
@@ -170,6 +277,7 @@ export function handleShellMessage(msg) {
 		}
 
 		case "session:chunk": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			const entry = entries.find(
 				(candidate) => candidate.entryId === msg.entryId,
 			);
@@ -181,6 +289,7 @@ export function handleShellMessage(msg) {
 		}
 
 		case "session:complete": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			chat.finalizeEntry(msg.entryId);
 			input.enable();
 			sessionState.value = "idle";
@@ -188,6 +297,7 @@ export function handleShellMessage(msg) {
 		}
 
 		case "session:cancelled": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			chat.finalizeEntry(msg.entryId);
 			input.enable();
 			sessionState.value = "idle";
@@ -200,6 +310,7 @@ export function handleShellMessage(msg) {
 			break;
 
 		case "session:error":
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			chat.showError(msg.message);
 			sessionState.value = "idle";
 			input.enable();
@@ -332,6 +443,7 @@ export function sendMessage(content) {
 		getPostMessageTargetOrigin(),
 	);
 	sessionState.value = "sending";
+	updateComposerContext(activeCliType);
 	input.disable();
 	input.showCancel();
 }

@@ -308,7 +308,11 @@ describe("SessionManager", () => {
 		const loaded = await sessionManager.openSession("claude-code:abc123");
 
 		expect(ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(sessionLoad).toHaveBeenCalledWith("abc123", "/tmp/project-1");
+		expect(sessionLoad).toHaveBeenCalledWith(
+			"abc123",
+			"/tmp/project-1",
+			undefined,
+		);
 		expect(loaded).toEqual(history);
 	});
 
@@ -436,6 +440,7 @@ describe("SessionManager", () => {
 		expect(sessionLoad).toHaveBeenCalledWith(
 			"persisted-session",
 			"/tmp/project-1",
+			undefined,
 		);
 		expect(loaded).toEqual(history);
 	});

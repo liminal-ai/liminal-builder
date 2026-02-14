@@ -96,7 +96,7 @@ export const initTabs = init;
  * @param {string} cliType - CLI type ("claude-code" or "codex")
  */
 export function openTab(sessionId, title, cliType) {
-	if (iframes.has(sessionId)) {
+	if (hasTab(sessionId)) {
 		activateTab(sessionId);
 		return;
 	}
@@ -105,12 +105,7 @@ export function openTab(sessionId, title, cliType) {
 		throw new Error("tabs.openTab: init must be called before openTab");
 	}
 
-	const iframe = document.createElement("iframe");
-	iframe.src = `/portlet/index.html?sessionId=${encodeURIComponent(sessionId)}`;
-	iframe.dataset.sessionId = sessionId;
-	iframe.className = "portlet-iframe";
-	portletContainer.appendChild(iframe);
-	iframes.set(sessionId, iframe);
+	createIframe(sessionId);
 
 	renderTabElement(sessionId, title, cliType);
 	tabOrder.push(sessionId);
@@ -136,6 +131,15 @@ export function activateTab(sessionId) {
 		persistTabState();
 		return;
 	}
+	if (!tabOrder.includes(sessionId)) {
+		return;
+	}
+
+	let hydratedLazily = false;
+	if (!iframes.has(sessionId)) {
+		createIframe(sessionId);
+		hydratedLazily = true;
+	}
 
 	for (const [id, iframe] of iframes) {
 		iframe.style.display = id === sessionId ? "block" : "none";
@@ -145,6 +149,17 @@ export function activateTab(sessionId) {
 	updateTabBarHighlight(sessionId);
 	toggleEmptyState(false);
 	persistTabState();
+
+	if (hydratedLazily) {
+		window.dispatchEvent(
+			new CustomEvent("liminal:tab-activated", {
+				detail: {
+					sessionId,
+					needsHistoryLoad: true,
+				},
+			}),
+		);
+	}
 }
 
 /**
@@ -154,13 +169,15 @@ export function activateTab(sessionId) {
  * @param {string} sessionId - Session ID to close
  */
 export function closeTab(sessionId) {
-	const iframe = iframes.get(sessionId);
-	if (!iframe) {
+	if (!hasTab(sessionId)) {
 		return;
 	}
 
-	iframe.remove();
-	iframes.delete(sessionId);
+	const iframe = iframes.get(sessionId);
+	if (iframe) {
+		iframe.remove();
+		iframes.delete(sessionId);
+	}
 	removeTabElement(sessionId);
 
 	const orderIndex = tabOrder.indexOf(sessionId);
@@ -208,7 +225,7 @@ export function updateTabTitle(sessionId, title) {
  * @returns {boolean}
  */
 export function hasTab(sessionId) {
-	return iframes.has(sessionId);
+	return tabOrder.includes(sessionId);
 }
 
 /**
@@ -224,7 +241,7 @@ export function getActiveTab() {
  * @returns {number}
  */
 export function getTabCount() {
-	return iframes.size;
+	return tabOrder.length;
 }
 
 /**
@@ -377,7 +394,7 @@ function persistTabState() {
 	}
 
 	const state = {
-		openTabs: [...iframes.keys()],
+		openTabs: [...tabOrder],
 		activeTab,
 		tabOrder: [...tabOrder],
 		tabMeta,
@@ -444,21 +461,16 @@ function restoreTabState() {
 					? info.cliType
 					: "claude-code";
 
-			const iframe = document.createElement("iframe");
-			iframe.src = `/portlet/index.html?sessionId=${encodeURIComponent(sessionId)}`;
-			iframe.dataset.sessionId = sessionId;
-			iframe.className = "portlet-iframe";
-			portletContainer.appendChild(iframe);
-			iframes.set(sessionId, iframe);
-
 			renderTabElement(sessionId, title, cliType);
 			tabOrder.push(sessionId);
 		}
 
-		if (state.activeTab && iframes.has(state.activeTab)) {
-			activateTab(state.activeTab);
-		} else if (iframes.size > 0) {
-			activateTab(tabOrder[0] ?? null);
+		const restoredActiveTab =
+			typeof state.activeTab === "string" && tabOrder.includes(state.activeTab)
+				? state.activeTab
+				: tabOrder[0] ?? null;
+		if (restoredActiveTab) {
+			activateTab(restoredActiveTab);
 		}
 
 		return state;
@@ -509,6 +521,30 @@ function reorderTabBarDOM() {
 			tabBar.appendChild(tab);
 		}
 	}
+}
+
+/**
+ * Ensure iframe exists for a tabbed session.
+ * @param {string} sessionId
+ * @returns {HTMLIFrameElement}
+ */
+function createIframe(sessionId) {
+	if (!portletContainer) {
+		throw new Error("tabs.createIframe: container is not initialized");
+	}
+
+	const existing = iframes.get(sessionId);
+	if (existing) {
+		return existing;
+	}
+
+	const iframe = document.createElement("iframe");
+	iframe.src = `/portlet/index.html?sessionId=${encodeURIComponent(sessionId)}`;
+	iframe.dataset.sessionId = sessionId;
+	iframe.className = "portlet-iframe";
+	portletContainer.appendChild(iframe);
+	iframes.set(sessionId, iframe);
+	return iframe;
 }
 
 // ---- Relay lookup API (used by shell.js postMessage relay) ----

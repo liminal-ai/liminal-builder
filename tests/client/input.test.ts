@@ -76,6 +76,13 @@ function getWorkingIndicator(): HTMLElement {
 	return element;
 }
 
+function setScrollHeight(element: HTMLTextAreaElement, value: number): void {
+	Object.defineProperty(element, "scrollHeight", {
+		configurable: true,
+		get: () => value,
+	});
+}
+
 async function importInput(): Promise<InputModule> {
 	const moduleValue: unknown = await import(INPUT_MODULE_PATH);
 	return moduleValue as InputModule;
@@ -121,8 +128,90 @@ describe("Portlet Input UI", () => {
 		expect(sendBtn).not.toBeNull();
 
 		messageInput.value = "Run tests";
+		messageInput.dispatchEvent(new Event("input", { bubbles: true }));
 		sendBtn.click();
 		expect(onSend).toHaveBeenCalledWith("Run tests");
+	});
+
+	it("Enter submits message", async () => {
+		const input = await importInput();
+		const container = getInputBar();
+		const onSend = vi.fn<(content: string) => void>();
+		const onCancel = vi.fn<() => void>();
+		input.init(container, onSend, onCancel);
+
+		const messageInput = getMessageInput();
+		messageInput.value = "Submit from keyboard";
+		const event = new KeyboardEvent("keydown", {
+			key: "Enter",
+			bubbles: true,
+			cancelable: true,
+		});
+		const notCancelled = messageInput.dispatchEvent(event);
+
+		expect(notCancelled).toBe(false);
+		expect(onSend).toHaveBeenCalledWith("Submit from keyboard");
+		expect(messageInput.value).toBe("");
+	});
+
+	it("Shift+Enter does not submit message", async () => {
+		const input = await importInput();
+		const container = getInputBar();
+		const onSend = vi.fn<(content: string) => void>();
+		const onCancel = vi.fn<() => void>();
+		input.init(container, onSend, onCancel);
+
+		const messageInput = getMessageInput();
+		messageInput.value = "Keep editing";
+		const event = new KeyboardEvent("keydown", {
+			key: "Enter",
+			shiftKey: true,
+			bubbles: true,
+			cancelable: true,
+		});
+		const notCancelled = messageInput.dispatchEvent(event);
+
+		expect(notCancelled).toBe(true);
+		expect(onSend).not.toHaveBeenCalled();
+		expect(messageInput.value).toBe("Keep editing");
+	});
+
+	it("textarea grows with content up to max height", async () => {
+		const input = await importInput();
+		const container = getInputBar();
+		input.init(
+			container,
+			() => {},
+			() => {},
+		);
+
+		const messageInput = getMessageInput();
+		setScrollHeight(messageInput, 220);
+		messageInput.value = "Line 1\nLine 2\nLine 3\nLine 4\nLine 5";
+		messageInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+		expect(Number.parseFloat(messageInput.style.height)).toBeGreaterThan(200);
+		expect(messageInput.style.overflowY).toBe("hidden");
+	});
+
+	it("textarea caps at max height and enables internal scrolling", async () => {
+		const input = await importInput();
+		const container = getInputBar();
+		input.init(
+			container,
+			() => {},
+			() => {},
+		);
+
+		const messageInput = getMessageInput();
+		setScrollHeight(messageInput, 1000);
+		messageInput.value = "A very long message";
+		messageInput.dispatchEvent(new Event("input", { bubbles: true }));
+
+		const height = Number.parseFloat(messageInput.style.height);
+		expect(height).toBeGreaterThan(250);
+		expect(height).toBeLessThanOrEqual(280);
+		expect(messageInput.style.overflowY).toBe("auto");
 	});
 
 	it("TC-3.5b: input disabled during agent response", async () => {
@@ -147,15 +236,19 @@ describe("Portlet Input UI", () => {
 		const input = await importInput();
 		const container = getInputBar();
 
+		const onCancel = vi.fn<() => void>();
 		input.init(
 			container,
 			() => {},
-			() => {},
+			onCancel,
 		);
 		input.showCancel();
 
-		const cancelBtn = getCancelButton();
-		expect(cancelBtn.style.display).not.toBe("none");
+		const sendBtn = getSendButton();
+		expect(sendBtn.dataset.mode).toBe("cancel");
+		expect(sendBtn.disabled).toBe(false);
+		sendBtn.click();
+		expect(onCancel).toHaveBeenCalledTimes(1);
 	});
 
 	it("TC-3.7c: cancel not visible when idle", async () => {
@@ -168,6 +261,20 @@ describe("Portlet Input UI", () => {
 			() => {},
 		);
 		input.hideCancel();
+
+		const sendBtn = getSendButton();
+		expect(sendBtn.dataset.mode).toBe("send");
+	});
+
+	it("legacy cancel button remains hidden when showing cancel mode", async () => {
+		const input = await importInput();
+		const container = getInputBar();
+		input.init(
+			container,
+			() => {},
+			() => {},
+		);
+		input.showCancel();
 
 		const cancelBtn = getCancelButton();
 		expect(cancelBtn.style.display === "none" || cancelBtn.hidden).toBe(true);

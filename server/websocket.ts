@@ -606,8 +606,19 @@ async function routeMessage(
 
 		case "session:open": {
 			try {
+				const replayToClient = (entry: ChatEntry) => {
+					sendEnvelope(socket, {
+						type: "session:update",
+						sessionId: message.sessionId,
+						entry,
+					});
+				};
+
 				const entries = deps.sessionManager
-					? await deps.sessionManager.openSession(message.sessionId)
+					? await deps.sessionManager.openSession(
+							message.sessionId,
+							replayToClient,
+						)
 					: await (async () => {
 							const routing = parseSessionRouting(message.sessionId);
 							const canonicalSessionId = toCanonicalSessionId(
@@ -619,7 +630,11 @@ async function routeMessage(
 							const client = await deps.agentManager.ensureAgent(
 								routing.cliType,
 							);
-							return client.sessionLoad(routing.acpSessionId, sessionCwd);
+							return client.sessionLoad(
+								routing.acpSessionId,
+								sessionCwd,
+								replayToClient,
+							);
 						})();
 
 				sendEnvelope(socket, {

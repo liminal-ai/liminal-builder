@@ -14,8 +14,14 @@ let userScrolledUp = false;
 /** @type {HTMLButtonElement | null} */
 let scrollToBottomBtn = null;
 
+/** @type {boolean} */
+let suppressAutoScroll = false;
+
 /** @type {Map<string, object>} */
 const entriesById = new Map();
+
+/** @type {Map<string, HTMLElement>} */
+const entryElementsById = new Map();
 
 /** @type {Set<string>} */
 const finalizedEntryIds = new Set();
@@ -28,7 +34,20 @@ function escapeHtml(value) {
 }
 
 function getEntryElement(entryId) {
-	return chatContainer?.querySelector(`[data-entry-id="${entryId}"]`) ?? null;
+	const cached = entryElementsById.get(entryId);
+	if (cached instanceof HTMLElement && cached.isConnected) {
+		return cached;
+	}
+	if (cached && !cached.isConnected) {
+		entryElementsById.delete(entryId);
+	}
+	const queried =
+		chatContainer?.querySelector(`[data-entry-id="${entryId}"]`) ?? null;
+	if (queried instanceof HTMLElement) {
+		entryElementsById.set(entryId, queried);
+		return queried;
+	}
+	return null;
 }
 
 function ensureEntryElement(entryId, className) {
@@ -46,6 +65,7 @@ function ensureEntryElement(entryId, className) {
 	element.dataset.entryId = entryId;
 	element.className = className;
 	chatContainer.appendChild(element);
+	entryElementsById.set(entryId, element);
 	return element;
 }
 
@@ -159,13 +179,18 @@ function renderToolCallEntry(entry) {
 
 	if (existing instanceof HTMLElement) {
 		existing.replaceWith(element);
+		entryElementsById.set(entry.entryId, element);
 		return;
 	}
 	chatContainer.appendChild(element);
+	entryElementsById.set(entry.entryId, element);
 }
 
 function autoScroll() {
 	if (!chatContainer) {
+		return;
+	}
+	if (suppressAutoScroll) {
 		return;
 	}
 
@@ -214,7 +239,9 @@ export function renderAll(entries) {
 
 	chatContainer.textContent = "";
 	entriesById.clear();
+	entryElementsById.clear();
 	finalizedEntryIds.clear();
+	suppressAutoScroll = true;
 
 	for (const entry of entries) {
 		// History entries have already completed, so assistant turns should
@@ -224,6 +251,7 @@ export function renderAll(entries) {
 		}
 		renderEntry(entry);
 	}
+	suppressAutoScroll = false;
 
 	autoScroll();
 }
