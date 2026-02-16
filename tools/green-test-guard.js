@@ -2,7 +2,13 @@
 
 import { execSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	statSync,
+	writeFileSync,
+} from "node:fs";
 import { dirname, resolve } from "node:path";
 
 const BASELINE_RELATIVE_PATH = ".liminal/green-test-baseline";
@@ -33,9 +39,12 @@ function isTestPath(filePath) {
 }
 
 function getChangedPaths() {
-	const output = execSync("git status --porcelain=v1 -z", {
-		encoding: "buffer",
-	}).toString("utf8");
+	const output = execSync(
+		"git status --porcelain=v1 -z --untracked-files=all",
+		{
+			encoding: "buffer",
+		},
+	).toString("utf8");
 	if (output.length === 0) {
 		return [];
 	}
@@ -76,6 +85,11 @@ function getFileDigest(repoRoot, relativePath) {
 	const absolutePath = resolve(repoRoot, relativePath);
 	if (!existsSync(absolutePath)) {
 		return null;
+	}
+	if (!statSync(absolutePath).isFile()) {
+		throw new Error(
+			`Expected file path from git status, received: ${relativePath}`,
+		);
 	}
 	const data = readFileSync(absolutePath);
 	return createHash("sha256").update(data).digest("hex");

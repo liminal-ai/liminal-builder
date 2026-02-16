@@ -1,15 +1,20 @@
-# Story 3: Session API and Provider Registry
+# Story 3: Session API and Provider Registry (Chunk 2)
 
 ## Overview
-Implement provider registry and Session API lifecycle/messaging/process routes.
+Implement provider registry and Session API route/service behavior for session lifecycle, messaging, and process lifecycle controls.
+
+This story corresponds to Tech Design Chunk 2 and does not implement provider internals or provider -> processor wiring.
 
 ## Prerequisites
-- Story 2 complete.
-- Upsert processor available for downstream wiring.
+- **Technical dependency:** Story 0 and Story 1 are complete and green (contracts, interfaces, shared types).
+- **Sharded orchestration order:** execute after Story 2 in this prompt pack sequence.
+- Story 6 is where provider -> processor -> websocket integration occurs; Story 3 only establishes API and registry boundaries.
 
 ## ACs Covered
 - AC-2.2
-- AC-6.1, AC-6.2, AC-6.3
+- AC-6.1
+- AC-6.2
+- AC-6.3
 
 ## TCs Covered
 - TC-2.2a through TC-2.2b
@@ -36,6 +41,6 @@ Implement provider registry and Session API lifecycle/messaging/process routes.
 ## Prompts
 | Phase | File | Purpose |
 |---|---|---|
-| Skeleton+Red | `prompt-3.1-skeleton-red.md` | Add route/service/registry stubs and failing tests |
-| Green | `prompt-3.2-green.md` | Implement routing and lifecycle behavior |
-| Verify | `prompt-3.R-verify.md` | Validate API semantics and turnId contract |
+| Skeleton+Red | `prompt-3.1-skeleton-red.md` | Create stubs and 14 TC-traceable failing tests with explicit route contracts |
+| Green | `prompt-3.2-green.md` | Implement registry/service/routes to satisfy all Story 3 contracts without test changes |
+| Verify | `prompt-3.R-verify.md` | Audit full AC/TC coverage, contract semantics, and running-total readiness |
