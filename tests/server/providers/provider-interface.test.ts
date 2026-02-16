@@ -7,12 +7,7 @@ import type {
 	SendMessageResult,
 } from "../../../server/providers/provider-types";
 import type { StreamEventEnvelope } from "../../../server/streaming";
-import { streamEventEnvelopeSchema } from "../../../server/streaming";
-import {
-	TEST_SESSION_ID,
-	TEST_TIMESTAMP,
-	TEST_TURN_ID,
-} from "../../fixtures/constants";
+import { RESPONSE_START_FIXTURE } from "../../fixtures/stream-events";
 
 function createProviderDouble(): {
 	provider: CliProvider;
@@ -60,21 +55,6 @@ function createProviderDouble(): {
 	};
 }
 
-function createResponseStartEvent(sessionId: string): StreamEventEnvelope {
-	return streamEventEnvelopeSchema.parse({
-		eventId: "provider-event-001",
-		timestamp: TEST_TIMESTAMP,
-		turnId: TEST_TURN_ID,
-		sessionId,
-		type: "response_start",
-		payload: {
-			type: "response_start",
-			modelId: "claude-sonnet-4-5-20250929",
-			providerId: "claude-code",
-		},
-	});
-}
-
 describe("Provider interface contracts (Story 1, Red)", () => {
 	it("TC-2.1a: CliProvider shape includes createSession/loadSession/sendMessage/cancelTurn/killSession/isAlive/onEvent", async () => {
 		const { provider, emit } = createProviderDouble();
@@ -110,11 +90,10 @@ describe("Provider interface contracts (Story 1, Red)", () => {
 		).resolves.toBeUndefined();
 
 		let delivered = 0;
-		const responseStartEvent = createResponseStartEvent(TEST_SESSION_ID);
-		provider.onEvent(responseStartEvent.sessionId, () => {
+		provider.onEvent(RESPONSE_START_FIXTURE.sessionId, () => {
 			delivered += 1;
 		});
-		emit(responseStartEvent);
+		emit(RESPONSE_START_FIXTURE);
 		expect(delivered).toBe(1);
 	});
 

@@ -1,12 +1,8 @@
 import {
 	streamEventEnvelopeSchema,
 	type StreamEventEnvelope,
-} from "@server/streaming";
-import {
-	TEST_SESSION_ID,
-	TEST_TIMESTAMP,
-	TEST_TURN_ID,
-} from "@tests/fixtures/constants";
+} from "../../server/streaming";
+import { TEST_SESSION_ID, TEST_TIMESTAMP, TEST_TURN_ID } from "./constants";
 
 // -- Envelope factory: builds a complete envelope from just a payload + optional overrides --
 export function createEnvelope(

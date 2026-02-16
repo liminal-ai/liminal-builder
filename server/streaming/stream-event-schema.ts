@@ -48,56 +48,78 @@ export const usageSchema = z.object({
 export type Usage = z.infer<typeof usageSchema>;
 
 // -- Stream event payloads --
-export const streamEventPayloadSchema = z.discriminatedUnion("type", [
-	z.object({
-		type: z.literal("response_start"),
-		modelId: z.string(),
-		providerId: z.string(),
-	}),
-	z.object({
-		type: z.literal("item_start"),
-		itemId: z.string(),
-		itemType: z.enum([
-			"message",
-			"reasoning",
-			"function_call",
-			"function_call_output",
-		]),
-		initialContent: z.string().optional(),
-		name: z.string().optional(),
-		callId: z.string().optional(),
-	}),
-	z.object({
-		type: z.literal("item_delta"),
-		itemId: z.string(),
-		deltaContent: z.string(),
-	}),
-	z.object({
-		type: z.literal("item_done"),
-		itemId: z.string(),
-		finalItem: finalizedItemSchema,
-	}),
-	z.object({
-		type: z.literal("item_error"),
-		itemId: z.string(),
-		error: z.object({ code: z.string(), message: z.string() }),
-	}),
-	z.object({
-		type: z.literal("item_cancelled"),
-		itemId: z.string(),
-		reason: cancellationReasonSchema.optional(),
-	}),
-	z.object({
-		type: z.literal("response_done"),
-		status: z.enum(["completed", "cancelled", "error"]),
-		finishReason: z.string().optional(),
-		usage: usageSchema.optional(),
-	}),
-	z.object({
-		type: z.literal("response_error"),
-		error: z.object({ code: z.string(), message: z.string() }),
-	}),
-]);
+export const streamEventPayloadSchema = z
+	.discriminatedUnion("type", [
+		z.object({
+			type: z.literal("response_start"),
+			modelId: z.string(),
+			providerId: z.string(),
+		}),
+		z.object({
+			type: z.literal("item_start"),
+			itemId: z.string(),
+			itemType: z.enum([
+				"message",
+				"reasoning",
+				"function_call",
+				"function_call_output",
+			]),
+			initialContent: z.string().optional(),
+			name: z.string().optional(),
+			callId: z.string().optional(),
+		}),
+		z.object({
+			type: z.literal("item_delta"),
+			itemId: z.string(),
+			deltaContent: z.string(),
+		}),
+		z.object({
+			type: z.literal("item_done"),
+			itemId: z.string(),
+			finalItem: finalizedItemSchema,
+		}),
+		z.object({
+			type: z.literal("item_error"),
+			itemId: z.string(),
+			error: z.object({ code: z.string(), message: z.string() }),
+		}),
+		z.object({
+			type: z.literal("item_cancelled"),
+			itemId: z.string(),
+			reason: cancellationReasonSchema.optional(),
+		}),
+		z.object({
+			type: z.literal("response_done"),
+			status: z.enum(["completed", "cancelled", "error"]),
+			finishReason: z.string().optional(),
+			usage: usageSchema.optional(),
+		}),
+		z.object({
+			type: z.literal("response_error"),
+			error: z.object({ code: z.string(), message: z.string() }),
+		}),
+	])
+	.superRefine((payload, ctx) => {
+		if (payload.type !== "item_start" || payload.itemType !== "function_call") {
+			return;
+		}
+
+		if (!payload.name) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["name"],
+				message: "name is required when itemType is function_call",
+			});
+		}
+
+		if (!payload.callId) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				path: ["callId"],
+				message: "callId is required when itemType is function_call",
+			});
+		}
+	});
 
 export type StreamEventPayload = z.infer<typeof streamEventPayloadSchema>;
 

@@ -3,7 +3,7 @@ import {
 	streamEventEnvelopeSchema,
 	type StreamEventEnvelope,
 	type UpsertObject,
-} from "@server/streaming";
+} from "../../server/streaming";
 
 /** Validate that an event passes Zod schema parsing */
 export function assertValidEnvelope(event: unknown): StreamEventEnvelope {

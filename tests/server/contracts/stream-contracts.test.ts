@@ -1,31 +1,35 @@
 import { describe, expect, it } from "vitest";
-import type {
-	StreamEventEnvelope,
-	UpsertObject,
-} from "../../../server/streaming";
+import type { UpsertObject } from "../../../server/streaming";
 import { streamEventEnvelopeSchema } from "../../../server/streaming";
 import {
 	TEST_EMITTED_AT,
-	TEST_SESSION_ID,
 	TEST_TIMESTAMP,
 	TEST_TURN_ID,
 } from "../../fixtures/constants";
-
-function createEnvelope(
-	eventId: string,
-	payload: StreamEventEnvelope["payload"],
-	overrides?: Partial<Omit<StreamEventEnvelope, "payload">>,
-): StreamEventEnvelope {
-	return streamEventEnvelopeSchema.parse({
-		eventId,
-		timestamp: TEST_TIMESTAMP,
-		turnId: TEST_TURN_ID,
-		sessionId: TEST_SESSION_ID,
-		type: payload.type,
-		...overrides,
-		payload,
-	});
-}
+import {
+	ITEM_DELTA_TEXT_FIXTURE,
+	ITEM_DONE_FUNCTION_CALL_FIXTURE,
+	ITEM_DONE_FUNCTION_CALL_OUTPUT_FIXTURE,
+	ITEM_DONE_REASONING_FIXTURE,
+	ITEM_ERROR_FIXTURE,
+	ITEM_START_FUNCTION_CALL_FIXTURE,
+	ITEM_START_FUNCTION_CALL_OUTPUT_FIXTURE,
+	ITEM_START_REASONING_FIXTURE,
+	MALFORMED_BAD_TIMESTAMP,
+	MALFORMED_MISSING_PAYLOAD_FIELDS,
+	MALFORMED_MISSING_TYPE,
+	MALFORMED_TYPE_MISMATCH,
+	RESPONSE_DONE_COMPLETED_FIXTURE,
+	RESPONSE_ERROR_FIXTURE,
+	RESPONSE_START_FIXTURE,
+	createEnvelope,
+	createFullTurnSequence,
+} from "../../fixtures/stream-events";
+import {
+	assertItemIdConsistency,
+	assertTurnCorrelation,
+	assertValidEnvelope,
+} from "../../helpers/stream-assertions";
 
 function expectInvalidWithPath(
 	event: unknown,
@@ -47,200 +51,9 @@ function expectInvalidWithPath(
 	expect(matchedIssue).toBeDefined();
 }
 
-function assertTurnCorrelation(
-	events: StreamEventEnvelope[],
-	expectedTurnId: string,
-): void {
-	for (const event of events) {
-		expect(event.turnId).toBe(expectedTurnId);
-	}
-}
-
-function assertItemIdConsistency(
-	events: StreamEventEnvelope[],
-	expectedItemId: string,
-): void {
-	for (const event of events) {
-		if ("itemId" in event.payload) {
-			expect(event.payload.itemId).toBe(expectedItemId);
-		}
-	}
-}
-
-const RESPONSE_START_FIXTURE = createEnvelope("test-event-001", {
-	type: "response_start",
-	modelId: "claude-sonnet-4-5-20250929",
-	providerId: "claude-code",
-});
-
-const ITEM_START_REASONING_FIXTURE = createEnvelope("test-event-002", {
-	type: "item_start",
-	itemId: "test-item-reason-001",
-	itemType: "reasoning",
-});
-
-const ITEM_START_FUNCTION_CALL_FIXTURE = createEnvelope("test-event-003", {
-	type: "item_start",
-	itemId: "test-item-fc-001",
-	itemType: "function_call",
-	name: "read_file",
-	callId: "test-call-001",
-});
-
-const ITEM_START_FUNCTION_CALL_OUTPUT_FIXTURE = createEnvelope(
-	"test-event-004",
-	{
-		type: "item_start",
-		itemId: "test-item-fco-001",
-		itemType: "function_call_output",
-		callId: "test-call-001",
-	},
-);
-
-const ITEM_DELTA_TEXT_FIXTURE = createEnvelope("test-event-005", {
-	type: "item_delta",
-	itemId: "test-item-msg-001",
-	deltaContent: "Hello, world!",
-});
-
-const ITEM_DONE_REASONING_FIXTURE = createEnvelope("test-event-006", {
-	type: "item_done",
-	itemId: "test-item-reason-001",
-	finalItem: {
-		type: "reasoning",
-		content: "Let me think about this...",
-		providerId: "claude-code",
-	},
-});
-
-const ITEM_DONE_FUNCTION_CALL_FIXTURE = createEnvelope("test-event-007", {
-	type: "item_done",
-	itemId: "test-item-fc-001",
-	finalItem: {
-		type: "function_call",
-		name: "read_file",
-		callId: "test-call-001",
-		arguments: { path: "/src/index.ts" },
-	},
-});
-
-const ITEM_DONE_FUNCTION_CALL_OUTPUT_FIXTURE = createEnvelope(
-	"test-event-008",
-	{
-		type: "item_done",
-		itemId: "test-item-fco-001",
-		finalItem: {
-			type: "function_call_output",
-			callId: "test-call-001",
-			output: "File contents",
-			isError: false,
-		},
-	},
-);
-
-const ITEM_ERROR_FIXTURE = createEnvelope("test-event-009", {
-	type: "item_error",
-	itemId: "test-item-err-001",
-	error: { code: "CONTENT_FILTER", message: "Content was filtered" },
-});
-
-const RESPONSE_DONE_COMPLETED_FIXTURE = createEnvelope("test-event-010", {
-	type: "response_done",
-	status: "completed",
-	finishReason: "end_turn",
-	usage: {
-		inputTokens: 100,
-		outputTokens: 250,
-		cacheReadInputTokens: 50,
-	},
-});
-
-const RESPONSE_ERROR_FIXTURE = createEnvelope("test-event-011", {
-	type: "response_error",
-	error: {
-		code: "PROCESS_CRASH",
-		message: "Subprocess exited unexpectedly",
-	},
-});
-
-const MALFORMED_MISSING_TYPE = {
-	eventId: "bad-001",
-	timestamp: TEST_TIMESTAMP,
-	turnId: TEST_TURN_ID,
-	sessionId: TEST_SESSION_ID,
-	payload: { type: "item_delta", itemId: "x", deltaContent: "y" },
-};
-
-const MALFORMED_TYPE_MISMATCH = {
-	eventId: "bad-002",
-	timestamp: TEST_TIMESTAMP,
-	turnId: TEST_TURN_ID,
-	sessionId: TEST_SESSION_ID,
-	type: "item_start",
-	payload: { type: "item_delta", itemId: "x", deltaContent: "y" },
-};
-
-const MALFORMED_BAD_TIMESTAMP = {
-	eventId: "bad-003",
-	timestamp: "not-a-date",
-	turnId: TEST_TURN_ID,
-	sessionId: TEST_SESSION_ID,
-	type: "item_delta",
-	payload: { type: "item_delta", itemId: "x", deltaContent: "y" },
-};
-
-const MALFORMED_MISSING_PAYLOAD_FIELDS = {
-	eventId: "bad-004",
-	timestamp: TEST_TIMESTAMP,
-	turnId: TEST_TURN_ID,
-	sessionId: TEST_SESSION_ID,
-	type: "item_start",
-	payload: { type: "item_start" },
-};
-
-function createFullTurnSequence(): StreamEventEnvelope[] {
-	return [
-		createEnvelope("turn-event-001", {
-			type: "response_start",
-			modelId: "claude-sonnet-4-5-20250929",
-			providerId: "claude-code",
-		}),
-		createEnvelope("turn-event-002", {
-			type: "item_start",
-			itemId: "turn-item-001",
-			itemType: "message",
-		}),
-		createEnvelope("turn-event-003", {
-			type: "item_delta",
-			itemId: "turn-item-001",
-			deltaContent: "Here is ",
-		}),
-		createEnvelope("turn-event-004", {
-			type: "item_delta",
-			itemId: "turn-item-001",
-			deltaContent: "my response.",
-		}),
-		createEnvelope("turn-event-005", {
-			type: "item_done",
-			itemId: "turn-item-001",
-			finalItem: {
-				type: "message",
-				content: "Here is my response.",
-				origin: "agent",
-			},
-		}),
-		createEnvelope("turn-event-006", {
-			type: "response_done",
-			status: "completed",
-			finishReason: "end_turn",
-			usage: { inputTokens: 50, outputTokens: 12 },
-		}),
-	];
-}
-
 describe("Canonical stream contracts (Story 1, Red)", () => {
 	it("TC-1.1a: item_delta text payload validates with matching envelope type and string deltaContent", () => {
-		const parsed = streamEventEnvelopeSchema.parse(ITEM_DELTA_TEXT_FIXTURE);
+		const parsed = assertValidEnvelope(ITEM_DELTA_TEXT_FIXTURE);
 
 		expect(parsed.type).toBe("item_delta");
 		expect(parsed.payload.type).toBe("item_delta");
@@ -251,19 +64,15 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 	});
 
 	it("TC-1.1b: function-call lifecycle validates across item_start -> item_delta -> item_done with consistent call correlation", () => {
-		const start = streamEventEnvelopeSchema.parse(
-			ITEM_START_FUNCTION_CALL_FIXTURE,
-		);
-		const delta = streamEventEnvelopeSchema.parse(
+		const start = assertValidEnvelope(ITEM_START_FUNCTION_CALL_FIXTURE);
+		const delta = assertValidEnvelope(
 			createEnvelope("tc-1.1b-delta-event", {
 				type: "item_delta",
 				itemId: "test-item-fc-001",
 				deltaContent: '{"path":"/src/index.ts"}',
 			}),
 		);
-		const done = streamEventEnvelopeSchema.parse(
-			ITEM_DONE_FUNCTION_CALL_FIXTURE,
-		);
+		const done = assertValidEnvelope(ITEM_DONE_FUNCTION_CALL_FIXTURE);
 
 		expect(start).toMatchObject({
 			payload: {
@@ -292,8 +101,8 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 	});
 
 	it("TC-1.1c: reasoning payload validates for reasoning itemType and string content", () => {
-		const start = streamEventEnvelopeSchema.parse(ITEM_START_REASONING_FIXTURE);
-		const done = streamEventEnvelopeSchema.parse(ITEM_DONE_REASONING_FIXTURE);
+		const start = assertValidEnvelope(ITEM_START_REASONING_FIXTURE);
+		const done = assertValidEnvelope(ITEM_DONE_REASONING_FIXTURE);
 
 		expect(start).toMatchObject({
 			payload: {
@@ -313,12 +122,8 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 	});
 
 	it("TC-1.1d: response lifecycle validates response_start metadata and response_done status/usage/finishReason", () => {
-		const responseStart = streamEventEnvelopeSchema.parse(
-			RESPONSE_START_FIXTURE,
-		);
-		const responseDone = streamEventEnvelopeSchema.parse(
-			RESPONSE_DONE_COMPLETED_FIXTURE,
-		);
+		const responseStart = assertValidEnvelope(RESPONSE_START_FIXTURE);
+		const responseDone = assertValidEnvelope(RESPONSE_DONE_COMPLETED_FIXTURE);
 
 		expect(responseStart.payload.type).toBe("response_start");
 		expect(responseStart.turnId).toBe(TEST_TURN_ID);
@@ -336,10 +141,8 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 	});
 
 	it("TC-1.1e: item_error and response_error payloads both validate", () => {
-		const itemError = streamEventEnvelopeSchema.parse(ITEM_ERROR_FIXTURE);
-		const responseError = streamEventEnvelopeSchema.parse(
-			RESPONSE_ERROR_FIXTURE,
-		);
+		const itemError = assertValidEnvelope(ITEM_ERROR_FIXTURE);
+		const responseError = assertValidEnvelope(RESPONSE_ERROR_FIXTURE);
 
 		expect(itemError).toMatchObject({
 			payload: {
@@ -391,16 +194,14 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 	});
 
 	it("TC-1.2a: all events in a turn share the same turnId", () => {
-		const turnEvents = createFullTurnSequence().map((event) =>
-			streamEventEnvelopeSchema.parse(event),
-		);
+		const turnEvents = createFullTurnSequence().map(assertValidEnvelope);
 
 		assertTurnCorrelation(turnEvents, TEST_TURN_ID);
 	});
 
 	it("TC-1.2b: item lifecycle events in one sequence share the same itemId", () => {
 		const itemLifecycle = createFullTurnSequence()
-			.map((event) => streamEventEnvelopeSchema.parse(event))
+			.map(assertValidEnvelope)
 			.filter((event) => "itemId" in event.payload);
 
 		expect(itemLifecycle.length).toBeGreaterThan(0);
@@ -409,10 +210,10 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 
 	it("TC-1.2c: tool invocation/result events share the same callId", () => {
 		const toolEvents = [
-			streamEventEnvelopeSchema.parse(ITEM_START_FUNCTION_CALL_FIXTURE),
-			streamEventEnvelopeSchema.parse(ITEM_DONE_FUNCTION_CALL_FIXTURE),
-			streamEventEnvelopeSchema.parse(ITEM_START_FUNCTION_CALL_OUTPUT_FIXTURE),
-			streamEventEnvelopeSchema.parse(ITEM_DONE_FUNCTION_CALL_OUTPUT_FIXTURE),
+			assertValidEnvelope(ITEM_START_FUNCTION_CALL_FIXTURE),
+			assertValidEnvelope(ITEM_DONE_FUNCTION_CALL_FIXTURE),
+			assertValidEnvelope(ITEM_START_FUNCTION_CALL_OUTPUT_FIXTURE),
+			assertValidEnvelope(ITEM_DONE_FUNCTION_CALL_OUTPUT_FIXTURE),
 		];
 
 		const callIds = toolEvents.map((event) => {
@@ -438,7 +239,7 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 			type: "tool_call",
 			status: "create",
 			turnId: TEST_TURN_ID,
-			sessionId: TEST_SESSION_ID,
+			sessionId: RESPONSE_START_FIXTURE.sessionId,
 			itemId: "upsert-item-001",
 			sourceTimestamp: TEST_TIMESTAMP,
 			emittedAt: TEST_EMITTED_AT,
@@ -466,7 +267,7 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 			type: "message",
 			status: "update",
 			turnId: TEST_TURN_ID,
-			sessionId: TEST_SESSION_ID,
+			sessionId: RESPONSE_START_FIXTURE.sessionId,
 			itemId: "upsert-item-002",
 			sourceTimestamp: TEST_TIMESTAMP,
 			emittedAt: TEST_EMITTED_AT,

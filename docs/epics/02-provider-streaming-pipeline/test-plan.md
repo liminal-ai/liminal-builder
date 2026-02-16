@@ -104,8 +104,8 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-1.3a | `tests/server/contracts/stream-contracts.test.ts` | verifies provenance fields needed for downstream ingestion | Planned |
 | TC-1.3b | `tests/server/contracts/stream-contracts.test.ts` | verifies documented Phase 2 derivation boundary is explicit | Planned |
 | TC-2.1a | `tests/server/providers/provider-interface.test.ts` | asserts interface includes create/load/send/cancel/kill/isAlive/onEvent | Planned |
-| TC-2.1b | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Claude provider | Planned |
-| TC-2.1c | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Codex provider | Planned |
+| TC-2.1b | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Claude provider (placeholder in Story 1; activated in Story 4) | Planned |
+| TC-2.1c | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Codex provider (placeholder in Story 1; activated in Story 5) | Planned |
 | TC-2.2a | `tests/server/providers/provider-registry.test.ts` | resolves provider by `claude-code` key | Planned |
 | TC-2.2b | `tests/server/providers/provider-registry.test.ts` | returns unsupported-cli error for unknown key | Planned |
 | TC-3.1a | `tests/server/providers/claude-sdk-provider.test.ts` | createSession starts persistent SDK query session | Planned |

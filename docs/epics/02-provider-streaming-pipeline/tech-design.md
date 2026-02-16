@@ -393,13 +393,30 @@ export class ProviderError extends Error {
 
 ### Canonical Stream Contracts
 
+Invariant decision: `item_start` events with `itemType: "function_call"` must include both `name` and `callId`. This is enforced at schema level (not only in tests) to keep tool lifecycle correlation strict.
+
 ```typescript
 // server/streaming/stream-event-schema.ts
 import { z } from "zod";
 
 export const streamEventPayloadSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("response_start"), modelId: z.string(), providerId: z.string() }),
-  z.object({ type: z.literal("item_start"), itemId: z.string(), itemType: z.enum(["message", "reasoning", "function_call", "function_call_output"]), callId: z.string().optional(), name: z.string().optional() }),
+  z.object({
+    type: z.literal("item_start"),
+    itemId: z.string(),
+    itemType: z.enum(["message", "reasoning", "function_call", "function_call_output"]),
+    callId: z.string().optional(),
+    name: z.string().optional(),
+  }).superRefine((payload, ctx) => {
+    if (payload.itemType === "function_call") {
+      if (!payload.callId) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["callId"], message: "callId is required for function_call item_start" });
+      }
+      if (!payload.name) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["name"], message: "name is required for function_call item_start" });
+      }
+    }
+  }),
   z.object({ type: z.literal("item_delta"), itemId: z.string(), deltaContent: z.string() }),
   z.object({ type: z.literal("item_done"), itemId: z.string(), finalItem: z.unknown() }),
   z.object({ type: z.literal("item_error"), itemId: z.string(), error: z.object({ code: z.string(), message: z.string() }) }),

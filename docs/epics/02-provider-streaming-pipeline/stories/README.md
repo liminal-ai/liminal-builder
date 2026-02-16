@@ -14,15 +14,19 @@
 ## Sharding Decision
 Chunk 0 is split across:
 - `Story 0` for pure setup (no tests, no TDD cycle): types, Zod schemas, error classes, fixtures, helpers, barrel exports, dependency installation.
-- `Story 1` for contract/interface test implementation (12 tests closing AC-1.1/1.2/1.3, plus 2 placeholder conformance tests for AC-2.1b/c that activate in Stories 4-5).
+- `Story 1` for contract/interface test implementation:
+  - 12 executable tests closing AC-1.1/1.2/1.3 plus AC-2.1a
+  - 2 explicit placeholder tests for AC-2.1b/c that activate in Stories 4-5
 
-This preserves the methodology rule that Story 0 is infrastructure-only while keeping full coverage from the tech design and test plan. Story 0 delivers the AC type surface; Story 1 closes the ACs with validation tests.
+This preserves the methodology rule that Story 0 is infrastructure-only while keeping full coverage from the tech design and test plan. Story 0 delivers the AC type surface; Story 1 closes executable contract ACs and carries deferred conformance placeholders with explicit activation points.
 
-Note: TC-2.1b (Claude provider conformance) and TC-2.1c (Codex provider conformance) are mapped to Story 1 in the test plan but can only fully execute after Stories 4 and 5 create the providers. Story 1 may include compile-time `satisfies` stubs or defer these 2 TCs. Effective Story 1 test count: 12-14 depending on stub approach.
+Resolved execution rule:
+- TC-2.1b (Claude provider conformance) is placeholder-only in Story 1 and activates in Story 4.
+- TC-2.1c (Codex provider conformance) is placeholder-only in Story 1 and activates in Story 5.
 
 ## Story List
 1. `story-0-infrastructure` (setup only, 0 tests)
-2. `story-1-contracts` (14 tests)
+2. `story-1-contracts` (14 traceability tests: 12 executable + 2 placeholders)
 3. `story-2-upsert-processor` (18 tests)
 4. `story-3-session-api-registry` (14 tests)
 5. `story-4-claude-provider` (14 tests)
@@ -32,7 +36,7 @@ Note: TC-2.1b (Claude provider conformance) and TC-2.1c (Codex provider conforma
 
 ## Running Totals
 - Story 0: 0
-- Story 1: 14
+- Story 1: 14 (12 executable + 2 placeholders)
 - Story 2: 32
 - Story 3: 46
 - Story 4: 60
