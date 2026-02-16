@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
 	CliProvider,
 	CreateSessionOptions,
@@ -6,6 +6,12 @@ import type {
 	ProviderSession,
 	SendMessageResult,
 } from "../../../server/providers/provider-types";
+import {
+	ClaudeSdkProvider,
+	type ClaudeSdkAdapter,
+	type ClaudeSdkQueryHandle,
+	type ClaudeSdkQueryRequest,
+} from "../../../server/providers/claude/claude-sdk-provider";
 import type { StreamEventEnvelope } from "../../../server/streaming";
 import { RESPONSE_START_FIXTURE } from "../../fixtures/stream-events";
 
@@ -97,9 +103,42 @@ describe("Provider interface contracts (Story 1, Red)", () => {
 		expect(delivered).toBe(1);
 	});
 
-	it.todo(
-		"TC-2.1b: Claude provider conformance placeholder (TC-2.1b activates in Story 4 when Claude provider exists)",
-	);
+	it("TC-2.1b: Claude provider satisfies CliProvider surface with no type errors", async () => {
+		async function* emptyStream(): AsyncGenerator<never> {}
+
+		const query = vi.fn<
+			(request: ClaudeSdkQueryRequest) => Promise<ClaudeSdkQueryHandle>
+		>(async () => ({
+			output: emptyStream(),
+			interrupt: async () => undefined,
+			close: async () => undefined,
+			isAlive: () => true,
+		}));
+
+		const sdk: ClaudeSdkAdapter = { query };
+		const provider: CliProvider = new ClaudeSdkProvider({
+			sdk,
+			createSessionId: () => "claude-session-001",
+			createTurnId: () => "claude-turn-001",
+		});
+
+		expect(provider.cliType).toBe("claude-code");
+		expect(typeof provider.createSession).toBe("function");
+		expect(typeof provider.loadSession).toBe("function");
+		expect(typeof provider.sendMessage).toBe("function");
+		expect(typeof provider.cancelTurn).toBe("function");
+		expect(typeof provider.killSession).toBe("function");
+		expect(typeof provider.isAlive).toBe("function");
+		expect(typeof provider.onEvent).toBe("function");
+
+		const created = await provider.createSession({
+			projectDir: "/tmp/liminal-builder",
+		});
+		expect(created).toEqual({
+			sessionId: "claude-session-001",
+			cliType: "claude-code",
+		});
+	});
 
 	it.todo(
 		"TC-2.1c: Codex provider conformance placeholder (TC-2.1c activates in Story 5 when Codex provider exists)",

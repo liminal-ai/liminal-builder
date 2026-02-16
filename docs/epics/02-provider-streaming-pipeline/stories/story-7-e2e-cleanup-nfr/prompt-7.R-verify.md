@@ -1,33 +1,76 @@
 # Prompt 7.R: Story 7 Verification (Release Gate)
 
+## Model Context
+This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context operating as an independent release auditor.
+
 ## Context
-Perform final independent verification before handoff to execution signoff.
-These gates are the minimum; also look for unexpected regressions or mismatches with spec/contract beyond this list.
+Perform final Story 7 verification for release signoff: TC coverage, NFR gates, legacy cleanup, and regression safety.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
-## Verify
-1. TC coverage in integration tests:
-- TC-6.4b
-- TC-8.1a..TC-8.1c
-- TC-8.2a..TC-8.2b
-- TC-8.3a..TC-8.3b
+## Reference Documents
+(For traceability.)
+- `docs/epics/02-provider-streaming-pipeline/feature-spec.md`
+- `docs/epics/02-provider-streaming-pipeline/tech-design.md`
+- `docs/epics/02-provider-streaming-pipeline/test-plan.md`
+- `docs/epics/02-provider-streaming-pipeline/stories/story-7-e2e-cleanup-nfr/story.md`
 
-2. NFR checks:
-- Claude startup median/P95 benchmark generated.
-- Codex load within +/-10% baseline.
-- Stream latency within +/-10% baseline.
-- First visible token <=200ms.
-- Crash/orphan lifecycle checks pass.
+## Verification Checklist
 
-3. Legacy removal:
-- No legacy streaming family emitted.
-- Compatibility cleanup assertions pass.
+### 1) Scope and cleanup audit
+- Confirm legacy streaming family emission path is removed from active runtime flow.
+- Confirm cleanup is limited to Story 7 scope with justified file changes.
+
+### 2) TC coverage audit (integration)
+- Verify passing coverage for:
+  - `TC-6.4b`
+  - `TC-8.1a..TC-8.1c`
+  - `TC-8.2a..TC-8.2b`
+  - `TC-8.3a..TC-8.3b`
+- Confirm TC IDs are visible in test names or clearly mapped in-suite.
+
+### 3) NFR gate audit
+- Claude startup benchmark includes median and P95 output.
+- Codex load benchmark is within +/-10% baseline.
+- Stream latency benchmark is within +/-10% baseline.
+- First visible token latency is <=200ms.
+- Crash/orphan lifecycle reliability checks pass.
+
+### 4) Regression safety audit
+- Confirm Story 1-6 behavior is not regressed by cleanup.
+- Confirm full verification pipeline passes.
+
+### 5) Traceability and totals
+- Story 7 contributes 13 checks/tests (8 TC + 5 NFR).
+- Epic running total is 92.
 
 ## Commands
-- `bun run verify`
-- `bun run verify-all`
+1. `bun run green-verify`
+2. `bun run test:integration`
+3. `bun run verify-all`
+4. `git status --porcelain`
+
+## Expected Results
+- All Story 7 release-gate checks pass.
+- Legacy-family cleanup is complete and stable.
+- Full epic verification is green.
+- No unexplained out-of-scope diffs.
+
+## If Blocked or Uncertain
+- If baseline comparisons are missing or ambiguous, report exact missing artifacts and fail verification.
+- If cleanup state conflicts with Story 6 migration assumptions, report with file/line evidence.
+- Do NOT infer missing requirements.
 
 ## Done When
-- [ ] Story 7 verification passes.
-- [ ] Epic ready for execution signoff.
+- [ ] Story 7 release-gate verification passes.
+- [ ] TC and NFR coverage are complete.
+- [ ] Legacy cleanup is validated.
+- [ ] Regression safety is confirmed.
+- [ ] Epic is ready for execution signoff.
+
+## Auditor Output Contract
+Return:
+- Findings list (ordered by severity)
+- Pass/fail per checklist section
+- Exact blockers (if any)
+- Final Go/No-Go recommendation

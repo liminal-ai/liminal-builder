@@ -1,15 +1,20 @@
-# Story 7: End-to-End Verification, Cleanup, and NFR Gates
+# Story 7: End-to-End Verification, Cleanup, and NFR Gates (Chunk 6)
 
 ## Overview
-Finalize migration by removing legacy emissions, validating dual-provider E2E behavior, and meeting performance/reliability gates.
+Finalize migration by removing legacy streaming emissions, validating dual-provider end-to-end behavior, and meeting required performance/reliability gates.
+
+Story 7 is the release gate for this epic.
 
 ## Prerequisites
-- Story 6 complete.
-- Compatibility negotiation operational and instrumented.
+- Story 0 through Story 6 are green.
+- Compatibility window behavior is already operational from Story 6.
+- Baselines for performance comparisons are available.
 
 ## ACs Covered
 - AC-6.4b
-- AC-8.1, AC-8.2, AC-8.3
+- AC-8.1
+- AC-8.2
+- AC-8.3
 
 ## TCs Covered
 - TC-6.4b
@@ -20,8 +25,8 @@ Finalize migration by removing legacy emissions, validating dual-provider E2E be
 ## Non-TC Required Checks
 - Claude startup benchmark median/P95.
 - Codex load benchmark within +/-10% baseline.
-- Stream latency benchmark within +/-10% baseline.
-- First visible token <=200ms.
+- Provider-to-render stream latency within +/-10% baseline.
+- First visible token latency <=200ms.
 - Provider lifecycle crash/orphan cleanup reliability check.
 
 ## Files
@@ -32,17 +37,18 @@ Finalize migration by removing legacy emissions, validating dual-provider E2E be
 - `tests/integration/perf-codex-load.test.ts`
 - `tests/integration/perf-stream-latency.test.ts`
 - `tests/integration/provider-lifecycle-reliability.test.ts`
-- `server/websocket.ts` (remove legacy branch)
+- `server/websocket.ts` (remove legacy family branch)
 
 ## Test Breakdown
 - TC-mapped tests: 8
 - Non-TC required checks: 5
 - Story total: 13
 - Running total: 92
+- Executable test/check delta in this story: +13
 
 ## Prompts
 | Phase | File | Purpose |
 |---|---|---|
-| Skeleton+Red | `prompt-7.1-skeleton-red.md` | Add final integration/perf suites and failing assertions |
-| Green | `prompt-7.2-green.md` | Implement cleanup and make all Story 7 checks pass |
-| Verify | `prompt-7.R-verify.md` | Final release-gate verification |
+| Skeleton+Red | `prompt-7.1-skeleton-red.md` | Add final integration/perf/reliability suites and red baselines |
+| Green | `prompt-7.2-green.md` | Remove legacy-family branch and satisfy all Story 7 gates |
+| Verify | `prompt-7.R-verify.md` | Final release-gate audit for TC/NFR/cleanup completion |

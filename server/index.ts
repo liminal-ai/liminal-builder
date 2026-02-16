@@ -5,6 +5,8 @@ import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AgentManager } from "./acp/agent-manager";
+import { registerSessionRoutes } from "./api/session/routes";
+import { createSessionService } from "./api/session/session-service";
 import type { Project } from "./projects/project-types";
 import { ProjectStore } from "./projects/project-store";
 import { SessionManager } from "./sessions/session-manager";
@@ -36,6 +38,7 @@ async function main() {
 		agentManager,
 		projectStore,
 	);
+	const sessionService = createSessionService();
 
 	await app.register(fastifyStatic, {
 		root: NODE_MODULES_DIR,
@@ -55,6 +58,8 @@ async function main() {
 	app.get("/ws", { websocket: true }, (socket, _req) => {
 		handleWebSocket(socket, { projectStore, agentManager, sessionManager });
 	});
+
+	await registerSessionRoutes(app, { sessionService });
 
 	// Default route: land on the shell home page.
 	app.get("/", async (_req, reply) => {
