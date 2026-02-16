@@ -35,7 +35,10 @@
    - `createSession`, `loadSession`, `sendMessage`, `cancelTurn`, `killSession`, `isAlive`, `onEvent`
 4. Enforce function-call start strictness in schema:
    - For `item_start` with `itemType: "function_call"`, require `name` and `callId`.
-5. Keep TC-2.1b/c placeholder tests intact (do not activate in Story 1).
+5. Enforce response terminal error payload semantics in schema:
+   - For `response_done` with `status: "error"`, support structured `error` details.
+   - Preserve compatibility with `response_error` events as explicit terminal errors.
+6. Keep TC-2.1b/c placeholder tests intact (do not activate in Story 1).
 
 ## Constraints
 - No provider runtime implementation.

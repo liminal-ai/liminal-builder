@@ -4,8 +4,22 @@
 
 You are auditing Story 2 for AC/TC traceability, algorithm correctness, regression safety, and scope discipline.
 Note: this is Story 2 in the sharded execution plan (the epic's recommended breakdown labels this as Story 1 before sharding).
+These gates are the minimum; also look for unexpected regressions or mismatches with spec/contract beyond this list.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
+
+## Approved Contract-Correction Exception
+
+During post-Green critical review, two contract-level gaps were identified and approved for correction:
+- `response_done(status="error")` needed structured error support (`response_done.error`) with processor precedence `response_error.error -> response_done.error -> compatibility fallback`.
+- Tool-call `create` emissions needed explicit contract language that `toolArguments` can be partial/empty before `item_done(function_call)`.
+
+These were treated as contract corrections (not assertion weakening), and the user explicitly approved updating test files during this Green-phase window.
+
+Approved test-file updates:
+- `tests/fixtures/stream-events.ts`
+- `tests/server/contracts/stream-contracts.test.ts`
+- `tests/server/streaming/upsert-stream-processor.test.ts`
 
 ## Reference Documents
 (For human traceability; audit criteria are inlined.)
@@ -25,7 +39,7 @@ Note: this is Story 2 in the sharded execution plan (the epic's recommended brea
 ### 2) TC-by-TC behavioral audit
 - `TC-5.1a`: create + complete emitted for simple message lifecycle.
 - `TC-5.1b`: all message emissions carry full accumulated content.
-- `TC-5.1c`: tool invocation create + completion complete only; no extra emissions.
+- `TC-5.1c`: tool invocation create + completion complete only; no extra emissions; create-time tool arguments may be partial/empty.
 - `TC-5.1d`: reasoning maps to `thinking` upserts.
 - `TC-5.2a`: early thresholds emit frequently.
 - `TC-5.2b`: later thresholds emit less frequently.
@@ -40,7 +54,7 @@ Note: this is Story 2 in the sharded execution plan (the epic's recommended brea
 - `TC-5.4c`: empty item start->done emits single empty complete upsert.
 - `TC-5.4d`: cancelled items are discarded with no item upsert emission.
 - `TC-5.4e`: turn cancellation appears at turn lifecycle level without item mislabeling.
-- `TC-5.4f`: failure emits `turn_error`; no `turn_complete(error)`.
+- `TC-5.4f`: failure emits `turn_error`; no `turn_complete(error)`; terminal error details prioritize `response_error.error` then `response_done.error`.
 
 ### 3) Algorithm and contract checks
 - Processor emits only via `onUpsert` and `onTurn` callbacks.
@@ -50,9 +64,10 @@ Note: this is Story 2 in the sharded execution plan (the epic's recommended brea
 ### 4) Regression and scope checks
 - Story 1 contract tests still pass (with placeholders unchanged).
 - No provider/session/route/websocket/browser code was modified in Story 2.
+- Test-file modifications are allowed only for the approved contract-correction set above; fail verification if any other Story 1/2 test edits are present.
 
 ## Commands
-- `bun run green-verify`
+- `bun run green-verify` (note: `guard:no-test-changes` may fail due the approved test-file exception above)
 - `bun run test -- tests/server/contracts/stream-contracts.test.ts tests/server/providers/provider-interface.test.ts tests/server/streaming/upsert-stream-processor.test.ts`
 - `git status --porcelain`
 
@@ -69,6 +84,7 @@ Return results in this compact structure:
    - `None` or explicit list with file and reason.
 5. `Scope Check`
    - Confirm whether any out-of-scope files changed.
+   - Explicitly confirm test-file edits are only the approved contract-correction files.
 
 ## If Blocked or Uncertain
 - If test count or TC mapping does not align with this checklist, fail verification and report exact mismatch.

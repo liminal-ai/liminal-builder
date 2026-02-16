@@ -452,33 +452,59 @@ describe("UpsertStreamProcessor (Story 2, Red)", () => {
 		expect(tokenCounts).toEqual([2, 5, 8]);
 	});
 
-	it("TC-5.2f: defaults initialize as [10, 20, 40, 80, 120]", () => {
-		const { processor, upserts } = createHarness();
+	it("TC-5.2f: defaults initialize as [10, 20, 40, 80, 120], including when [] is provided", () => {
+		const { processor: defaultProcessor, upserts: defaultUpserts } =
+			createHarness();
+		const { processor: emptyProcessor, upserts: emptyUpserts } = createHarness({
+			batchGradientTokens: [],
+		});
 
-		processor.process(
-			createEnvelope("tc-5.2f-001", {
+		defaultProcessor.process(
+			createEnvelope("tc-5.2f-default-001", {
 				type: "item_start",
-				itemId: "msg-5.2f",
+				itemId: "msg-5.2f-default",
 				itemType: "message",
 			}),
 		);
-		processor.process(
-			createEnvelope("tc-5.2f-002", {
+		defaultProcessor.process(
+			createEnvelope("tc-5.2f-default-002", {
 				type: "item_delta",
-				itemId: "msg-5.2f",
+				itemId: "msg-5.2f-default",
 				deltaContent: "one two three four five six seven eight nine ten",
 			}),
 		);
-		expect(upserts).toHaveLength(0);
-
-		processor.process(
-			createEnvelope("tc-5.2f-003", {
+		defaultProcessor.process(
+			createEnvelope("tc-5.2f-default-003", {
 				type: "item_delta",
-				itemId: "msg-5.2f",
+				itemId: "msg-5.2f-default",
 				deltaContent: " eleven",
 			}),
 		);
-		expect(upserts).toHaveLength(1);
+
+		emptyProcessor.process(
+			createEnvelope("tc-5.2f-empty-001", {
+				type: "item_start",
+				itemId: "msg-5.2f-empty",
+				itemType: "message",
+			}),
+		);
+		emptyProcessor.process(
+			createEnvelope("tc-5.2f-empty-002", {
+				type: "item_delta",
+				itemId: "msg-5.2f-empty",
+				deltaContent: "one two three four five six seven eight nine ten",
+			}),
+		);
+		emptyProcessor.process(
+			createEnvelope("tc-5.2f-empty-003", {
+				type: "item_delta",
+				itemId: "msg-5.2f-empty",
+				deltaContent: " eleven",
+			}),
+		);
+
+		expect(defaultUpserts).toHaveLength(1);
+		expect(emptyUpserts).toHaveLength(1);
 	});
 
 	it("TC-5.3a: function_call_output correlates to original invocation item by callId", () => {
@@ -781,8 +807,8 @@ describe("UpsertStreamProcessor (Story 2, Red)", () => {
 		expect(upserts).toHaveLength(0);
 	});
 
-	it("TC-5.4f: failed turns emit turn_error; no turn_complete(error)", () => {
-		const { processor, turns } = createHarness();
+	it("TC-5.4f: failed turns emit a single terminal turn_error with precedence fallback, and ignore late post-terminal events", () => {
+		const { processor, turns, upserts } = createHarness();
 
 		processor.process(
 			createEnvelope("tc-5.4f-001", {
@@ -800,13 +826,119 @@ describe("UpsertStreamProcessor (Story 2, Red)", () => {
 				},
 			}),
 		);
+		processor.process(
+			createEnvelope("tc-5.4f-003", {
+				type: "response_done",
+				status: "error",
+				error: {
+					code: "MODEL_ABORT",
+					message: "Should be ignored after response_error",
+				},
+				finishReason: "legacy_fallback_should_not_win",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-004", {
+				type: "item_start",
+				itemId: "late-msg-5.4f",
+				itemType: "message",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-005", {
+				type: "item_delta",
+				itemId: "late-msg-5.4f",
+				deltaContent: "should not emit",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-006", {
+				type: "item_done",
+				itemId: "late-msg-5.4f",
+				finalItem: {
+					type: "message",
+					content: "should not emit",
+					origin: "agent",
+				},
+			}),
+		);
 
-		expect(turns).toContainEqual({
+		const terminalErrorsAfterDualTerminal = turns.filter(
+			(event): event is Extract<TurnEvent, { type: "turn_error" }> =>
+				event.type === "turn_error",
+		);
+		expect(terminalErrorsAfterDualTerminal).toHaveLength(1);
+		expect(terminalErrorsAfterDualTerminal[0]).toEqual({
 			type: "turn_error",
 			turnId: TEST_TURN_ID,
 			sessionId: TEST_SESSION_ID,
 			errorCode: "PROCESS_CRASH",
 			errorMessage: "Subprocess exited unexpectedly",
+		});
+		expect(upserts).toHaveLength(0);
+
+		processor.process(
+			createEnvelope("tc-5.4f-007", {
+				type: "response_start",
+				modelId: "claude-sonnet-4-5-20250929",
+				providerId: "claude-code",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-008", {
+				type: "response_done",
+				status: "error",
+				error: {
+					code: "MODEL_ABORT",
+					message: "Provider aborted generation",
+				},
+				finishReason: "legacy_fallback_should_not_win",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-009", {
+				type: "response_start",
+				modelId: "claude-sonnet-4-5-20250929",
+				providerId: "claude-code",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-010", {
+				type: "response_done",
+				status: "error",
+				finishReason: "RATE_LIMIT",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-011", {
+				type: "response_start",
+				modelId: "claude-sonnet-4-5-20250929",
+				providerId: "claude-code",
+			}),
+		);
+		processor.process(
+			createEnvelope("tc-5.4f-012", {
+				type: "response_done",
+				status: "error",
+			}),
+		);
+
+		const turnErrors = turns.filter(
+			(event): event is Extract<TurnEvent, { type: "turn_error" }> =>
+				event.type === "turn_error",
+		);
+		expect(turnErrors).toHaveLength(4);
+		expect(turnErrors[1]).toMatchObject({
+			errorCode: "MODEL_ABORT",
+			errorMessage: "Provider aborted generation",
+		});
+		expect(turnErrors[2]).toMatchObject({
+			errorCode: "RATE_LIMIT",
+			errorMessage: "Response finished with error status",
+		});
+		expect(turnErrors[3]).toMatchObject({
+			errorCode: "RESPONSE_ERROR",
+			errorMessage: "Response finished with error status",
 		});
 		expect(turns.some((event) => event.type === "turn_complete")).toBe(false);
 	});

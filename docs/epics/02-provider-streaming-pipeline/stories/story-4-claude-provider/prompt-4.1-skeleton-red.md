@@ -22,6 +22,9 @@ Implement Story 4 red phase for Claude SDK provider.
 1. Add provider and normalizer stubs implementing `CliProvider` surface.
 2. Write 14 tests with TC IDs and SDK-boundary mocks.
 3. Include interleaved block handling and error/cancel lifecycle checks.
+4. Include coverage for:
+   - function_call argument completeness at `item_done` (create/start may be partial),
+   - error terminal signaling via `response_error` and/or `response_done(status:"error", error)`.
 
 ## Constraints
 - Mock SDK stream boundary, not internal provider logic.

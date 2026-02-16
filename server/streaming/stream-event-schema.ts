@@ -92,6 +92,12 @@ export const streamEventPayloadSchema = z
 			type: z.literal("response_done"),
 			status: z.enum(["completed", "cancelled", "error"]),
 			finishReason: z.string().optional(),
+			error: z
+				.object({
+					code: z.string(),
+					message: z.string(),
+				})
+				.optional(),
 			usage: usageSchema.optional(),
 		}),
 		z.object({

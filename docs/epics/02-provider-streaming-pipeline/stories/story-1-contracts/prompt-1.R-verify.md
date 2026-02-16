@@ -37,6 +37,7 @@ You are auditing Story 1 for AC/TC traceability, gate compliance, and test-contr
 - Invalid payloads are rejected.
 - Envelope/payload type mismatch is rejected.
 - `item_start` function-call strictness is enforced (`name` + `callId` required when `itemType` is `function_call`).
+- Error-terminal payload parity is enforced (`response_done.status: "error"` supports structured `error`; `response_error` remains valid).
 
 ### 4) Green-phase immutability
 - Confirm Green did not modify test files.

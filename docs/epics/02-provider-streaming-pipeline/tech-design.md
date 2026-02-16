@@ -43,7 +43,7 @@ All 11 questions from the epic are resolved here.
 | Q | Question | Decision | Applied In |
 |---|---|---|---|
 | 1 | SDK dependency installation | Add `@anthropic-ai/claude-agent-sdk` as direct runtime dependency. Add `@anthropic-ai/sdk` for event typing parity (`RawMessageStreamEvent`) to prevent transitive type drift. | Story 0, provider package setup |
-| 2 | Streaming input generator lifecycle | Generator/subprocess failures become `ProviderError` events, then canonical `response_error`, then processor `turn_error`. Provider marks session dead and `isAlive=false`. | Claude provider lifecycle and error model |
+| 2 | Streaming input generator lifecycle | Generator/subprocess failures become `ProviderError` events, then canonical terminal error signaling (`response_error` preferred, `response_done(status: "error")` with structured `error` also supported), then processor `turn_error`. Provider marks session dead and `isAlive=false`. | Claude provider lifecycle and error model |
 | 3 | Content block index tracking | Deterministic item IDs: `${turnId}:${messageOrdinal}:${blockIndex}`. This avoids collisions when multiple assistant messages occur in one turn. | Claude provider normalization |
 | 4 | Session history on load | Use the same normalization path for live and replay events. History is materialized through the processor into `session:history`. No separate ad-hoc translation path. | loadSession flow |
 | 5 | Compatibility-window rollout checks | Emit protocol-family metrics per connection, duplicate-prevention assertions, and error-rate dashboards. Remove legacy only after a clean window (0 legacy consumers in active rollout cohort for 7 days). | Story 5-6 migration gate |
@@ -291,7 +291,7 @@ sequenceDiagram
 
 Covers AC-3.4, AC-5.4, AC-6.3.
 
-Cancellation and fatal provider errors produce distinct terminal behavior. Cancelled turns emit `turn_complete` with cancelled status. Error turns emit `turn_error` and must never surface as `turn_complete` with error status.
+Cancellation and fatal provider errors produce distinct terminal behavior. Cancelled turns emit `turn_complete` with cancelled status. Error turns emit `turn_error` and must never surface as `turn_complete` with error status. Providers may signal error terminal state through `response_error` and/or `response_done(status: "error", error)`.
 
 ```mermaid
 sequenceDiagram
@@ -310,7 +310,7 @@ sequenceDiagram
     Proc-->>WS: turn_complete(cancelled)
 
     Note over Prov,Proc: AC-5.4f error path
-    Prov-->>Proc: response_error
+    Prov-->>Proc: response_done(error, {code,message}) and/or response_error
     Proc-->>WS: turn_error
 ```
 
@@ -395,6 +395,8 @@ export class ProviderError extends Error {
 
 Invariant decision: `item_start` events with `itemType: "function_call"` must include both `name` and `callId`. This is enforced at schema level (not only in tests) to keep tool lifecycle correlation strict.
 
+Invocation argument completeness note: `item_start(function_call)` guarantees correlation metadata (`name`, `callId`) but does not guarantee finalized arguments. Argument completeness is authoritative at `item_done(function_call)`.
+
 ```typescript
 // server/streaming/stream-event-schema.ts
 import { z } from "zod";
@@ -421,7 +423,21 @@ export const streamEventPayloadSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("item_done"), itemId: z.string(), finalItem: z.unknown() }),
   z.object({ type: z.literal("item_error"), itemId: z.string(), error: z.object({ code: z.string(), message: z.string() }) }),
   z.object({ type: z.literal("item_cancelled"), itemId: z.string(), reason: z.string().optional() }),
-  z.object({ type: z.literal("response_done"), status: z.enum(["completed", "cancelled", "error"]), finishReason: z.string().optional(), usage: z.unknown().optional() }),
+  z.object({
+    type: z.literal("response_done"),
+    status: z.enum(["completed", "cancelled", "error"]),
+    finishReason: z.string().optional(),
+    error: z.object({ code: z.string(), message: z.string() }).optional(),
+    usage: z.unknown().optional(),
+  }).superRefine((payload, ctx) => {
+    if (payload.status === "error" && !payload.error) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["error"],
+        message: "error is expected when response_done.status is error",
+      });
+    }
+  }),
   z.object({ type: z.literal("response_error"), error: z.object({ code: z.string(), message: z.string() }) }),
 ]);
 

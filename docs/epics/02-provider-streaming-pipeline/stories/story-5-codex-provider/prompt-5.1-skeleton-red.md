@@ -22,6 +22,9 @@ Implement Story 5 red phase for Codex ACP provider refactor.
 1. Add provider/normalizer stubs.
 2. Add 8 tests covering session/new, session/load, session/prompt behavior and canonical mappings.
 3. Preserve behavior parity while moving behind provider contract.
+4. Include coverage for:
+   - tool-call invocation events that may precede finalized argument completeness,
+   - error terminal normalization through `response_error` and/or `response_done(status:"error", error)`.
 
 ## Constraints
 - Keep ACP primitives needed by Codex provider.

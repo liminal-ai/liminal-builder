@@ -46,6 +46,7 @@ Verify in `server/streaming/stream-event-schema.ts`:
 - `usageSchema` has concrete fields (`inputTokens`, `outputTokens`, optional cache fields) — not `z.unknown()`
 - All 8 event types are covered in `streamEventPayloadSchema`: `response_start`, `item_start`, `item_delta`, `item_done`, `item_error`, `item_cancelled`, `response_done`, `response_error`
 - `item_cancelled.reason` uses constrained cancellation values (schema-backed enum), not arbitrary strings
+- `response_done.status === "error"` supports structured `error: { code, message }` details
 
 ### 4. Phase 2 Boundary Documentation
 Verify in `server/streaming/upsert-types.ts`:
@@ -57,6 +58,7 @@ Verify the `toolOutputIsError` / `isError` naming boundary:
 - `ToolCallUpsert` uses `toolOutputIsError` (with disambiguating comment)
 - `FinalizedItem.function_call_output` uses `isError`
 - The naming difference is intentional and commented
+- `ToolCallUpsert.toolArguments` comment clarifies create-time arguments may be partial/empty
 
 ### 6. Type Reuse (No Duplication)
 - `CliType` in `provider-types.ts` is re-exported from `server/sessions/session-types.ts`, not redefined

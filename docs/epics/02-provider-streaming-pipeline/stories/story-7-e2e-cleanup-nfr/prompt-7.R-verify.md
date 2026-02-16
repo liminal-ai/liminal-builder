@@ -2,6 +2,7 @@
 
 ## Context
 Perform final independent verification before handoff to execution signoff.
+These gates are the minimum; also look for unexpected regressions or mismatches with spec/contract beyond this list.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 

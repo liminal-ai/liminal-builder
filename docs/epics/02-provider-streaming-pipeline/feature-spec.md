@@ -100,7 +100,7 @@ Story 0 also establishes Phase 1/Phase 2 contract compatibility at the boundary 
 - **TC-1.1d: Schema covers turn lifecycle**
   - Given: Stream events for response start and response completion
   - When: Validated against the schema
-  - Then: `response_start` includes `turnId` and `modelId`; `response_done` includes `status`, `usage`, and `finishReason`
+  - Then: `response_start` includes `turnId` and `modelId`; `response_done` includes `status`, `usage`, and `finishReason`, and when `status` is `error` it may include structured `error` details
 
 - **TC-1.1e: Schema covers error events**
   - Given: Stream events for item-level and response-level errors
@@ -227,7 +227,7 @@ This is the highest-risk story. The SDK streaming model is different from ACP â€
 - **TC-3.3b: Tool use blocks map to function call events**
   - Given: The SDK emits `content_block_start` (type: tool_use) with tool name and ID, followed by `content_block_delta` (input_json_delta) with partial JSON, followed by `content_block_stop`
   - When: The provider processes these events
-  - Then: Canonical events `item_start` (function_call) with tool name, `item_delta` with argument fragments, and `item_done` with parsed arguments are emitted
+  - Then: Canonical events `item_start` (function_call) with tool name/call ID, `item_delta` with argument fragments, and `item_done` with parsed arguments are emitted (argument completeness is authoritative at `item_done`)
 
 - **TC-3.3c: Tool results from SDK user messages map to function call output events**
   - Given: The SDK emits an `SDKUserMessage` containing a tool result for a previous tool call
@@ -247,7 +247,7 @@ This is the highest-risk story. The SDK streaming model is different from ACP â€
 - **TC-3.3f: Message completion maps to response lifecycle events**
   - Given: The SDK emits `message_start`, content blocks, `message_delta` (with stop_reason and usage), and `message_stop`
   - When: The provider processes these events
-  - Then: `response_start` is emitted at the beginning with model info, and `response_done` is emitted at the end with `status`, `usage`, and `finishReason`
+  - Then: `response_start` is emitted at the beginning with model info, and `response_done` is emitted at the end with `status`, `usage`, and `finishReason`; when terminal status is `error`, structured `error` is emitted on `response_done` and/or via `response_error`
 
 **AC-3.4:** The provider handles session lifecycle operations
 
@@ -331,7 +331,7 @@ The upsert stream processor converts canonical stream events into progressively-
 - **TC-5.1c: Tool calls emit on invocation and completion only**
   - Given: A `item_start` (function_call) followed by argument deltas and `item_done`, then later a `item_done` (function_call_output) with result
   - When: Fed through the processor
-  - Then: Exactly two emissions occur â€” one with `status: "create"` (invocation with parsed arguments) and one with `status: "complete"` (with result and original itemId)
+  - Then: Exactly two emissions occur â€” one with `status: "create"` (invocation; arguments may be partial/empty at create time) and one with `status: "complete"` (with result and original itemId)
 
 - **TC-5.1d: Thinking blocks are processed as reasoning content**
   - Given: `item_start` (reasoning) followed by deltas and `item_done`
@@ -710,6 +710,8 @@ interface ResponseDonePayload {
   type: 'response_done';
   status: 'completed' | 'cancelled' | 'error';
   finishReason?: string;
+  /** When status is error, providers should include structured terminal error details */
+  error?: { code: string; message: string };
   usage?: {
     inputTokens: number;
     outputTokens: number;
@@ -724,7 +726,7 @@ interface ResponseErrorPayload {
 }
 ```
 
-Turn lifecycle mapping note: when provider/stream response data indicates an error terminal state (for example `response_done.status: 'error'` and/or `response_error`), the processor emits `turn_error` (not `turn_complete` with error status).
+Turn lifecycle mapping note: when provider/stream response data indicates an error terminal state, the processor emits `turn_error` (not `turn_complete` with error status). Precedence for error details is `response_error.error` first, then `response_done.error`, then compatibility fallback derived from `finishReason` when structured error fields are unavailable.
 
 ### Finalized Item
 
@@ -767,6 +769,7 @@ interface ThinkingUpsert extends UpsertObjectBase {
 interface ToolCallUpsert extends UpsertObjectBase {
   type: 'tool_call';
   toolName: string;
+  /** May be partial/empty on create; finalized arguments are authoritative by function_call item_done */
   toolArguments: Record<string, unknown>;
   callId: string;
   toolOutput?: string;

@@ -37,7 +37,10 @@ export interface ThinkingUpsert extends UpsertObjectBase {
 export interface ToolCallUpsert extends UpsertObjectBase {
 	type: "tool_call";
 	toolName: string;
-	/** Intentionally unvalidated - tool argument schemas are provider-specific */
+	/**
+	 * Intentionally unvalidated - tool argument schemas are provider-specific.
+	 * Note: create emissions can be partial/empty; finalized arguments arrive on item_done(function_call).
+	 */
 	toolArguments: Record<string, unknown>;
 	callId: string;
 	toolOutput?: string;

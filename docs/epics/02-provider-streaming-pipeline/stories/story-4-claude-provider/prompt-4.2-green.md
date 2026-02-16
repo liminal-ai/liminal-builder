@@ -14,6 +14,8 @@ Implement Claude SDK provider behavior to pass Story 4.
 - `createSession` and `loadSession` maintain persistent provider-backed session semantics.
 - `sendMessage` supports streaming input and ordered sequential sends.
 - Normalize text/tool/reasoning/lifecycle events into canonical envelopes.
+- Normalize tool lifecycle so invocation starts can precede finalized arguments (authoritative argument shape emitted by function_call completion).
+- Emit structured terminal error details through canonical error signaling (`response_error` and/or `response_done(status:"error", error)`).
 - Handle cancel/kill/isAlive and convert failures into typed provider errors.
 
 ## Verification

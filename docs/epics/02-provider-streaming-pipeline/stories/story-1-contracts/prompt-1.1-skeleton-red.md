@@ -66,7 +66,7 @@
 - `TC-1.1a`: `item_delta` text payload validates with matching envelope type and string `deltaContent`.
 - `TC-1.1b`: tool-call lifecycle payloads validate across `item_start` -> `item_delta` -> `item_done`; function-call correlation fields remain consistent.
 - `TC-1.1c`: reasoning payload validates (`itemType: "reasoning"`, string content).
-- `TC-1.1d`: response lifecycle validates (`response_start` includes `turnId`/`modelId`; `response_done` supports `status`, `usage`, `finishReason`).
+- `TC-1.1d`: response lifecycle validates (`response_start` includes `turnId`/`modelId`; `response_done` supports `status`, `usage`, `finishReason`, and structured `error` when `status: "error"`).
 - `TC-1.1e`: error payloads validate for both item-level and response-level errors.
 - `TC-1.1f`: malformed events fail schema validation with expected issue paths.
 - `TC-1.2a`: all events in one turn share `turnId`.
@@ -105,6 +105,8 @@
 6. Add one explicit schema strictness test for function-call starts:
    - `item_start` with `itemType: "function_call"` must include both `name` and `callId`
    - Missing either field must fail validation
+7. Add one explicit response terminal strictness test:
+   - When `response_done.status` is `"error"`, structured `error` details are present and parseable.
 
 ## Constraints
 - Do NOT implement provider runtime logic.

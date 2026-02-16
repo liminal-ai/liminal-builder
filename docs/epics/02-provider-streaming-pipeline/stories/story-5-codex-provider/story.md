@@ -2,6 +2,7 @@
 
 ## Overview
 Refactor Codex ACP path behind provider abstraction without behavior regression.
+Normalization preserves tool invocation/completion correlation when arguments finalize at completion and emits structured terminal errors via canonical error signaling (`response_error` and/or `response_done(status:"error", error)`).
 
 ## Prerequisites
 - Story 4 complete.

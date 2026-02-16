@@ -159,6 +159,10 @@ export const RESPONSE_DONE_CANCELLED_FIXTURE = createEnvelope(
 export const RESPONSE_DONE_ERROR_FIXTURE = createEnvelope("test-event-016", {
 	type: "response_done",
 	status: "error",
+	error: {
+		code: "MODEL_ABORT",
+		message: "Provider aborted generation",
+	},
 });
 
 export const RESPONSE_ERROR_FIXTURE = createEnvelope("test-event-017", {

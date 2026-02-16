@@ -231,6 +231,7 @@ export const streamEventPayloadSchema = z.discriminatedUnion("type", [
 		type: z.literal("response_done"),
 		status: z.enum(["completed", "cancelled", "error"]),
 		finishReason: z.string().optional(),
+		error: z.object({ code: z.string(), message: z.string() }).optional(),
 		usage: usageSchema.optional(),
 	}),
 	z.object({
@@ -315,7 +316,7 @@ export interface ThinkingUpsert extends UpsertObjectBase {
 export interface ToolCallUpsert extends UpsertObjectBase {
 	type: "tool_call";
 	toolName: string;
-	/** Intentionally unvalidated — tool argument schemas are provider-specific */
+	/** Intentionally unvalidated — tool argument schemas are provider-specific; may be partial/empty on create */
 	toolArguments: Record<string, unknown>;
 	callId: string;
 	toolOutput?: string;
@@ -661,6 +662,7 @@ export const RESPONSE_DONE_CANCELLED_FIXTURE = createEnvelope("test-event-015", 
 export const RESPONSE_DONE_ERROR_FIXTURE = createEnvelope("test-event-016", {
 	type: "response_done",
 	status: "error",
+	error: { code: "PROCESS_CRASH", message: "Subprocess exited unexpectedly" },
 });
 
 export const RESPONSE_ERROR_FIXTURE = createEnvelope("test-event-017", {

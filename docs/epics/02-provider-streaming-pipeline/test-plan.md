@@ -95,7 +95,7 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-1.1a | `tests/server/contracts/stream-contracts.test.ts` | validates text `item_delta` payload and envelope | Planned |
 | TC-1.1b | `tests/server/contracts/stream-contracts.test.ts` | validates tool-call lifecycle payloads across start/delta/done | Planned |
 | TC-1.1c | `tests/server/contracts/stream-contracts.test.ts` | validates reasoning item payloads | Planned |
-| TC-1.1d | `tests/server/contracts/stream-contracts.test.ts` | validates response lifecycle payloads with usage and finishReason | Planned |
+| TC-1.1d | `tests/server/contracts/stream-contracts.test.ts` | validates response lifecycle payloads with usage, finishReason, and structured `response_done.error` when status is `error` | Planned |
 | TC-1.1e | `tests/server/contracts/stream-contracts.test.ts` | validates item and response error payloads | Planned |
 | TC-1.1f | `tests/server/contracts/stream-contracts.test.ts` | rejects malformed event payloads with schema errors | Planned |
 | TC-1.2a | `tests/server/contracts/stream-contracts.test.ts` | enforces per-turn correlation by shared turnId | Planned |
@@ -114,11 +114,11 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-3.2a | `tests/server/providers/claude-sdk-provider.test.ts` | sendMessage delivers user message into AsyncIterable input | Planned |
 | TC-3.2b | `tests/server/providers/claude-sdk-provider.test.ts` | sequential sends preserve ordering on same subprocess | Planned |
 | TC-3.3a | `tests/server/providers/claude-sdk-provider.test.ts` | maps text content blocks to message start/delta/done events | Planned |
-| TC-3.3b | `tests/server/providers/claude-sdk-provider.test.ts` | maps tool_use blocks to function_call canonical events | Planned |
+| TC-3.3b | `tests/server/providers/claude-sdk-provider.test.ts` | maps tool_use blocks to function_call canonical events with finalized arguments authoritative at `item_done` | Planned |
 | TC-3.3c | `tests/server/providers/claude-sdk-provider.test.ts` | maps SDK user tool-result messages to function_call_output done event | Planned |
 | TC-3.3d | `tests/server/providers/claude-sdk-provider.test.ts` | maps thinking blocks to reasoning canonical events | Planned |
 | TC-3.3e | `tests/server/providers/claude-sdk-provider.test.ts` | tracks interleaved blocks independently with unique itemIds | Planned |
-| TC-3.3f | `tests/server/providers/claude-sdk-provider.test.ts` | emits response_start and response_done with terminal metadata | Planned |
+| TC-3.3f | `tests/server/providers/claude-sdk-provider.test.ts` | emits response_start/response_done terminal metadata and structured error details for error terminal states | Planned |
 | TC-3.4a | `tests/server/providers/claude-sdk-provider.test.ts` | cancelTurn calls SDK interrupt and ends turn as cancelled | Planned |
 | TC-3.4b | `tests/server/providers/claude-sdk-provider.test.ts` | killSession terminates subprocess and marks dead | Planned |
 | TC-3.4c | `tests/server/providers/claude-sdk-provider.test.ts` | isAlive reflects before/after process kill state | Planned |
@@ -130,7 +130,7 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-4.2c | `tests/server/providers/codex-acp-provider.test.ts` | maps `tool_call_update` completion to canonical function_call completion | Planned |
 | TC-5.1a | `tests/server/streaming/upsert-stream-processor.test.ts` | emits create then complete for simple text stream with accumulated content | Planned |
 | TC-5.1b | `tests/server/streaming/upsert-stream-processor.test.ts` | each emission contains full accumulated text not incremental delta | Planned |
-| TC-5.1c | `tests/server/streaming/upsert-stream-processor.test.ts` | emits exactly invocation create and completion complete for tool call lifecycle | Planned |
+| TC-5.1c | `tests/server/streaming/upsert-stream-processor.test.ts` | emits exactly invocation create (arguments may be partial/empty) and completion complete for tool call lifecycle | Planned |
 | TC-5.1d | `tests/server/streaming/upsert-stream-processor.test.ts` | processes reasoning blocks into thinking upserts | Planned |
 | TC-5.2a | `tests/server/streaming/upsert-stream-processor.test.ts` | emits frequently at early small thresholds | Planned |
 | TC-5.2b | `tests/server/streaming/upsert-stream-processor.test.ts` | emits less frequently at later larger thresholds | Planned |
@@ -145,7 +145,7 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-5.4c | `tests/server/streaming/upsert-stream-processor.test.ts` | handles empty item start/done as complete empty-content emission | Planned |
 | TC-5.4d | `tests/server/streaming/upsert-stream-processor.test.ts` | discards cancelled items without item upsert emissions | Planned |
 | TC-5.4e | `tests/server/streaming/upsert-stream-processor.test.ts` | represents cancellation at turn lifecycle without mislabeling items | Planned |
-| TC-5.4f | `tests/server/streaming/upsert-stream-processor.test.ts` | emits `turn_error` and never `turn_complete(error)` on failure terminal state | Planned |
+| TC-5.4f | `tests/server/streaming/upsert-stream-processor.test.ts` | emits `turn_error` and never `turn_complete(error)` on failure terminal state from `response_error` and/or `response_done(status:error,error)` | Planned |
 | TC-6.1a | `tests/server/api/session-routes.test.ts` | POST create returns session handle with cli type | Planned |
 | TC-6.1b | `tests/server/api/session-routes.test.ts` | POST create unknown cli returns 400 with unsupported code | Planned |
 | TC-6.1c | `tests/server/api/session-routes.test.ts` | GET list returns active sessions scoped by project | Planned |

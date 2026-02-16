@@ -13,6 +13,8 @@ Implement Codex provider behavior with no drift.
 ## Requirements
 - Keep ACP request paths unchanged (`session/new`, `session/load`, `session/prompt`).
 - Normalize ACP notifications to canonical stream envelopes.
+- Preserve tool-call invocation/completion semantics where finalized arguments are authoritative at completion.
+- Emit structured terminal error details through canonical error signaling (`response_error` and/or `response_done(status:"error", error)`).
 - Ensure provider lifecycle and onEvent semantics match shared interface.
 
 ## Verification

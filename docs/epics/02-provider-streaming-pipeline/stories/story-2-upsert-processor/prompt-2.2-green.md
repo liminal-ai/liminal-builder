@@ -47,8 +47,9 @@ Note: this is Story 2 in the sharded execution plan (the epic's recommended brea
 ### Required behavior
 - Convert canonical stream events into accumulated upsert objects and turn lifecycle events.
 - Upserts must contain full accumulated content at each emission. Intermediate gradient-triggered emissions use `status: "update"` (between initial `create` and terminal `complete`).
+- Tool invocation `create` emissions may have partial/empty `toolArguments`; finalized invocation arguments are authoritative at `item_done(function_call)`.
 - Tool call correlation must map `function_call_output.callId` back to original invocation `itemId`.
-- Terminal error rule: emit `turn_error` and never `turn_complete(error)`.
+- Terminal error rule: emit `turn_error` and never `turn_complete(error)`; resolve error details by precedence `response_error.error` -> `response_done.error` -> compatibility fallback.
 
 ### Batching and timing rules
 - Defaults: `batchGradientTokens = [10, 20, 40, 80, 120]`, `batchTimeoutMs = 1000`.

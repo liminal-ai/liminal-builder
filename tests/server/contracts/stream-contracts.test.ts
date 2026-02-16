@@ -20,6 +20,7 @@ import {
 	MALFORMED_MISSING_TYPE,
 	MALFORMED_TYPE_MISMATCH,
 	RESPONSE_DONE_COMPLETED_FIXTURE,
+	RESPONSE_DONE_ERROR_FIXTURE,
 	RESPONSE_ERROR_FIXTURE,
 	RESPONSE_START_FIXTURE,
 	createEnvelope,
@@ -121,9 +122,10 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 		});
 	});
 
-	it("TC-1.1d: response lifecycle validates response_start metadata and response_done status/usage/finishReason", () => {
+	it("TC-1.1d: response lifecycle validates response_start metadata and response_done status/usage/error fields", () => {
 		const responseStart = assertValidEnvelope(RESPONSE_START_FIXTURE);
 		const responseDone = assertValidEnvelope(RESPONSE_DONE_COMPLETED_FIXTURE);
+		const responseDoneError = assertValidEnvelope(RESPONSE_DONE_ERROR_FIXTURE);
 
 		expect(responseStart.payload.type).toBe("response_start");
 		expect(responseStart.turnId).toBe(TEST_TURN_ID);
@@ -138,6 +140,15 @@ describe("Canonical stream contracts (Story 1, Red)", () => {
 		expect(responseDone.payload.status).toBe("completed");
 		expect(responseDone.payload.finishReason).toBeTypeOf("string");
 		expect(responseDone.payload.usage).toBeDefined();
+		expect(responseDoneError.payload.type).toBe("response_done");
+		if (responseDoneError.payload.type !== "response_done") {
+			throw new Error("Expected response_done payload");
+		}
+		expect(responseDoneError.payload.status).toBe("error");
+		expect(responseDoneError.payload.error).toEqual({
+			code: "MODEL_ABORT",
+			message: "Provider aborted generation",
+		});
 	});
 
 	it("TC-1.1e: item_error and response_error payloads both validate", () => {

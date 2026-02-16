@@ -2,6 +2,7 @@
 
 ## Overview
 Implement Claude provider session lifecycle, message sending, event normalization, and process-state handling behind `CliProvider`.
+Normalization includes create-time tool invocation events (arguments may finalize later at completion) and structured terminal error signaling (`response_error` and/or `response_done(status:"error", error)`).
 
 ## Prerequisites
 - Story 3 complete.

@@ -45,14 +45,14 @@ Note: this is Story 2 in the sharded execution plan (the epic's recommended brea
 - Emissions carry full accumulated content, not delta-only fragments.
 - Message lifecycle emits `create` first, `update` for intermediate gradient-triggered emissions, `complete` at terminal.
 - Tool call lifecycle emits two upserts total:
-  - invocation `create`
+  - invocation `create` (tool arguments may be partial/empty at create time)
   - completion `complete` (correlated by `callId` to original invocation `itemId`)
 - Reasoning maps to upsert `type: "thinking"`.
 
 ### Turn lifecycle semantics
 - `response_start` -> `turn_started`
 - `response_done.status: "completed" | "cancelled"` -> `turn_complete`
-- `response_done.status: "error"` or `response_error` -> `turn_error`
+- `response_done.status: "error"` (prefer structured `error` details) or `response_error` -> `turn_error`
 - Error terminal states must never emit `turn_complete` with error status.
 
 ### Batching semantics
@@ -84,7 +84,7 @@ This rule is required for repeatable TC-5.2 assertions in this story.
 ## TC Expectation Map (must be encoded in tests)
 - `TC-5.1a`: simple text lifecycle emits create then complete with accumulated content.
 - `TC-5.1b`: intermediate emissions contain full accumulated text.
-- `TC-5.1c`: tool call emits invocation create and correlated completion complete only.
+- `TC-5.1c`: tool call emits invocation create (arguments may be partial/empty) and correlated completion complete only.
 - `TC-5.1d`: reasoning events emit `thinking` upserts.
 - `TC-5.2a`: early small thresholds emit frequently.
 - `TC-5.2b`: later thresholds emit less frequently.
