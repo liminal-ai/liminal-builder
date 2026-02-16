@@ -468,7 +468,7 @@ function restoreTabState() {
 		const restoredActiveTab =
 			typeof state.activeTab === "string" && tabOrder.includes(state.activeTab)
 				? state.activeTab
-				: tabOrder[0] ?? null;
+				: (tabOrder[0] ?? null);
 		if (restoredActiveTab) {
 			activateTab(restoredActiveTab);
 		}

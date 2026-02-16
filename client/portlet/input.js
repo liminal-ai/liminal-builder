@@ -54,10 +54,13 @@ function getLineHeight(textarea) {
  */
 function getMinHeight(textarea, lineHeight) {
 	const rowsAttr = Number.parseInt(textarea.getAttribute("rows") ?? "", 10);
-	const rows = Number.isFinite(rowsAttr) && rowsAttr > 0 ? rowsAttr : DEFAULT_MIN_ROWS;
+	const rows =
+		Number.isFinite(rowsAttr) && rowsAttr > 0 ? rowsAttr : DEFAULT_MIN_ROWS;
 	const rowsHeight = Math.ceil(rows * lineHeight);
 	const cssMinHeight = Number.parseFloat(getComputedStyle(textarea).minHeight);
-	return isFinitePositive(cssMinHeight) ? Math.max(rowsHeight, cssMinHeight) : rowsHeight;
+	return isFinitePositive(cssMinHeight)
+		? Math.max(rowsHeight, cssMinHeight)
+		: rowsHeight;
 }
 
 /**
@@ -88,7 +91,8 @@ function resizeMessageInput() {
 		Math.max(minHeight, messageInput.scrollHeight),
 	);
 	messageInput.style.height = `${nextHeight}px`;
-	messageInput.style.overflowY = messageInput.scrollHeight > nextHeight ? "auto" : "hidden";
+	messageInput.style.overflowY =
+		messageInput.scrollHeight > nextHeight ? "auto" : "hidden";
 }
 
 function submitCurrentMessage() {

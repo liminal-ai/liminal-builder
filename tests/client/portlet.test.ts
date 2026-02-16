@@ -140,4 +140,41 @@ describe("Portlet Chat Session", () => {
 		expect(chatContainer.textContent).toContain("partial response");
 		expect(messageInput.disabled).toBe(false);
 	});
+
+	it("session history load scrolls viewport to bottom even if user was scrolled up", async () => {
+		const portlet = await importPortlet();
+		const chatContainer = getChatContainer();
+
+		Object.defineProperty(chatContainer, "scrollHeight", {
+			configurable: true,
+			value: 500,
+		});
+		Object.defineProperty(chatContainer, "clientHeight", {
+			configurable: true,
+			value: 100,
+		});
+
+		chatContainer.scrollTop = 0;
+		chatContainer.dispatchEvent(new Event("scroll"));
+
+		portlet.handleShellMessage({
+			type: "session:history",
+			entries: [
+				{
+					entryId: "u-1",
+					type: "user",
+					content: "hello",
+					timestamp: "2026-02-15T10:00:00.000Z",
+				},
+				{
+					entryId: "a-1",
+					type: "assistant",
+					content: "hi there",
+					timestamp: "2026-02-15T10:00:01.000Z",
+				},
+			],
+		});
+
+		expect(chatContainer.scrollTop).toBe(500);
+	});
 });

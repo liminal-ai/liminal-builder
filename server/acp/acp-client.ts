@@ -35,8 +35,9 @@ export class AcpClient {
 	private stdout: ReadableLike;
 	private readingStarted = false;
 	private closed = false;
-	private readBuffer = "";
+	private readLineRemainder = "";
 	private readLoopDone: Promise<void> | null = null;
+	private readonly textDecoder = new TextDecoder();
 
 	constructor(stdin: WritableStream, stdout: ReadableStream) {
 		if (!this.isWritableLike(stdin)) {
@@ -250,16 +251,21 @@ export class AcpClient {
 					break;
 				}
 
-				this.readBuffer += this.chunkToString(chunk);
-				this.processReadBuffer();
+				const chunkText = this.chunkToString(chunk);
+				this.processReadChunk(chunkText);
 			}
 
 			if (!this.closed) {
-				const trailing = this.readBuffer.trim();
+				const decoderRemainder = this.textDecoder.decode();
+				if (decoderRemainder.length > 0) {
+					this.processReadChunk(decoderRemainder);
+				}
+
+				const trailing = this.readLineRemainder.trim();
 				if (trailing.length > 0) {
 					this.handleLine(trailing);
 				}
-				this.readBuffer = "";
+				this.readLineRemainder = "";
 
 				const err = new Error("ACP stdout closed");
 				this.emitError(err);
@@ -274,18 +280,30 @@ export class AcpClient {
 		}
 	}
 
-	private processReadBuffer(): void {
-		let newlineIndex = this.readBuffer.indexOf("\n");
-		while (newlineIndex >= 0) {
-			const line = this.readBuffer.slice(0, newlineIndex).trim();
-			this.readBuffer = this.readBuffer.slice(newlineIndex + 1);
+	private processReadChunk(chunkText: string): void {
+		if (chunkText.length === 0) {
+			return;
+		}
 
+		const lines = chunkText.split("\n");
+		if (lines.length === 1) {
+			this.readLineRemainder += lines[0] ?? "";
+			return;
+		}
+
+		const firstLine = `${this.readLineRemainder}${lines[0] ?? ""}`.trim();
+		if (firstLine.length > 0) {
+			this.handleLine(firstLine);
+		}
+
+		for (let index = 1; index < lines.length - 1; index += 1) {
+			const line = (lines[index] ?? "").trim();
 			if (line.length > 0) {
 				this.handleLine(line);
 			}
-
-			newlineIndex = this.readBuffer.indexOf("\n");
 		}
+
+		this.readLineRemainder = lines[lines.length - 1] ?? "";
 	}
 
 	private handleLine(line: string): void {
@@ -389,61 +407,6 @@ export class AcpClient {
 				message: `Method not supported: ${method}`,
 			},
 		});
-	}
-
-	private updateEventToChatEntry(event: AcpUpdateEvent): ChatEntry | null {
-		const entryId = crypto.randomUUID();
-		const timestamp = new Date().toISOString();
-
-		switch (event.type) {
-			case "user_message_chunk":
-				return {
-					entryId,
-					type: "user",
-					content: this.extractFirstText(event.content),
-					timestamp,
-				};
-			case "agent_message_chunk":
-				return {
-					entryId,
-					type: "assistant",
-					content: this.extractFirstText(event.content),
-					timestamp,
-				};
-			case "agent_thought_chunk":
-				return {
-					entryId,
-					type: "thinking",
-					content: this.extractFirstText(event.content),
-				};
-			case "tool_call": {
-				const toolCallId =
-					typeof event.toolCallId === "string"
-						? event.toolCallId
-						: crypto.randomUUID();
-				const toolName =
-					typeof event.title === "string" && event.title.length > 0
-						? event.title
-						: "Tool call";
-				return {
-					entryId,
-					type: "tool-call",
-					toolCallId,
-					name: toolName,
-					status: this.mapToolStatus(
-						typeof event.status === "string" ? event.status : undefined,
-					),
-				};
-			}
-			case "tool_call_update":
-			case "plan":
-			case "config_options_update":
-			case "current_mode_update":
-			case "available_commands_update":
-				return null;
-			default:
-				return null;
-		}
 	}
 
 	private emitReplayEntry(
@@ -685,43 +648,61 @@ export class AcpClient {
 	): Promise<void> {
 		const params = { sessionId, cwd, mcpServers: [] };
 
-		// Claude Code ACP resumes session context with session/resume, but replays
-		// chat history via session/load once resumed.
+		if (this.canLoadSession) {
+			try {
+				await this.sendRequest("session/load", params);
+				return;
+			} catch (error: unknown) {
+				const err = this.toError(error);
+				if (!this.isMethodNotFoundError(err)) {
+					throw err;
+				}
+
+				try {
+					await this.sendRequest("session/resume", params);
+					return;
+				} catch (resumeError: unknown) {
+					const resumeErr = this.toError(resumeError);
+					if (this.isMethodNotFoundError(resumeErr)) {
+						throw err;
+					}
+					throw resumeErr;
+				}
+			}
+		}
+
 		if (this.canResumeSession) {
 			try {
 				await this.sendRequest("session/resume", params);
+				return;
 			} catch (error: unknown) {
 				const err = this.toError(error);
-				if (
-					!(this.canLoadSession && err.message.includes("Method not found"))
-				) {
+				if (!this.isMethodNotFoundError(err)) {
 					throw err;
 				}
-			}
-			if (!this.canLoadSession) {
-				return;
-			}
-			try {
-				await this.sendRequest("session/load", params);
-			} catch (error: unknown) {
-				const err = this.toError(error);
-				if (
-					err.message.includes("Method not found") ||
-					err.message.includes("Session not found")
-				) {
-					return;
-				}
-				throw err;
-			}
-			return;
-		}
 
-		if (this.canLoadSession) {
-			await this.sendRequest("session/load", params);
-			return;
+				try {
+					await this.sendRequest("session/load", params);
+					return;
+				} catch (loadError: unknown) {
+					const loadErr = this.toError(loadError);
+					if (this.isMethodNotFoundError(loadErr)) {
+						throw err;
+					}
+					throw loadErr;
+				}
+			}
 		}
 
 		throw new Error("Agent does not support session/load");
+	}
+
+	private isMethodNotFoundError(error: Error): boolean {
+		const message = error.message.toLowerCase();
+		return (
+			message.includes("method not found") ||
+			message.includes("method not supported")
+		);
 	}
 
 	private emitError(error: Error): void {
@@ -740,7 +721,7 @@ export class AcpClient {
 			return chunk;
 		}
 		if (chunk instanceof Uint8Array) {
-			return new TextDecoder().decode(chunk);
+			return this.textDecoder.decode(chunk, { stream: true });
 		}
 		return String(chunk);
 	}

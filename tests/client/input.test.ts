@@ -237,11 +237,7 @@ describe("Portlet Input UI", () => {
 		const container = getInputBar();
 
 		const onCancel = vi.fn<() => void>();
-		input.init(
-			container,
-			() => {},
-			onCancel,
-		);
+		input.init(container, () => {}, onCancel);
 		input.showCancel();
 
 		const sendBtn = getSendButton();

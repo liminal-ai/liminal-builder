@@ -56,6 +56,11 @@ async function main() {
 		handleWebSocket(socket, { projectStore, agentManager, sessionManager });
 	});
 
+	// Default route: land on the shell home page.
+	app.get("/", async (_req, reply) => {
+		return reply.redirect("/shell/index.html");
+	});
+
 	// Start server
 	await app.listen({ port: PORT, host: "0.0.0.0" });
 	console.log(`Liminal Builder running at http://localhost:${PORT}`);

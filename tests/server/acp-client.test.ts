@@ -154,7 +154,39 @@ describe("AcpClient", () => {
 		});
 	});
 
-	it("sessionLoad falls back to session/load when session/resume is unavailable", async () => {
+	it("sessionLoad prefers session/load when both load and resume are advertised", async () => {
+		mock.pushMessage(
+			mockInitializeResponse(1, {
+				canResumeSession: true,
+			}),
+		);
+		await client.initialize();
+
+		mock.pushMessage(mockSessionLoadResponse(2));
+
+		const history = await client.sessionLoad("sess-123", "/home/user/project");
+		expect(history).toEqual([]);
+
+		const sent = mock.getSentMessages();
+		expect(sent[1]).toMatchObject({
+			method: "session/load",
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
+		});
+		expect(
+			sent.some((msg) => {
+				if (typeof msg !== "object" || msg === null) {
+					return false;
+				}
+				return (msg as { method?: unknown }).method === "session/resume";
+			}),
+		).toBe(false);
+	});
+
+	it("sessionLoad falls back to session/resume when session/load returns method-not-found", async () => {
 		mock.pushMessage(
 			mockInitializeResponse(1, {
 				canResumeSession: true,
@@ -175,14 +207,57 @@ describe("AcpClient", () => {
 		await waitUntil(() => {
 			const sent = mock.getSentMessages();
 			return sent.some(
-				(msg) =>
-					typeof msg === "object" &&
-					msg !== null &&
-					(msg as { method?: unknown }).method === "session/load",
+				(message) =>
+					typeof message === "object" &&
+					message !== null &&
+					(message as { method?: unknown }).method === "session/resume",
 			);
 		});
-		mock.pushMessage(mockSessionLoadResponse(3));
+
+		mock.pushMessage({
+			jsonrpc: "2.0",
+			id: 3,
+			result: {},
+		});
+
 		const history = await historyPromise;
+		expect(history).toEqual([]);
+
+		const sent = mock.getSentMessages();
+		expect(sent[1]).toMatchObject({
+			method: "session/load",
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
+		});
+		expect(sent[2]).toMatchObject({
+			method: "session/resume",
+			params: {
+				sessionId: "sess-123",
+				cwd: "/home/user/project",
+				mcpServers: [],
+			},
+		});
+	});
+
+	it("sessionLoad uses session/resume when load capability is unavailable", async () => {
+		mock.pushMessage(
+			mockInitializeResponse(1, {
+				loadSession: false,
+				canResumeSession: true,
+			}),
+		);
+		await client.initialize();
+
+		mock.pushMessage({
+			jsonrpc: "2.0",
+			id: 2,
+			result: {},
+		});
+
+		const history = await client.sessionLoad("sess-123", "/home/user/project");
 		expect(history).toEqual([]);
 
 		const sent = mock.getSentMessages();
@@ -194,14 +269,7 @@ describe("AcpClient", () => {
 				mcpServers: [],
 			},
 		});
-		expect(sent[2]).toMatchObject({
-			method: "session/load",
-			params: {
-				sessionId: "sess-123",
-				cwd: "/home/user/project",
-				mcpServers: [],
-			},
-		});
+		expect(sent).toHaveLength(2);
 	});
 
 	it("sessionPrompt fires onEvent for each update notification", async () => {

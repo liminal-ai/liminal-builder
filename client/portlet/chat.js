@@ -17,6 +17,9 @@ let scrollToBottomBtn = null;
 /** @type {boolean} */
 let suppressAutoScroll = false;
 
+/** @type {number} */
+let historyScrollGeneration = 0;
+
 /** @type {Map<string, object>} */
 const entriesById = new Map();
 
@@ -199,6 +202,47 @@ function autoScroll() {
 	}
 }
 
+function forceScrollToBottom() {
+	if (!chatContainer) {
+		return;
+	}
+
+	chatContainer.scrollTop = chatContainer.scrollHeight;
+	userScrolledUp = false;
+	if (scrollToBottomBtn) {
+		scrollToBottomBtn.style.display = "none";
+	}
+}
+
+function scheduleHistoryBottomScroll() {
+	historyScrollGeneration += 1;
+	const generation = historyScrollGeneration;
+
+	const maybeScroll = () => {
+		if (generation !== historyScrollGeneration) {
+			return;
+		}
+		forceScrollToBottom();
+	};
+
+	maybeScroll();
+	setTimeout(maybeScroll, 0);
+	setTimeout(maybeScroll, 32);
+	setTimeout(maybeScroll, 96);
+
+	if (
+		typeof window !== "undefined" &&
+		typeof window.requestAnimationFrame === "function"
+	) {
+		window.requestAnimationFrame(() => {
+			maybeScroll();
+			window.requestAnimationFrame(() => {
+				maybeScroll();
+			});
+		});
+	}
+}
+
 /**
  * Initialize the chat renderer.
  * @param {HTMLElement} container
@@ -252,8 +296,7 @@ export function renderAll(entries) {
 		renderEntry(entry);
 	}
 	suppressAutoScroll = false;
-
-	autoScroll();
+	scheduleHistoryBottomScroll();
 }
 
 /**

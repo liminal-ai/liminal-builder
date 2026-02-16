@@ -43,7 +43,13 @@ type MockHarness = {
 		typeof vi.fn<(params: { cwd: string }) => Promise<{ sessionId: string }>>
 	>;
 	sessionLoad: ReturnType<
-		typeof vi.fn<(sessionId: string, cwd: string) => Promise<ChatEntry[]>>
+		typeof vi.fn<
+			(
+				sessionId: string,
+				cwd: string,
+				onReplayEntry?: (entry: ChatEntry) => void,
+			) => Promise<ChatEntry[]>
+		>
 	>;
 	sessionPrompt: ReturnType<
 		typeof vi.fn<
@@ -324,7 +330,11 @@ function createHarness(): MockHarness {
 		(params: { cwd: string }) => Promise<{ sessionId: string }>
 	>(() => Promise.resolve({ sessionId: "acp-session-1" }));
 	const sessionLoad = vi.fn<
-		(sessionId: string, cwd: string) => Promise<ChatEntry[]>
+		(
+			sessionId: string,
+			cwd: string,
+			onReplayEntry?: (entry: ChatEntry) => void,
+		) => Promise<ChatEntry[]>
 	>(() => Promise.resolve([]));
 	const sessionPrompt = vi.fn<
 		(
@@ -611,8 +621,44 @@ describe("handleWebSocket", () => {
 		expect(harness.sessionLoad).toHaveBeenCalledWith(
 			"raw-acp-id",
 			"/tmp/project-1",
-			expect.any(Function),
 		);
+	});
+
+	it("session:open sends a single session:history response without replay updates", async () => {
+		harness.sessionLoad.mockResolvedValue([
+			{
+				entryId: "entry-1",
+				type: "assistant",
+				content: "Loaded once",
+				timestamp: "2026-02-15T00:00:00.000Z",
+			},
+		]);
+
+		harness.socket.emitMessage({
+			type: "session:open",
+			sessionId: "claude-code:history-once",
+			requestId: "open-once-1",
+		});
+		await flushAsync();
+
+		const messages = harness.socket.getMessages();
+		expect(messagesOfType(messages, "session:update")).toHaveLength(0);
+
+		const histories = messagesOfType(messages, "session:history");
+		expect(histories).toHaveLength(1);
+		expect(histories[0]).toMatchObject({
+			type: "session:history",
+			sessionId: "claude-code:history-once",
+			requestId: "open-once-1",
+		});
+		expect(histories[0].entries).toEqual([
+			{
+				entryId: "entry-1",
+				type: "assistant",
+				content: "Loaded once",
+				timestamp: "2026-02-15T00:00:00.000Z",
+			},
+		]);
 	});
 
 	it("parses canonical session IDs for session:open and session:cancel", async () => {
@@ -624,11 +670,7 @@ describe("handleWebSocket", () => {
 		await flushAsync();
 
 		expect(harness.ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(harness.sessionLoad).toHaveBeenCalledWith(
-			"open-123",
-			".",
-			expect.any(Function),
-		);
+		expect(harness.sessionLoad).toHaveBeenCalledWith("open-123", ".");
 		const histories = messagesOfType(
 			harness.socket.getMessages(),
 			"session:history",

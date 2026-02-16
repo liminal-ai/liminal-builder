@@ -42,8 +42,6 @@
 	line-height: 1.45;
 	white-space: pre-wrap;
 	word-break: break-word;
-	content-visibility: auto;
-	contain-intrinsic-size: 68px;
 }
 
 .chat-entry-user {
@@ -391,7 +389,7 @@
 	background: rgb(247 118 142 / 19%);
 	color: #fac9d1;
 	border: 1px solid rgb(247 118 142 / 48%);
-	display: none !important;
+	display: none;
 }
 
 .working-indicator {
