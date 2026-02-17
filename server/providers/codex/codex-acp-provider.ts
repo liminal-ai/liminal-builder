@@ -574,12 +574,8 @@ export class CodexAcpProvider implements CliProvider {
 
 		const sourceTimestamp = this.now();
 		const existing = session.toolCallsByCallId.get(callId);
-		const parsedArguments = this.parseToolArguments(eventRecord.content);
 		const content = this.extractTextContent(eventRecord.content);
-		const toolArguments =
-			Object.keys(parsedArguments).length > 0
-				? parsedArguments
-				: (existing?.toolArguments ?? {});
+		const toolArguments = existing?.toolArguments ?? {};
 		const upsert = {
 			turnId,
 			sessionId: session.sessionId,
@@ -592,15 +588,17 @@ export class CodexAcpProvider implements CliProvider {
 			callId,
 		};
 
-		this.emitUpsert(session.sessionId, {
-			type: "tool_call",
-			status,
-			...upsert,
-			...(status === "error"
-				? {
-						errorCode: "PROCESS_CRASH",
-						errorMessage:
-							content.length > 0
+			this.emitUpsert(session.sessionId, {
+				type: "tool_call",
+				status,
+				...upsert,
+				...(content.length > 0 ? { toolOutput: content } : {}),
+				...(status === "error" ? { toolOutputIsError: true } : {}),
+				...(status === "error"
+					? {
+							errorCode: "PROCESS_CRASH",
+							errorMessage:
+								content.length > 0
 								? content
 								: `Codex tool call ${callId} reported failure`,
 					}

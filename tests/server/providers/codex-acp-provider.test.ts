@@ -364,7 +364,7 @@ describe("CodexAcpProvider (Story 5, Red)", () => {
 				isToolCallUpsert(upsert) &&
 				upsert.status === "complete" &&
 				upsert.callId === "call-2" &&
-				upsert.toolArguments.path === "out.txt",
+				upsert.toolOutput === '{"path":"out.txt","text":"ok"}',
 		);
 		expect(completedToolCall).toBeDefined();
 	});

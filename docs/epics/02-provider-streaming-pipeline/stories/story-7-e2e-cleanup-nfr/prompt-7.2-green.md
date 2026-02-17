@@ -13,8 +13,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Prerequisites complete:**
 - Story 7 red baseline exists.
-- Story 0-2 and Story 4-6 suites remain green.
-- Story 3 suites may remain intentionally red and out of scope unless explicitly included.
+- Story 0-3 and Story 4-6 suites remain green.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined.)
@@ -71,7 +70,7 @@ If needed, document exact contract mismatch before editing tests.
 - If pivot-contract alignment requires test updates, keep TC intent unchanged and document why.
 - Do NOT add new dependencies.
 - Do NOT weaken or skip NFR assertions.
-- Do NOT modify files outside scoped list unless explicitly justified.
+- Do NOT modify files outside scoped list; optional files listed above are explicit in-scope exceptions.
 
 ## If Blocked or Uncertain
 - If baselines or instrumentation are insufficient for NFR comparison, stop and report exact gap.
@@ -84,18 +83,19 @@ When complete:
 2. Run `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts`
 3. Run `bun run test:integration`
 4. Run `bun run verify-all`
-5. Run `bun run green-verify` (expected to fail only on known Story 3 red suites unless those were fixed in this branch)
+5. Run `bun run green-verify`
 
 Expected:
 - Story 7 TC-mapped tests and NFR checks pass.
 - Full running total reaches 94.
 - Epic is ready for execution signoff.
+- `green-verify` passes.
 
 ## Done When
 - [ ] Legacy-family cleanup is complete.
 - [ ] All Story 7 TC-mapped tests are green.
 - [ ] All 5 NFR checks are green.
-- [ ] Verification commands pass with only allowed known-red suites failing.
+- [ ] Verification commands pass.
 - [ ] No out-of-scope or unapproved test rewrites occurred.
 
 ## Handoff Output Contract

@@ -23,7 +23,7 @@ Audit Story 6 for compatibility-window correctness, callback-to-delivery integra
 
 ### 2) Test inventory and counts
 - Confirm Story 6 suite totals 11 tests:
-  - websocket compatibility: 3
+  - WebSocket compatibility: 3
   - pipeline integration: 3
   - session history pipeline: 2
   - client upsert rendering: 3
@@ -35,7 +35,7 @@ Audit Story 6 for compatibility-window correctness, callback-to-delivery integra
 - `TC-7.1a..TC-7.1c`: provider streaming reaches browser as upserts.
 - `TC-7.2a..TC-7.2c`: browser rendering updates in place and preserves item isolation.
 - `TC-7.3a..TC-7.3b`: history load works through pipeline.
-- `TC-7.4a`: no direct ACP-to-websocket active flow path remains.
+- `TC-7.4a`: no direct ACP-to-WebSocket active flow path remains; legacy-family emissions may still exist only through compatibility routing until Story 7.
 
 ### 4) Compatibility and routing fidelity checks
 - Negotiation handshake behavior is deterministic.
@@ -49,9 +49,9 @@ Audit Story 6 for compatibility-window correctness, callback-to-delivery integra
 - Tool-call create/complete render transitions are stable.
 
 ### 6) Regression and immutability checks
-- Confirm no regressions in Story 0-2 + Story 4-5 suites.
+- Confirm no regressions in Story 0-3 + Story 4-5 suites.
 - Confirm green phase did not rewrite Story 6 tests except approved pivot-contract corrections.
-- If `green-verify` fails, confirm failures are only known Story 3 red suites unless Story 3 was in scope.
+- `green-verify` must pass in full for Story 6 readiness.
 
 ## Commands
 1. `bun run red-verify`
@@ -66,7 +66,7 @@ Audit Story 6 for compatibility-window correctness, callback-to-delivery integra
 - Story 6 suites: 11 passing tests.
 - Running traceability total remains 81.
 - One-family-per-connection rule enforced and stable.
-- `green-verify` fails only on known out-of-scope Story 3 reds, unless Story 3 was completed.
+- `green-verify` passes.
 - No unexplained out-of-scope diffs.
 
 ## If Blocked or Uncertain

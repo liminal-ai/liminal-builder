@@ -42,8 +42,8 @@ Perform final Story 7 verification for release signoff: TC coverage, NFR gates, 
 - No reintroduction of completion-blocked send semantics.
 
 ### 5) Regression safety audit
-- Confirm Story 0-2 and Story 4-6 behavior is not regressed by cleanup.
-- Confirm full verification pipeline passes aside from known out-of-scope reds.
+- Confirm Story 0-3 and Story 4-6 behavior is not regressed by cleanup.
+- Confirm full verification pipeline passes.
 
 ### 6) Traceability and totals
 - Story 7 contributes 13 checks/tests (8 TC + 5 NFR).
@@ -60,7 +60,7 @@ Perform final Story 7 verification for release signoff: TC coverage, NFR gates, 
 ## Expected Results
 - All Story 7 release-gate checks pass.
 - Legacy-family cleanup is complete and stable.
-- Full epic verification is green except known Story 3 out-of-scope reds unless Story 3 was completed.
+- Full epic verification is green.
 - No unexplained out-of-scope diffs.
 
 ## If Blocked or Uncertain

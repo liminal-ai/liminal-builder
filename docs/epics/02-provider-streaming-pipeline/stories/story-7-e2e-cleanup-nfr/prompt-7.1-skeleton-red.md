@@ -16,9 +16,8 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
 **Prerequisites complete:**
-- Story 0-2 and Story 4-6 are green.
+- Story 0-3 and Story 4-6 are green.
 - Compatibility window behavior is active.
-- Story 3 suites may remain intentionally red and out of scope unless explicitly included.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined below.)

@@ -1,17 +1,17 @@
 # Story 6: Pipeline Integration and Browser Migration (Chunk 5)
 
 ## Overview
-Wire provider callback outputs (`onUpsert`/`onTurn`) through websocket delivery and migrate browser rendering to the upsert message family with compatibility negotiation.
+Wire provider callback outputs (`onUpsert`/`onTurn`) through WebSocket delivery and migrate browser rendering to the upsert message family with compatibility negotiation.
 
 This story introduces the compatibility window and one-family-per-connection routing. Legacy-family removal is explicitly deferred to Story 7.
 
 ## Prerequisites
-- Story 0-2 are green.
+- Story 0-3 are green.
 - Story 4 and Story 5 are green with provider callback contract:
   - providers emit upsert/turn objects through `onUpsert`/`onTurn`.
   - `sendMessage` resolves after turn-start bind.
 - Upsert processor behavior is green and stable for canonical-envelope sources that still rely on it.
-- Story 3 suites may remain intentionally red and out of scope unless explicitly included.
+- Session-service callback orchestration is already present from Story 3/4/5; Story 6 focuses on delivery/gateway/browser migration. Update `server/api/session/session-service.ts` only if callback-to-delivery wiring is objectively missing.
 
 ## ACs Covered
 - AC-6.4a
@@ -35,6 +35,7 @@ This story introduces the compatibility window and one-family-per-connection rou
 - `server/websocket/stream-delivery.ts`
 - `server/websocket/compatibility-gateway.ts`
 - `server/websocket.ts`
+- `server/api/session/session-service.ts` (only if callback-to-delivery subscription ownership is missing)
 - `client/shell/shell.js`
 - `client/portlet/portlet.js`
 - `shared/stream-contracts.ts`
