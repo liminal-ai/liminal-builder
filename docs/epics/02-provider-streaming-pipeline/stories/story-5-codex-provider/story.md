@@ -13,6 +13,7 @@ This story also activates the deferred Codex interface conformance placeholder f
   - `sendMessage` waits for deterministic turn-start bind (not turn completion).
   - output consumer starts in `createSession`/`loadSession`.
 - Story 3 suites (`provider-registry`, `session-routes`) may still be intentionally red and are out of scope unless explicitly pulled in.
+- Story 3 intentionally-red allowance is temporary and must be resolved before Story 6+ delivery/release gates.
 - Story 1 placeholder strategy is intact before this story starts:
   - `TC-2.1c` placeholder exists and is pending activation in this story.
 
@@ -42,7 +43,7 @@ This story also activates the deferred Codex interface conformance placeholder f
 - `tests/server/providers/codex-acp-provider.test.ts`: 8 Story 5 tests (6 TC-mapped + 2 non-TC regression guards)
 - `tests/server/providers/provider-interface.test.ts`: activate existing `TC-2.1c` placeholder (no new traceability entry)
 - Story traceability total contribution: 8
-- Running traceability total: 70
+- Running traceability total: must match the current story-ledger baseline in `docs/epics/02-provider-streaming-pipeline/stories/README.md`
 - Executable test delta in this story: +9 (8 new Story 5 tests + activated `TC-2.1c`)
 
 ## Prompts

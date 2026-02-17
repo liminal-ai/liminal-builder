@@ -35,6 +35,9 @@ Resolved execution rule:
 8. `story-7-e2e-cleanup-nfr` (13 tests: 8 TC + 5 NFR)
 
 ## Running Totals
+These totals are the execution ledger for story-pack gate checks in this `stories/` folder.
+If other epic artifacts temporarily show different aggregate counts (for example from additional hardening TCs), use this ledger as the source of truth for story-level prompt verification.
+
 - Story 0: 0
 - Story 1: 14 (12 executable + 2 placeholders)
 - Story 2: 32

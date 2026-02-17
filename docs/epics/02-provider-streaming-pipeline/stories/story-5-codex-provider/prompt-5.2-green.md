@@ -1,7 +1,7 @@
 # Prompt 5.2: Story 5 Green
 
 ## Model Context
-This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context.
+This prompt targets a fresh `gpt-5.3-codex` execution context.
 
 ## Context
 
@@ -16,6 +16,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - `TC-2.1c` is activated in `provider-interface.test.ts`.
 - Story 0-2 and Story 4 pivot suites remain green.
 - Story 3 suites may still be intentionally red and are out of scope.
+- Story 3 intentionally-red allowance is temporary and must be resolved before Story 6+ delivery/release gates.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined.)
@@ -42,11 +43,24 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 | ACP fatal/terminal error | `TurnEvent` (`type: "turn_error"`) with structured `errorCode`/`errorMessage` |
 | terminal success | `TurnEvent` (`type: "turn_complete"`) |
 
+### ACP notification shapes (inlined)
+Use these shapes as the normalization contract input (field names must match ACP notifications consumed by `acp-client.ts`):
+- `session/update` + `sessionUpdate: "agent_message_chunk"` includes message chunk text content.
+- `session/update` + `sessionUpdate: "tool_call"` includes tool invocation metadata (`toolName`, `callId`, and invocation argument content when present).
+- `session/update` + `sessionUpdate: "tool_call_update"` includes tool progress/completion updates; completed state includes final tool result content for the same `callId`.
+
 ### Normalization semantics
 - Invocation starts may carry partial arguments.
 - Finalized argument completeness is authoritative at completion phase.
 - Correlation identifiers remain stable across invocation and completion.
 - Defensive handling must not crash on unknown tool-result correlation IDs.
+
+### Message accumulation and emission policy
+- Accumulate message content across `agent_message_chunk` notifications per active message item.
+- First chunk emits `MessageUpsert` with `status: "create"` and full accumulated content at that point.
+- Subsequent chunks emit `status: "update"` with full accumulated content (never raw delta-only payloads).
+- Terminal turn success/failure emits final message state with `status: "complete"`/`"error"` as applicable.
+- Provider-side token batching is **not** applied in Story 5; emit once per relevant ACP notification/terminal transition.
 
 ### ProviderError usage expectations
 - `SESSION_CREATE_FAILED`: create path cannot establish ACP session.
@@ -67,6 +81,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ## Optional Files (only if red contract is objectively wrong)
 - `tests/server/providers/provider-interface.test.ts`
 - `tests/server/providers/codex-acp-provider.test.ts`
+- `server/providers/index.ts` (export wiring only if required for typecheck/import resolution)
 
 If this is needed, document exact contract mismatch before editing tests.
 
@@ -79,6 +94,7 @@ If this is needed, document exact contract mismatch before editing tests.
 ## Constraints
 - Do NOT rewrite tests casually in green.
 - If pivot contract alignment requires test updates, keep TC intent unchanged and document why.
+- If test edits appear required, stop and report the exact mismatch for orchestrator approval before editing test files.
 - Do NOT add new dependencies.
 - Do NOT modify files outside scoped list.
 - Preserve red test intent and TC naming.
@@ -102,7 +118,7 @@ When complete:
 Expected:
 - 8 Story 5 tests pass in `codex-acp-provider.test.ts` (6 TC-mapped + 2 regression guards).
 - `TC-2.1c` passes as active conformance test.
-- Running traceability total remains 70.
+- Running traceability total matches the current story-ledger baseline in `docs/epics/02-provider-streaming-pipeline/stories/README.md`.
 
 ## Done When
 - [ ] Story 5 scoped tests are green.

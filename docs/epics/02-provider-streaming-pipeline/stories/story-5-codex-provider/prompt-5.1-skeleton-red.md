@@ -1,7 +1,7 @@
 # Prompt 5.1: Story 5 Skeleton + Red
 
 ## Model Context
-This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context.
+This prompt targets a fresh `gpt-5.3-codex` execution context.
 
 ## Context
 
@@ -22,6 +22,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
   - `onTurn(sessionId, callback)`
   - `sendMessage` deterministic turn-start synchronization (no completion wait)
 - Story 3 suites (`provider-registry`, `session-routes`) may remain intentionally red and are out of scope.
+- Story 3 intentionally-red allowance is temporary and must be resolved before Story 6+ delivery/release gates.
 - Story 1 placeholder tests still exist in `tests/server/providers/provider-interface.test.ts`.
 
 ## Reference Documents
@@ -85,6 +86,11 @@ Use deterministic mocked notification sequences for:
 - message chunks
 - tool call start/update completion
 - error and interruption paths
+Use one reusable ACP fixture helper (single source of mocked notification truth) that can feed all 8 Story 5 tests:
+- `emitSessionUpdate("agent_message_chunk", payload)`
+- `emitSessionUpdate("tool_call", payload)`
+- `emitSessionUpdate("tool_call_update", payload)`
+- terminal/interrupt notifications
 
 ## TCs In Scope
 - TC-2.1c (activation in `provider-interface.test.ts`)
@@ -141,12 +147,12 @@ Use deterministic mocked notification sequences for:
 ## Verification
 When complete:
 1. Run `bun run red-verify`
-2. Run `bun run test -- tests/server/providers/provider-interface.test.ts tests/server/providers/codex-acp-provider.test.ts`
+2. Run `bunx vitest run tests/server/providers/provider-interface.test.ts tests/server/providers/codex-acp-provider.test.ts`
 3. Run `bun run guard:test-baseline-record`
 
 Expected:
 - Story 5 red suite exists with 8 tests (6 TC-mapped + 2 non-TC regression guards).
-- `TC-2.1c` is activated and currently failing/red with Story 5 work.
+- `TC-2.1c` is activated (it may pass or fail in red depending on scaffold strictness).
 - Red baseline is recorded.
 
 ## Done When

@@ -1,7 +1,7 @@
 # Prompt 5.R: Story 5 Verification
 
 ## Model Context
-This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context operating as an auditor.
+This prompt targets a fresh `gpt-5.3-codex` execution context operating as an auditor.
 
 ## Context
 Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contract fidelity, and regression safety.
@@ -30,7 +30,7 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contrac
   - 6 TC-mapped tests with TC IDs in names.
   - 2 non-TC regression guard tests.
 - Confirm `tests/server/providers/provider-interface.test.ts` has active/passable `TC-2.1c`.
-- Running traceability total remains 70.
+- Running traceability total matches the current story-ledger baseline in `docs/epics/02-provider-streaming-pipeline/stories/README.md`.
 
 ### 3) TC coverage audit
 - `TC-2.1c` provider conformance is active and passing.
@@ -55,17 +55,21 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contrac
 - Confirm Story 0-2 + Story 4 suites remain green.
 - Confirm green phase did not rewrite Story 5 tests except approved pivot-contract corrections.
 - If `green-verify` fails, confirm failures are only known Story 3 red suites unless Story 3 was in scope.
+- Story 3 intentionally-red allowance is temporary and must be resolved before Story 6+ delivery/release gates.
 
 ## Commands
-1. `bun run red-verify`
-2. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
-3. `bunx vitest run tests/server/providers/provider-interface.test.ts`
-4. `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`
-5. `bunx vitest run tests/server/streaming/upsert-stream-processor.test.ts`
-6. `bunx vitest run tests/server/contracts/`
-7. `bunx vitest run tests/server/websocket.test.ts`
-8. `bun run green-verify`
-9. `git status --porcelain`
+Primary Story 5 gates:
+1. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
+2. `bunx vitest run tests/server/providers/provider-interface.test.ts`
+3. `git status --porcelain`
+
+Regression sampling (post-primary gates):
+4. `bun run red-verify`
+5. `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`
+6. `bunx vitest run tests/server/streaming/upsert-stream-processor.test.ts`
+7. `bunx vitest run tests/server/contracts/`
+8. `bunx vitest run tests/server/websocket.test.ts`
+9. `bun run green-verify`
 
 ## Expected Results
 - Story 5 provider suite: 8 passing tests.
