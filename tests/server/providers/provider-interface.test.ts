@@ -12,11 +12,16 @@ import {
 	type ClaudeSdkQueryHandle,
 	type ClaudeSdkQueryRequest,
 } from "../../../server/providers/claude/claude-sdk-provider";
+import {
+	CodexAcpProvider,
+	type CodexAcpClient,
+} from "../../../server/providers/codex/codex-acp-provider";
 import type {
 	MessageUpsert,
 	TurnEvent,
 	UpsertObject,
 } from "@server/streaming/upsert-types";
+import type { AcpUpdateEvent } from "../../../server/acp/acp-types";
 
 function createProviderDouble(): {
 	provider: CliProvider;
@@ -171,7 +176,39 @@ describe("Provider interface contracts (Story 1, Red)", () => {
 		expect(typeof provider.onTurn).toBe("function");
 	});
 
-	it.todo(
-		"TC-2.1c: Codex provider conformance placeholder (TC-2.1c activates in Story 5 when Codex provider exists)",
-	);
+	it("TC-2.1c: Codex provider satisfies CliProvider surface with no type errors", () => {
+		const client: CodexAcpClient = {
+			sessionNew: async (_params: { cwd: string }) => ({
+				sessionId: "codex-session-001",
+			}),
+			sessionLoad: async (_sessionId: string, _cwd: string) => [],
+			sessionPrompt: async (
+				_sessionId: string,
+				_content: string,
+				_onEvent?: (event: AcpUpdateEvent) => void,
+			) => ({ stopReason: "end_turn" }),
+			sessionCancel: (_sessionId: string) => undefined,
+			close: async (_timeoutMs?: number) => undefined,
+			onSessionUpdate:
+				(_sessionId: string, _callback: (event: AcpUpdateEvent) => void) =>
+				() =>
+					undefined,
+			onError: (_handler: (error: Error) => void) => undefined,
+		};
+		const provider: CliProvider = new CodexAcpProvider({
+			createClient: async () => client,
+			createTurnId: () => "codex-turn-001",
+			now: () => "2026-02-16T12:00:00.000Z",
+		});
+
+		expect(provider.cliType).toBe("codex");
+		expect(typeof provider.createSession).toBe("function");
+		expect(typeof provider.loadSession).toBe("function");
+		expect(typeof provider.sendMessage).toBe("function");
+		expect(typeof provider.cancelTurn).toBe("function");
+		expect(typeof provider.killSession).toBe("function");
+		expect(typeof provider.isAlive).toBe("function");
+		expect(typeof provider.onUpsert).toBe("function");
+		expect(typeof provider.onTurn).toBe("function");
+	});
 });

@@ -30,6 +30,10 @@ export class AcpClient {
 	private agentCapabilities: AcpInitializeResult["agentCapabilities"] | null =
 		null;
 	private eventHandlers = new Map<string, (event: AcpUpdateEvent) => void>();
+	private sessionUpdateSubscribers = new Map<
+		string,
+		Set<(event: AcpUpdateEvent) => void>
+	>();
 	private errorHandler: ((error: Error) => void) | null = null;
 	private stdin: WritableLike;
 	private stdout: ReadableLike;
@@ -128,13 +132,16 @@ export class AcpClient {
 	 *  notifications (text chunks, tool calls, thinking). The prompt response
 	 *  with stopReason signals completion.
 	 *  onEvent callback fires for each session/update notification.
+	 *  Optional for callers that subscribe via onSessionUpdate.
 	 *  Returns the final stopReason. */
 	async sessionPrompt(
 		sessionId: string,
 		content: string,
-		onEvent: (event: AcpUpdateEvent) => void,
+		onEvent?: (event: AcpUpdateEvent) => void,
 	): Promise<AcpPromptResult> {
-		this.eventHandlers.set(sessionId, onEvent);
+		if (onEvent) {
+			this.eventHandlers.set(sessionId, onEvent);
+		}
 
 		try {
 			return await this.sendRequest<AcpPromptResult>("session/prompt", {
@@ -142,7 +149,9 @@ export class AcpClient {
 				prompt: [{ type: "text", text: content }],
 			});
 		} finally {
-			this.eventHandlers.delete(sessionId);
+			if (onEvent) {
+				this.eventHandlers.delete(sessionId);
+			}
 		}
 	}
 
@@ -191,6 +200,28 @@ export class AcpClient {
 	/** Register handler for unexpected errors (broken pipe, parse error) */
 	onError(handler: (error: Error) => void): void {
 		this.errorHandler = handler;
+	}
+
+	/** Subscribe to all session/update notifications for a session. */
+	onSessionUpdate(
+		sessionId: string,
+		handler: (event: AcpUpdateEvent) => void,
+	): () => void {
+		const subscribers =
+			this.sessionUpdateSubscribers.get(sessionId) ?? new Set();
+		subscribers.add(handler);
+		this.sessionUpdateSubscribers.set(sessionId, subscribers);
+
+		return () => {
+			const current = this.sessionUpdateSubscribers.get(sessionId);
+			if (!current) {
+				return;
+			}
+			current.delete(handler);
+			if (current.size === 0) {
+				this.sessionUpdateSubscribers.delete(sessionId);
+			}
+		};
 	}
 
 	/** Whether agent supports session/load */
@@ -379,6 +410,13 @@ export class AcpClient {
 		}
 
 		this.eventHandlers.get(sessionId)?.(normalized);
+		const subscribers = this.sessionUpdateSubscribers.get(sessionId);
+		if (!subscribers || subscribers.size === 0) {
+			return;
+		}
+		for (const subscriber of subscribers) {
+			subscriber(normalized);
+		}
 	}
 
 	private handleAgentRequest(
