@@ -329,6 +329,7 @@ describe("Sidebar", () => {
 		expect(sentMessages).toContainEqual({
 			type: "session:open",
 			sessionId: "claude-code:s1",
+			projectId: "proj-1",
 		});
 	});
 

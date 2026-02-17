@@ -10,6 +10,7 @@ import type { AgentManager } from "../acp/agent-manager";
 import type { AcpUpdateEvent } from "../acp/acp-types";
 import type { ChatEntry } from "../../shared/types";
 import type { ProjectStore } from "../projects/project-store";
+import { discoverAllSessions } from "./session-discovery";
 
 /**
  * Manages session metadata and coordinates with ACP agents.
@@ -56,36 +57,80 @@ export class SessionManager {
 	}
 
 	/** Open session via ACP session/load, collect replayed history.
+	 *  Works for both Builder-created sessions AND discovered CLI sessions.
 	 *  Does NOT update lastActiveAt (only message send/receive updates it). */
 	async openSession(
 		canonicalId: string,
 		onReplayEntry?: (entry: ChatEntry) => void,
+		projectId?: string,
 	): Promise<ChatEntry[]> {
-		const session = this.findSession(canonicalId);
-		if (!session) {
-			throw new Error("Session not found");
-		}
-
 		const { cliType, acpId } = SessionManager.fromCanonical(canonicalId);
 		const client = await this.agentManager.ensureAgent(cliType);
-		const cwd = await this.resolveProjectPath(session.projectId);
+
+		const session = this.findSession(canonicalId);
+		let cwd: string;
+		if (session) {
+			cwd = await this.resolveProjectPath(session.projectId);
+		} else if (projectId) {
+			// Discovered session — not in local metadata yet.
+			// Adopt it into local metadata so future operations work.
+			cwd = await this.resolveProjectPath(projectId);
+			const now = new Date().toISOString();
+			this.sessions.push({
+				id: canonicalId,
+				projectId,
+				cliType,
+				archived: false,
+				title: `Session ${acpId.substring(0, 8)}`,
+				lastActiveAt: now,
+				createdAt: now,
+			});
+			await this.store.writeSync(this.sessions);
+		} else {
+			throw new Error("Session not found");
+		}
 
 		return client.sessionLoad(acpId, cwd, onReplayEntry);
 	}
 
-	/** List sessions for a project (entirely from local metadata).
+	/** List sessions for a project.
+	 *  Merges Builder-created sessions (from local metadata) with
+	 *  sessions discovered from CLI filesystem storage (Claude Code + Codex).
 	 *  Filters out archived sessions. Sorts by lastActiveAt descending. */
-	listSessions(projectId: string): SessionListItem[] {
-		return this.sessions
+	async listSessions(projectId: string): Promise<SessionListItem[]> {
+		const localSessions = this.sessions
 			.filter((session) => session.projectId === projectId)
 			.filter((session) => session.archived !== true)
-			.sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
 			.map((session) => ({
 				id: session.id,
 				title: session.title,
 				lastActiveAt: session.lastActiveAt,
 				cliType: session.cliType,
 			}));
+
+		// Discover sessions from CLI filesystem storage
+		let discoveredSessions: SessionListItem[] = [];
+		try {
+			const projectPath = await this.resolveProjectPath(projectId);
+			discoveredSessions = await discoverAllSessions(projectPath);
+		} catch {
+			// Project path resolution failed — return local-only
+		}
+
+		// Merge: local metadata wins over discovered (by canonical ID)
+		const localIds = new Set(localSessions.map((s) => s.id));
+		const archivedIds = new Set(
+			this.sessions.filter((s) => s.archived === true).map((s) => s.id),
+		);
+		const merged = [
+			...localSessions,
+			...discoveredSessions.filter(
+				(s) => !localIds.has(s.id) && !archivedIds.has(s.id),
+			),
+		];
+
+		merged.sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt));
+		return merged;
 	}
 
 	/** Archive a session (local operation) */

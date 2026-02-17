@@ -28,7 +28,7 @@ export type ChatEntry =
 export type ClientMessage = {
 	requestId?: string;
 } & (
-	| { type: "session:open"; sessionId: string }
+	| { type: "session:open"; sessionId: string; projectId?: string }
 	| { type: "session:create"; projectId: string; cliType: CliType }
 	| { type: "session:send"; sessionId: string; content: string }
 	| { type: "session:cancel"; sessionId: string }

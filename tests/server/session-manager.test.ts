@@ -141,7 +141,7 @@ describe("SessionManager", () => {
 			projectStore,
 		);
 
-		const listed = sessionManager.listSessions("project-1");
+		const listed = await sessionManager.listSessions("project-1");
 
 		expect(listed).toHaveLength(3);
 		expect(listed).toEqual(
@@ -180,7 +180,7 @@ describe("SessionManager", () => {
 			projectStore,
 		);
 
-		const listed = sessionManager.listSessions("project-1");
+		const listed = await sessionManager.listSessions("project-1");
 
 		expect(listed.map((session) => session.id)).toEqual([
 			"claude-code:session-2",
@@ -201,7 +201,7 @@ describe("SessionManager", () => {
 			projectStore,
 		);
 
-		const listed = sessionManager.listSessions("project-2");
+		const listed = await sessionManager.listSessions("project-2");
 
 		expect(listed).toEqual([]);
 	});
@@ -329,7 +329,7 @@ describe("SessionManager", () => {
 		);
 
 		sessionManager.archiveSession("claude-code:session-1");
-		const listed = sessionManager.listSessions("project-1");
+		const listed = await sessionManager.listSessions("project-1");
 		const persisted = await sessionStore.read();
 		const archived = persisted.find(
 			(session) => session.id === "claude-code:session-1",
@@ -353,7 +353,7 @@ describe("SessionManager", () => {
 			projectStore,
 		);
 
-		const listed = sessionManager.listSessions("project-1");
+		const listed = await sessionManager.listSessions("project-1");
 
 		expect(listed).toEqual([]);
 		expect(listed.map((session) => session.id)).not.toContain(
@@ -384,7 +384,7 @@ describe("SessionManager", () => {
 			projectStore,
 		);
 
-		const listed = sessionManagerB.listSessions("project-1");
+		const listed = await sessionManagerB.listSessions("project-1");
 
 		expect(listed).toHaveLength(2);
 		expect(listed[0]?.id).toMatch(/^(claude-code|codex):/);

@@ -177,6 +177,7 @@ function bootstrapPortlet() {
 	const chatContainer = document.getElementById("chat-container");
 	if (chatContainer instanceof HTMLElement) {
 		chat.init(chatContainer);
+		showLoadingShimmer(chatContainer);
 	}
 
 	const inputBar = document.getElementById("input-bar");
@@ -186,6 +187,21 @@ function bootstrapPortlet() {
 
 	hydrateComposerFromLocation();
 	bootstrapped = true;
+}
+
+function showLoadingShimmer(container) {
+	const existing = container.querySelector(".session-loading");
+	if (existing) return;
+	const shimmer = document.createElement("div");
+	shimmer.className = "session-loading";
+	shimmer.innerHTML =
+		'<span class="session-loading-text">Session Loading\u2026</span>';
+	container.appendChild(shimmer);
+}
+
+function removeLoadingShimmer() {
+	const shimmer = document.querySelector(".session-loading");
+	if (shimmer) shimmer.remove();
 }
 
 function replaceEntry(entryId, nextEntry) {
@@ -401,6 +417,7 @@ export function handleShellMessage(msg) {
 
 	switch (msg.type) {
 		case "session:history": {
+			removeLoadingShimmer();
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			if (!isUpsertHistory(msg.entries)) {
 				break;
@@ -410,6 +427,7 @@ export function handleShellMessage(msg) {
 		}
 
 		case "session:upsert": {
+			removeLoadingShimmer();
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			applyUpsert(msg.payload);
 			break;

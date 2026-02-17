@@ -348,7 +348,7 @@ export function renderProjects(projects, sendMessage, sessionsByProject = {}) {
 		const newSessionButton = document.createElement("button");
 		newSessionButton.className = "new-session-btn";
 		newSessionButton.dataset.projectId = project.id;
-		newSessionButton.textContent = "New Session";
+		newSessionButton.textContent = "New thread";
 		newSessionButton.addEventListener("click", () => {
 			showCliPicker(project.id);
 		});
@@ -395,7 +395,7 @@ export function renderSessions(projectId, sessions) {
 	if (sessions.length === 0) {
 		const emptyState = document.createElement("div");
 		emptyState.className = "session-empty-state";
-		emptyState.textContent = "No sessions. Create one to get started.";
+		emptyState.textContent = "No sessions yet";
 		sessionList.appendChild(emptyState);
 		return;
 	}
@@ -420,7 +420,11 @@ export function renderSessions(projectId, sessions) {
 				console.warn("[sidebar] Failed to open session tab:", error);
 			}
 			if (!wasAlreadyOpen) {
-				sendMessageRef({ type: "session:open", sessionId: session.id });
+				sendMessageRef({
+					type: "session:open",
+					sessionId: session.id,
+					projectId,
+				});
 			}
 		});
 
@@ -443,7 +447,7 @@ export function renderSessions(projectId, sessions) {
 		const archiveButton = document.createElement("button");
 		archiveButton.className = "archive-session-btn";
 		archiveButton.dataset.sessionId = session.id;
-		archiveButton.textContent = "Archive";
+		archiveButton.textContent = "×";
 		archiveButton.title = "Archive session";
 		archiveButton.setAttribute("aria-label", "Archive session");
 		archiveButton.addEventListener("click", (event) => {

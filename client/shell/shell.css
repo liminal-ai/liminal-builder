@@ -5,13 +5,13 @@
 	overflow: hidden;
 }
 
-/* Sidebar */
+/* ── Sidebar ──────────────────────────────────── */
 .sidebar {
-	background: var(--bg-secondary);
+	background: var(--sb-bg);
 	display: flex;
 	flex-direction: column;
 	overflow: hidden;
-	box-shadow: inset -1px 0 0 rgb(59 66 97 / 46%);
+	border-right: 1px solid var(--sb-border);
 }
 
 .sidebar-resizer {
@@ -28,7 +28,7 @@
 	bottom: 0;
 	left: 1px;
 	width: 1px;
-	background: rgb(59 66 97 / 46%);
+	background: var(--sb-border);
 	transition: background-color 0.1s ease;
 }
 
@@ -43,21 +43,18 @@ body.sidebar-resizing {
 	user-select: none;
 }
 
+body.sidebar-resizing iframe {
+	pointer-events: none;
+}
+
 .sidebar-header {
-	padding: 10px 12px;
-	border-bottom: 1px solid var(--border-color);
-	background:
-		radial-gradient(
-			120% 70% at 100% -20%,
-			rgb(125 207 255 / 9%),
-			transparent 60%
-		),
-		var(--bg-secondary);
+	padding: 10px 14px;
+	border-bottom: 1px solid var(--sb-border);
 }
 
 .sidebar-title {
-	font-size: 15px;
-	font-weight: 640;
+	font-size: 14px;
+	font-weight: 600;
 	letter-spacing: 0.01em;
 	color: var(--fg-primary);
 }
@@ -65,14 +62,13 @@ body.sidebar-resizing {
 .project-list {
 	flex: 1;
 	overflow-y: auto;
-	padding: 4px;
+	padding: 0;
 	scrollbar-gutter: stable;
 }
 
 .sidebar-footer {
-	padding: 6px;
-	border-top: 1px solid var(--border-color);
-	background: var(--bg-secondary);
+	padding: 8px 14px;
+	border-top: 1px solid var(--sb-border);
 }
 
 /* Main area */
@@ -207,200 +203,232 @@ body.sidebar-resizing {
 	font-size: 16px;
 }
 
-/* Button */
-.btn {
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	padding: var(--space-sm) var(--space-md);
-	border: 1px solid var(--border-color);
-	border-radius: var(--radius-md);
-	background: var(--bg-tertiary);
-	color: var(--fg-primary);
-	font-size: 13px;
-	cursor: pointer;
-	width: 100%;
-}
-
-.btn:hover {
-	background: var(--bg-highlight);
-}
-
-.btn-primary {
-	border-color: var(--accent-blue);
-	color: var(--accent-blue);
-}
-
+/* ── Add project ──────────────────────────────── */
 #add-project-btn {
-	height: 34px;
-	padding: 0 10px;
-	border-radius: 8px;
+	background: none;
+	border: none;
+	color: var(--sb-action-text);
 	font-size: 12px;
+	cursor: pointer;
+	padding: 0;
+	transition: color 0.1s;
 }
 
+#add-project-btn:hover {
+	color: var(--sb-action-text-hover);
+}
+
+/* ── Project tree ─────────────────────────────── */
 .project-group {
-	margin-bottom: 4px;
-	border: 1px solid rgb(59 66 97 / 75%);
-	border-radius: 10px;
-	background: linear-gradient(
-		180deg,
-		rgb(47 53 73 / 85%) 0%,
-		rgb(36 40 59 / 85%) 100%
-	);
-	box-shadow: 0 1px 0 rgb(0 0 0 / 22%);
-	overflow: hidden;
+	margin: 0;
+	border: none;
+	border-radius: 0;
+	background: none;
+	box-shadow: none;
+	overflow: visible;
 }
 
 .project-header {
 	display: flex;
 	align-items: center;
-	gap: 8px;
-	padding: 5px 7px;
-	min-height: 30px;
-	border-bottom: 1px solid rgb(59 66 97 / 45%);
+	gap: 0;
+	padding: 0 14px;
+	height: 28px;
+	border: none;
+	cursor: pointer;
 }
 
-.collapse-toggle,
+.project-header:hover .remove-project-btn {
+	opacity: 1;
+}
+
+.collapse-toggle {
+	border: none;
+	border-radius: 0;
+	background: none;
+	color: var(--sb-section-label);
+	cursor: pointer;
+	line-height: 1;
+	padding: 0;
+	width: 16px;
+	height: 28px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	font-size: 10px;
+	flex-shrink: 0;
+	transition: color 0.1s;
+}
+
+.collapse-toggle:hover {
+	color: var(--fg-primary);
+	border-color: transparent;
+	background: none;
+}
+
 .remove-project-btn {
-	border: 1px solid var(--border-color);
-	border-radius: 6px;
-	background: rgb(26 27 38 / 70%);
+	border: none;
+	border-radius: 0;
+	background: none;
 	color: var(--fg-muted);
 	cursor: pointer;
 	line-height: 1;
 	padding: 0;
-	width: 20px;
-	height: 20px;
+	width: 18px;
+	height: 28px;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
+	font-size: 14px;
+	flex-shrink: 0;
+	opacity: 0;
 	transition:
-		color 0.15s ease,
-		border-color 0.15s ease,
-		background-color 0.15s ease;
+		opacity 0.1s,
+		color 0.1s;
 }
 
-.collapse-toggle:hover,
 .remove-project-btn:hover {
-	color: var(--fg-primary);
-	border-color: var(--accent-blue);
-	background: rgb(122 162 247 / 12%);
+	color: var(--accent-red);
+	border-color: transparent;
+	background: none;
 }
 
 .project-name {
 	flex: 1;
-	font-size: 13px;
-	font-weight: 550;
-	color: var(--fg-primary);
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--sb-project-text);
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
 }
 
+/* ── Session list ─────────────────────────────── */
 .session-list {
-	padding: 4px 5px 5px;
+	padding: 0;
 	display: flex;
 	flex-direction: column;
-	gap: 2px;
+	gap: 0;
 }
 
 .new-session-btn {
-	align-self: flex-start;
-	height: 20px;
-	padding: 0 7px;
-	border-radius: 999px;
-	border: 1px solid rgb(122 162 247 / 55%);
-	background: rgb(122 162 247 / 11%);
-	color: var(--accent-cyan);
+	display: block;
+	background: none;
+	border: none;
+	border-radius: 0;
+	color: var(--sb-action-text);
 	font-size: 12px;
-	font-weight: 600;
-	letter-spacing: 0.01em;
+	font-weight: 400;
+	letter-spacing: 0;
 	cursor: pointer;
+	padding: 0 14px 0 30px;
+	height: 26px;
+	line-height: 26px;
+	text-align: left;
 	transition:
-		background-color 0.15s ease,
-		color 0.15s ease,
-		border-color 0.15s ease;
+		color 0.1s,
+		background 0.1s;
 }
 
 .new-session-btn:hover {
-	background: rgb(122 162 247 / 20%);
-	border-color: rgb(122 162 247 / 78%);
-	color: var(--fg-primary);
+	color: var(--sb-action-text-hover);
+	background: var(--sb-session-hover-bg);
 }
 
 .cli-picker {
 	display: flex;
-	flex-wrap: wrap;
-	gap: 3px;
-	padding: 1px 0;
+	gap: 0;
+	padding: 0 14px 0 30px;
+	height: 26px;
+	align-items: center;
 }
 
 .cli-picker-option,
 .cli-picker-cancel {
 	height: 20px;
-	padding: 0 7px;
-	border-radius: 999px;
-	border: 1px solid var(--border-color);
-	background: rgb(26 27 38 / 75%);
-	color: var(--fg-secondary);
+	padding: 0 8px;
+	border-radius: 3px;
+	border: none;
+	background: none;
+	color: var(--sb-action-text);
 	font-size: 11px;
-	font-weight: 600;
+	font-weight: 500;
 	cursor: pointer;
 	transition:
-		background-color 0.12s ease,
-		color 0.12s ease,
-		border-color 0.12s ease;
+		color 0.1s,
+		background 0.1s;
 }
 
-.cli-picker-option:hover,
+.cli-picker-option:hover {
+	color: var(--sb-session-text-hover);
+	background: var(--sb-session-hover-bg);
+}
+
 .cli-picker-cancel:hover {
-	background: rgb(122 162 247 / 14%);
-	border-color: rgb(122 162 247 / 70%);
-	color: var(--fg-primary);
+	color: var(--accent-red);
+	background: none;
 }
 
 .session-empty-state {
-	font-size: 11px;
-	line-height: 1.28;
-	color: var(--fg-muted);
-	padding: 2px 1px 1px;
+	font-size: 12px;
+	color: var(--sb-time-text);
+	padding: 4px 14px 4px 30px;
 }
 
+/* ── Session row: flat file-tree ──────────────── */
 .session-item {
 	display: flex;
 	align-items: center;
-	gap: 5px;
-	min-height: 22px;
-	padding: 2px 5px;
-	border-radius: 8px;
-	border: 1px solid rgb(59 66 97 / 42%);
-	background: rgb(26 27 38 / 65%);
-	color: var(--fg-secondary);
-	font-size: 12px;
+	gap: 0;
+	height: 26px;
+	padding: 0 14px 0 30px;
+	border-radius: 0;
+	border: none;
+	background: none;
+	color: var(--sb-session-text);
+	font-size: 13px;
 	cursor: pointer;
 	transition:
-		background-color 0.15s ease,
-		border-color 0.15s ease;
+		background 0.08s,
+		color 0.08s;
+	position: relative;
 }
 
 .session-item:hover {
-	background: rgb(41 46 66 / 78%);
-	border-color: rgb(122 162 247 / 50%);
+	background: var(--sb-session-hover-bg);
+	color: var(--sb-session-text-hover);
+}
+
+.session-item:hover .session-time {
+	color: var(--sb-session-text);
+}
+
+.session-item.active::before {
+	content: "";
+	position: absolute;
+	left: 8px;
+	top: 50%;
+	transform: translateY(-50%);
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background: var(--sb-active-dot);
 }
 
 .session-cli-badge {
 	flex-shrink: 0;
-	width: 20px;
-	height: 14px;
-	display: inline-flex;
-	align-items: center;
-	justify-content: center;
-	border-radius: 4px;
-	border: 1px solid rgb(59 66 97 / 75%);
-	background: rgb(26 27 38 / 76%);
-	font-size: 9px;
-	font-weight: 700;
-	color: var(--accent-cyan);
+	width: auto;
+	height: auto;
+	display: inline;
+	border-radius: 0;
+	border: none;
+	background: none;
+	font-size: 11px;
+	font-weight: 400;
+	color: var(--sb-prefix-cc);
+	margin-right: 6px;
+	font-family: var(--font-mono);
+	letter-spacing: -0.02em;
 }
 
 .session-title {
@@ -409,71 +437,65 @@ body.sidebar-resizing {
 	overflow: hidden;
 	text-overflow: ellipsis;
 	white-space: nowrap;
-	font-size: 11px;
-	color: var(--fg-secondary);
+	font-size: 13px;
+	color: inherit;
 }
 
 .session-time {
 	flex-shrink: 0;
-	font-size: 10px;
-	color: var(--fg-muted);
+	font-size: 12px;
+	color: var(--sb-time-text);
 	min-width: 22px;
 	text-align: right;
+	margin-left: 8px;
 }
 
+/* Archive: only on hover, no chrome */
 .archive-session-btn {
 	flex-shrink: 0;
-	height: 16px;
-	padding: 0 4px;
-	border-radius: 6px;
-	border: 1px solid rgb(59 66 97 / 72%);
-	background: rgb(26 27 38 / 80%);
+	background: none;
+	border: none;
+	border-radius: 0;
 	color: var(--fg-muted);
-	font-size: 10px;
+	font-size: 11px;
 	cursor: pointer;
 	opacity: 0;
-	transform: translateX(2px);
-	pointer-events: none;
+	padding: 0 2px;
+	margin-left: 4px;
 	transition:
-		opacity 0.14s ease,
-		transform 0.14s ease,
-		color 0.14s ease,
-		border-color 0.14s ease,
-		background-color 0.14s ease;
+		opacity 0.1s,
+		color 0.1s;
 }
 
-.session-item:hover .archive-session-btn,
-.session-item:focus-within .archive-session-btn {
+.session-item:hover .archive-session-btn {
 	opacity: 1;
-	transform: translateX(0);
-	pointer-events: auto;
 }
 
 .archive-session-btn:hover {
-	color: #ffc0cb;
-	border-color: rgb(247 118 142 / 55%);
-	background: rgb(247 118 142 / 10%);
+	color: var(--accent-red);
 }
 
 .reconnect-btn {
-	margin: 0 8px 8px;
+	margin: 4px 14px;
 	height: 22px;
-	border-radius: 8px;
-	border: 1px solid rgb(247 118 142 / 60%);
-	background: rgb(247 118 142 / 10%);
-	color: #f8c8d1;
+	border-radius: 3px;
+	border: 1px solid rgb(247 118 142 / 40%);
+	background: rgb(247 118 142 / 8%);
+	color: var(--accent-red);
 	font-size: 11px;
-	font-weight: 600;
+	font-weight: 500;
 	cursor: pointer;
 }
 
 .project-list .empty-state {
 	height: auto;
-	padding: 8px;
+	padding: 12px 14px;
 	justify-content: flex-start;
-	border: 1px dashed rgb(86 95 137 / 45%);
-	border-radius: 10px;
-	background: rgb(26 27 38 / 55%);
+	border: none;
+	border-radius: 0;
+	background: none;
+	color: var(--sb-time-text);
+	font-size: 12px;
 }
 
 @media (max-width: 900px) {
@@ -491,7 +513,5 @@ body.sidebar-resizing {
 
 	.archive-session-btn {
 		opacity: 1;
-		transform: none;
-		pointer-events: auto;
 	}
 }

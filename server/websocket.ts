@@ -888,7 +888,11 @@ async function routeMessage(
 		case "session:open": {
 			try {
 				const loadedEntries = deps.sessionManager
-					? await deps.sessionManager.openSession(message.sessionId)
+					? await deps.sessionManager.openSession(
+							message.sessionId,
+							undefined,
+							message.projectId,
+						)
 					: await (async () => {
 							const routing = parseSessionRouting(message.sessionId);
 							const canonicalSessionId = toCanonicalSessionId(
@@ -1119,8 +1123,9 @@ async function routeMessage(
 
 		case "session:list": {
 			try {
-				const sessions =
-					deps.sessionManager?.listSessions(message.projectId) ?? [];
+				const sessions = deps.sessionManager
+					? await deps.sessionManager.listSessions(message.projectId)
+					: [];
 				sendEnvelope(socket, {
 					type: "session:list",
 					projectId: message.projectId,

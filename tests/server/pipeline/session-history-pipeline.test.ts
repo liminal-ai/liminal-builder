@@ -57,7 +57,7 @@ function createLegacyHistory(sessionId: string): ChatEntry[] {
 
 function createSessionManager(): MockSessionManager {
 	return {
-		listSessions: () => [],
+		listSessions: async () => [],
 		createSession: async () => "claude-code:created-session",
 		openSession: async (sessionId) => createLegacyHistory(sessionId),
 		archiveSession: () => {},

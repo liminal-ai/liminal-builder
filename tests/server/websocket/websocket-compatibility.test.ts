@@ -46,7 +46,7 @@ function flushAsync(): Promise<void> {
 
 function createSessionManager(): MockSessionManager {
 	return {
-		listSessions: () => [],
+		listSessions: async () => [],
 		createSession: async () => "claude-code:created-session",
 		openSession: async () => [],
 		archiveSession: () => {},
