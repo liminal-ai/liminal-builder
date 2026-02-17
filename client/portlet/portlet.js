@@ -207,6 +207,31 @@ function toToolStatus(status) {
 	return "running";
 }
 
+function formatToolArguments(toolArguments) {
+	if (
+		!toolArguments ||
+		typeof toolArguments !== "object" ||
+		Array.isArray(toolArguments)
+	) {
+		return "";
+	}
+	const keys = Object.keys(toolArguments);
+	if (keys.length === 0) {
+		return "";
+	}
+	return ` ${JSON.stringify(toolArguments)}`;
+}
+
+function attachItemIdToEntryElement(entryId, itemId) {
+	if (typeof entryId !== "string" || typeof itemId !== "string") {
+		return;
+	}
+	const element = document.querySelector(`[data-entry-id="${entryId}"]`);
+	if (element instanceof HTMLElement) {
+		element.dataset.itemId = itemId;
+	}
+}
+
 function mapUpsertToEntry(upsert) {
 	if (!upsert || typeof upsert !== "object") {
 		return null;
@@ -217,9 +242,10 @@ function mapUpsertToEntry(upsert) {
 	entryIdByItemId.set(upsert.itemId, entryId);
 
 	if (upsert.type === "message") {
+		const origin = typeof upsert.origin === "string" ? upsert.origin : "agent";
 		return {
 			entryId,
-			type: "assistant",
+			type: origin === "user" ? "user" : "assistant",
 			content: typeof upsert.content === "string" ? upsert.content : "",
 			timestamp:
 				typeof upsert.sourceTimestamp === "string"
@@ -237,6 +263,24 @@ function mapUpsertToEntry(upsert) {
 	}
 
 	if (upsert.type === "tool_call") {
+		const toolOutput =
+			typeof upsert.toolOutput === "string"
+				? upsert.toolOutput
+				: typeof upsert.content === "string"
+					? upsert.content
+					: undefined;
+		const errorText =
+			typeof upsert.errorMessage === "string"
+				? upsert.errorMessage
+				: upsert.status === "error"
+					? toolOutput
+					: undefined;
+		const toolName =
+			typeof upsert.toolName === "string" && upsert.toolName.length > 0
+				? upsert.toolName
+				: typeof upsert.callId === "string" && upsert.callId.length > 0
+					? upsert.callId
+					: "Tool call";
 		return {
 			entryId,
 			type: "tool-call",
@@ -244,16 +288,10 @@ function mapUpsertToEntry(upsert) {
 				typeof upsert.callId === "string"
 					? upsert.callId
 					: `tool-${upsert.itemId}`,
-			name:
-				typeof upsert.callId === "string" && upsert.callId.length > 0
-					? upsert.callId
-					: "Tool call",
+			name: `${toolName}${formatToolArguments(upsert.toolArguments)}`,
 			status: toToolStatus(upsert.status),
-			result: typeof upsert.content === "string" ? upsert.content : undefined,
-			error:
-				upsert.status === "error" && typeof upsert.content === "string"
-					? upsert.content
-					: undefined,
+			result: upsert.status === "error" ? undefined : toolOutput,
+			error: upsert.status === "error" ? errorText : undefined,
 		};
 	}
 
@@ -277,6 +315,7 @@ function applyUpsert(upsert) {
 
 	replaceEntry(nextEntry.entryId, nextEntry);
 	chat.renderEntry(nextEntry);
+	attachItemIdToEntryElement(nextEntry.entryId, upsert.itemId);
 	if (nextEntry.type === "assistant" && upsert.status === "complete") {
 		chat.finalizeEntry(nextEntry.entryId);
 	}
@@ -298,16 +337,22 @@ function isUpsertHistory(entriesValue) {
 function applyUpsertHistory(historyEntries) {
 	upsertsByItemId.clear();
 	entryIdByItemId.clear();
+	pendingOptimisticUserEntryIds.length = 0;
 	const nextEntries = [];
 	for (const upsert of historyEntries) {
-		upsertsByItemId.set(upsert.itemId, upsert);
-		const mapped = mapUpsertToEntry(upsert);
+		const normalizedStatus = upsert.status === "error" ? "error" : "complete";
+		const normalizedUpsert = { ...upsert, status: normalizedStatus };
+		upsertsByItemId.set(normalizedUpsert.itemId, normalizedUpsert);
+		const mapped = mapUpsertToEntry(normalizedUpsert);
 		if (mapped) {
 			nextEntries.push(mapped);
 		}
 	}
 	entries.splice(0, entries.length, ...nextEntries);
 	chat.renderAll(entries);
+	for (const [itemId, entryId] of entryIdByItemId.entries()) {
+		attachItemIdToEntryElement(entryId, itemId);
+	}
 }
 
 if (typeof window !== "undefined") {
@@ -357,13 +402,10 @@ export function handleShellMessage(msg) {
 	switch (msg.type) {
 		case "session:history": {
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
-			if (isUpsertHistory(msg.entries)) {
-				applyUpsertHistory(msg.entries);
+			if (!isUpsertHistory(msg.entries)) {
 				break;
 			}
-			entries.splice(0, entries.length, ...msg.entries);
-			pendingOptimisticUserEntryIds.length = 0;
-			chat.renderAll(entries);
+			applyUpsertHistory(msg.entries);
 			break;
 		}
 
@@ -375,6 +417,10 @@ export function handleShellMessage(msg) {
 
 		case "session:turn": {
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
+			if (msg.payload?.type === "turn_started") {
+				input.disable();
+				sessionState.value = "sending";
+			}
 			if (msg.payload?.type === "turn_complete") {
 				input.enable();
 				sessionState.value = "idle";
@@ -384,64 +430,6 @@ export function handleShellMessage(msg) {
 				input.enable();
 				sessionState.value = "idle";
 			}
-			break;
-		}
-
-		case "session:update": {
-			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
-			if (
-				msg.entry.type === "user" &&
-				pendingOptimisticUserEntryIds.length > 0
-			) {
-				const pendingEntryId = pendingOptimisticUserEntryIds.shift();
-				if (pendingEntryId) {
-					const pendingIndex = entries.findIndex(
-						(entry) => entry.entryId === pendingEntryId,
-					);
-					if (pendingIndex >= 0) {
-						entries.splice(pendingIndex, 1, msg.entry);
-						const pendingElement = document.querySelector(
-							`[data-entry-id="${pendingEntryId}"]`,
-						);
-						if (pendingElement instanceof HTMLElement) {
-							pendingElement.remove();
-						}
-						chat.renderEntry(msg.entry);
-						break;
-					}
-				}
-			}
-
-			replaceEntry(msg.entry.entryId, msg.entry);
-			chat.renderEntry(msg.entry);
-			break;
-		}
-
-		case "session:chunk": {
-			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
-			const entry = entries.find(
-				(candidate) => candidate.entryId === msg.entryId,
-			);
-			if (entry && typeof entry.content === "string") {
-				entry.content += msg.content;
-				chat.updateEntryContent(msg.entryId, entry.content);
-			}
-			break;
-		}
-
-		case "session:complete": {
-			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
-			chat.finalizeEntry(msg.entryId);
-			input.enable();
-			sessionState.value = "idle";
-			break;
-		}
-
-		case "session:cancelled": {
-			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
-			chat.finalizeEntry(msg.entryId);
-			input.enable();
-			sessionState.value = "idle";
 			break;
 		}
 

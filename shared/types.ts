@@ -48,26 +48,11 @@ export type ServerMessage =
 	| WsTurnMessage
 	| WsHistoryMessage
 	| {
-			type: "session:history";
-			sessionId: string;
-			entries: ChatEntry[];
-			requestId?: string;
-	  }
-	| { type: "session:update"; sessionId: string; entry: ChatEntry }
-	| {
-			type: "session:chunk";
-			sessionId: string;
-			entryId: string;
-			content: string;
-	  }
-	| { type: "session:complete"; sessionId: string; entryId: string }
-	| {
 			type: "session:created";
 			sessionId: string;
 			projectId: string;
 			requestId?: string;
 	  }
-	| { type: "session:cancelled"; sessionId: string; entryId: string }
 	| { type: "session:error"; sessionId: string; message: string }
 	| { type: "session:archived"; sessionId: string; requestId?: string }
 	| { type: "session:title-updated"; sessionId: string; title: string }

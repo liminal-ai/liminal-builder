@@ -19,12 +19,13 @@ Audit Story 6 for upsert-only pipeline correctness, callback-to-delivery integra
 ## Verification Checklist
 
 ### 1) File and scope audit
-- Confirm Story 6 implementation changes are limited to scoped files from `prompt-6.2-green.md`.
-- Legacy-assertion test updates are only allowed in:
+- Confirm Story 6 implementation changes are primarily in scoped files from `prompt-6.2-green.md`.
+- Legacy-assertion test updates are expected in:
   - `tests/server/websocket.test.ts`
   - `tests/client/portlet.test.ts`
   - `tests/client/tabs.test.ts`
-- Fail verification if other out-of-scope code/test files changed without explicit justification.
+- Additional adjacent file changes are acceptable only when mechanically required by the same Story 6 contract shift (for example shared helpers/types/wiring), with explicit justification.
+- Fail verification if changed files indicate scope expansion, behavioral drift, or missing justification.
 
 ### 2) Test inventory and counts
 - Confirm Story 6 suite totals **9 tests**:
@@ -54,10 +55,7 @@ Audit Story 6 for upsert-only pipeline correctness, callback-to-delivery integra
 ### 6) Regression checks
 - Story 4/5 provider suites remain green.
 - If `green-verify` fails, failure set must be analyzed.
-- Known pre-existing failures in this repo may still exist in:
-  - `tests/server/api/session-routes.test.ts`
-  - `tests/server/providers/provider-registry.test.ts`
-- Treat those as out-of-scope only if there is no Story 6-caused expansion/regression.
+- `green-verify` is expected to pass with no failures.
 
 ## Commands
 1. `bun run red-verify`
@@ -69,7 +67,7 @@ Audit Story 6 for upsert-only pipeline correctness, callback-to-delivery integra
 7. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
 8. `bunx vitest run tests/server/providers/provider-interface.test.ts`
 9. `git diff --name-only`
-10. If allowed legacy-assertion test files changed: `bun run guard:test-baseline-record`
+10. If any test files changed: `bun run guard:test-baseline-record`
 11. `bun run green-verify`
 12. `git status --porcelain`
 
@@ -77,7 +75,7 @@ Audit Story 6 for upsert-only pipeline correctness, callback-to-delivery integra
 - Story 6 suites: **9 passing tests**.
 - Story 4/5 provider suites: passing.
 - No compatibility-window behavior required.
-- `green-verify` has no new Story 6 regressions; if failing, failures are known out-of-scope set only.
+- `green-verify` passes.
 
 ## If Blocked or Uncertain
 - If TC mappings conflict with pivot docs, stop and report exact mismatch with file/line evidence.
@@ -89,7 +87,7 @@ Audit Story 6 for upsert-only pipeline correctness, callback-to-delivery integra
 - [ ] Pipeline + rendering checks pass.
 - [ ] Legacy emission removal is confirmed.
 - [ ] Scope discipline is confirmed.
-- [ ] Any remaining failures are explicitly identified as out-of-scope pre-existing failures.
+- [ ] `green-verify` passes with no failures.
 
 ## Auditor Output Contract
 Return:
@@ -97,4 +95,4 @@ Return:
 - Pass/fail per checklist section
 - Exact blockers (if any)
 - Go/No-Go recommendation
-- Explicit note on whether `green-verify` failures are out-of-scope pre-existing vs Story 6 regressions
+- Explicit note on any observed regressions (if present)

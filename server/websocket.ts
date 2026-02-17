@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
 import type { ChatEntry, ClientMessage, ServerMessage } from "../shared/types";
+import type { StreamDelivery } from "../shared/stream-contracts";
 import type { AcpPromptResult, AcpUpdateEvent } from "./acp/acp-types";
 import type { AcpClient } from "./acp/acp-client";
 import type { AgentStatus } from "./acp/agent-manager";
 import type { ProjectStore } from "./projects/project-store";
+import type { TurnEvent, UpsertObject } from "./streaming/upsert-types";
 import type { CliType, SessionPromptResult } from "./sessions/session-types";
 import type { SessionManager } from "./sessions/session-manager";
 import { createStreamDelivery } from "./websocket/stream-delivery";
@@ -45,14 +47,30 @@ type SessionRouting = {
 	acpSessionId: string;
 };
 
-type PromptBridgeState = {
-	assistantEntryId: string | null;
-	toolEntryIds: Map<string, string>;
-	toolTitles: Map<string, string>;
+type PendingContentState = {
+	itemId: string;
+	content: string;
+	sourceTimestamp: string;
+};
+
+type ToolCallBridgeState = {
+	itemId: string;
+	toolName: string;
+	toolArguments: Record<string, unknown>;
+};
+
+type UpsertBridgeState = {
+	turnId: string;
+	sessionId: string;
+	cliType: CliType;
+	nextItemOrdinal: number;
+	activeAssistantMessage: PendingContentState | null;
+	activeThinkingMessage: PendingContentState | null;
+	toolCallsById: Map<string, ToolCallBridgeState>;
 };
 
 type InFlightPromptState = {
-	assistantEntryId: string | null;
+	turnId: string;
 	cancelRequested: boolean;
 	completionTimer: ReturnType<typeof setTimeout> | null;
 };
@@ -107,23 +125,44 @@ function getDerivedTitle(
 	return undefined;
 }
 
-function mapToolStatus(
-	status: string | undefined,
-): "running" | "complete" | "error" {
-	switch (status) {
-		case "completed":
-		case "complete":
-			return "complete";
-		case "failed":
-		case "error":
-			return "error";
-		case "pending":
-		case "in_progress":
-		case "running":
-		case undefined:
-			return "running";
+function resolveToolUpsertStatus(
+	status: unknown,
+	eventType: "tool_call" | "tool_call_update",
+): UpsertObject["status"] {
+	if (status === "completed" || status === "complete") {
+		return "complete";
+	}
+	if (status === "failed" || status === "error") {
+		return "error";
+	}
+	if (
+		status === "pending" ||
+		status === "in_progress" ||
+		status === "running"
+	) {
+		return eventType === "tool_call" ? "create" : "update";
+	}
+	if (eventType === "tool_call") {
+		return "create";
+	}
+	return "update";
+}
+
+function resolveTurnCompletionStatus(
+	stopReason: AcpPromptResult["stopReason"],
+	cancelRequested: boolean,
+): "completed" | "cancelled" | null {
+	if (cancelRequested || stopReason === "cancelled") {
+		return "cancelled";
+	}
+	switch (stopReason) {
+		case "end_turn":
+		case "max_tokens":
+		case "max_turn_requests":
+		case "refusal":
+			return "completed";
 		default:
-			return "running";
+			return null;
 	}
 }
 
@@ -151,164 +190,388 @@ function extractFirstText(content: unknown): string {
 	return "";
 }
 
-function createTextEntry(
-	entryType: "user" | "assistant",
-	content: string,
-): ChatEntry {
+function nowIso(): string {
+	return new Date().toISOString();
+}
+
+function extractToolCallId(event: AcpUpdateEvent): string {
+	const eventRecord = event as Record<string, unknown>;
+	if (typeof eventRecord.toolCallId === "string") {
+		return eventRecord.toolCallId;
+	}
+	if (typeof eventRecord.tool_call_id === "string") {
+		return eventRecord.tool_call_id;
+	}
+	return randomUUID();
+}
+
+function extractToolArguments(event: AcpUpdateEvent): Record<string, unknown> {
+	const eventRecord = event as Record<string, unknown>;
+	const directArguments = eventRecord.toolArguments ?? eventRecord.arguments;
+	if (
+		typeof directArguments === "object" &&
+		directArguments !== null &&
+		!Array.isArray(directArguments)
+	) {
+		return directArguments as Record<string, unknown>;
+	}
+	return {};
+}
+
+function createUpsertBridgeState(
+	sessionId: string,
+	turnId: string,
+): UpsertBridgeState {
 	return {
-		entryId: randomUUID(),
-		type: entryType,
-		content,
-		timestamp: new Date().toISOString(),
+		turnId,
+		sessionId,
+		cliType: parseSessionRouting(sessionId).cliType,
+		nextItemOrdinal: 0,
+		activeAssistantMessage: null,
+		activeThinkingMessage: null,
+		toolCallsById: new Map<string, ToolCallBridgeState>(),
 	};
 }
 
-function createPromptBridgeMessages(
+function nextItemId(state: UpsertBridgeState, suffix?: string): string {
+	state.nextItemOrdinal += 1;
+	if (suffix) {
+		return `${state.turnId}:${state.nextItemOrdinal}:${suffix}`;
+	}
+	return `${state.turnId}:${state.nextItemOrdinal}`;
+}
+
+function toHistoryUpsert(
+	entry: ChatEntry,
 	sessionId: string,
+	index: number,
+): UpsertObject {
+	const turnId = `history:${index + 1}`;
+	const sourceTimestamp =
+		"timestamp" in entry && typeof entry.timestamp === "string"
+			? entry.timestamp
+			: nowIso();
+	const emittedAt = nowIso();
+	const itemId =
+		typeof entry.entryId === "string" && entry.entryId.length > 0
+			? entry.entryId
+			: `${turnId}:item:${index + 1}`;
+
+	switch (entry.type) {
+		case "user":
+			return {
+				type: "message",
+				status: "complete",
+				turnId,
+				sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				content: entry.content,
+				origin: "user",
+			};
+		case "assistant":
+			return {
+				type: "message",
+				status: "complete",
+				turnId,
+				sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				content: entry.content,
+				origin: "agent",
+			};
+		case "thinking":
+			return {
+				type: "thinking",
+				status: "complete",
+				turnId,
+				sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				content: entry.content,
+				providerId: parseSessionRouting(sessionId).cliType,
+			};
+		case "tool-call": {
+			const isError = entry.status === "error";
+			const toolOutput = isError ? entry.error : entry.result;
+			return {
+				type: "tool_call",
+				status: isError ? "error" : "complete",
+				turnId,
+				sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				toolName: entry.name,
+				toolArguments: {},
+				callId: entry.toolCallId,
+				...(typeof toolOutput === "string" ? { toolOutput } : {}),
+				...(isError
+					? {
+							toolOutputIsError: true,
+							errorCode: "PROCESS_CRASH",
+							errorMessage: entry.error ?? "Tool call failed",
+						}
+					: {}),
+			};
+		}
+	}
+}
+
+function isUpsertObject(value: unknown): value is UpsertObject {
+	if (typeof value !== "object" || value === null) {
+		return false;
+	}
+	const candidate = value as Record<string, unknown>;
+	return (
+		typeof candidate.type === "string" &&
+		typeof candidate.turnId === "string" &&
+		typeof candidate.sessionId === "string" &&
+		typeof candidate.itemId === "string" &&
+		typeof candidate.sourceTimestamp === "string" &&
+		typeof candidate.emittedAt === "string" &&
+		typeof candidate.status === "string"
+	);
+}
+
+function toHistoryUpserts(entries: unknown, sessionId: string): UpsertObject[] {
+	if (!Array.isArray(entries)) {
+		return [];
+	}
+	if (entries.every((entry) => isUpsertObject(entry))) {
+		return entries;
+	}
+	return entries.map((entry, index) =>
+		toHistoryUpsert(entry as ChatEntry, sessionId, index),
+	);
+}
+
+function finalizeBridgeUpserts(state: UpsertBridgeState): UpsertObject[] {
+	const emittedAt = nowIso();
+	const finalized: UpsertObject[] = [];
+	if (state.activeAssistantMessage) {
+		finalized.push({
+			type: "message",
+			status: "complete",
+			turnId: state.turnId,
+			sessionId: state.sessionId,
+			itemId: state.activeAssistantMessage.itemId,
+			sourceTimestamp: state.activeAssistantMessage.sourceTimestamp,
+			emittedAt,
+			content: state.activeAssistantMessage.content,
+			origin: "agent",
+		});
+	}
+	if (state.activeThinkingMessage) {
+		finalized.push({
+			type: "thinking",
+			status: "complete",
+			turnId: state.turnId,
+			sessionId: state.sessionId,
+			itemId: state.activeThinkingMessage.itemId,
+			sourceTimestamp: state.activeThinkingMessage.sourceTimestamp,
+			emittedAt,
+			content: state.activeThinkingMessage.content,
+			providerId: state.cliType,
+		});
+	}
+	return finalized;
+}
+
+function mapAcpEventToUpsert(
 	event: AcpUpdateEvent,
-	bridgeState: PromptBridgeState,
-): ServerMessage[] {
+	state: UpsertBridgeState,
+): UpsertObject | null {
+	const sourceTimestamp = nowIso();
+	const emittedAt = nowIso();
+
 	switch (event.type) {
 		case "agent_message_chunk": {
 			const chunk = extractFirstText(event.content);
-			const messages: ServerMessage[] = [];
-
-			if (bridgeState.assistantEntryId === null) {
-				const assistantEntry = createTextEntry("assistant", "");
-				bridgeState.assistantEntryId = assistantEntry.entryId;
-				messages.push({
-					type: "session:update",
-					sessionId,
-					entry: assistantEntry,
-				});
+			if (chunk.length === 0) {
+				return null;
 			}
-
-			if (chunk.length > 0) {
-				messages.push({
-					type: "session:chunk",
-					sessionId,
-					entryId: bridgeState.assistantEntryId,
+			if (!state.activeAssistantMessage) {
+				state.activeAssistantMessage = {
+					itemId: nextItemId(state, "message"),
 					content: chunk,
-				});
+					sourceTimestamp,
+				};
+				return {
+					type: "message",
+					status: "create",
+					turnId: state.turnId,
+					sessionId: state.sessionId,
+					itemId: state.activeAssistantMessage.itemId,
+					sourceTimestamp,
+					emittedAt,
+					content: state.activeAssistantMessage.content,
+					origin: "agent",
+				};
 			}
-
-			return messages;
+			state.activeAssistantMessage.content += chunk;
+			state.activeAssistantMessage.sourceTimestamp = sourceTimestamp;
+			return {
+				type: "message",
+				status: "update",
+				turnId: state.turnId,
+				sessionId: state.sessionId,
+				itemId: state.activeAssistantMessage.itemId,
+				sourceTimestamp,
+				emittedAt,
+				content: state.activeAssistantMessage.content,
+				origin: "agent",
+			};
 		}
 
 		case "user_message_chunk": {
 			const content = extractFirstText(event.content);
 			if (content.length === 0) {
-				return [];
+				return null;
 			}
-			return [
-				{
-					type: "session:update",
-					sessionId,
-					entry: createTextEntry("user", content),
-				},
-			];
+			return {
+				type: "message",
+				status: "complete",
+				turnId: state.turnId,
+				sessionId: state.sessionId,
+				itemId: nextItemId(state, "user"),
+				sourceTimestamp,
+				emittedAt,
+				content,
+				origin: "user",
+			};
 		}
 
 		case "agent_thought_chunk": {
 			const content = extractFirstText(event.content);
 			if (content.length === 0) {
-				return [];
+				return null;
 			}
-			return [
-				{
-					type: "session:update",
-					sessionId,
-					entry: {
-						entryId: randomUUID(),
-						type: "thinking",
-						content,
-					},
-				},
-			];
+			if (!state.activeThinkingMessage) {
+				state.activeThinkingMessage = {
+					itemId: nextItemId(state, "thinking"),
+					content,
+					sourceTimestamp,
+				};
+				return {
+					type: "thinking",
+					status: "create",
+					turnId: state.turnId,
+					sessionId: state.sessionId,
+					itemId: state.activeThinkingMessage.itemId,
+					sourceTimestamp,
+					emittedAt,
+					content: state.activeThinkingMessage.content,
+					providerId: state.cliType,
+				};
+			}
+			state.activeThinkingMessage.content += content;
+			state.activeThinkingMessage.sourceTimestamp = sourceTimestamp;
+			return {
+				type: "thinking",
+				status: "update",
+				turnId: state.turnId,
+				sessionId: state.sessionId,
+				itemId: state.activeThinkingMessage.itemId,
+				sourceTimestamp,
+				emittedAt,
+				content: state.activeThinkingMessage.content,
+				providerId: state.cliType,
+			};
 		}
 
 		case "tool_call": {
-			const legacyToolCallId = (event as { tool_call_id?: unknown })
-				.tool_call_id;
-			const toolCallId =
-				typeof event.toolCallId === "string"
-					? event.toolCallId
-					: typeof legacyToolCallId === "string"
-						? legacyToolCallId
-						: randomUUID();
-			const title =
+			const callId = extractToolCallId(event);
+			const existing = state.toolCallsById.get(callId);
+			const toolName =
 				typeof event.title === "string" && event.title.length > 0
 					? event.title
-					: "Tool call";
-			const existingEntryId = bridgeState.toolEntryIds.get(toolCallId);
-			const entryId = existingEntryId ?? randomUUID();
-			bridgeState.toolEntryIds.set(toolCallId, entryId);
-			bridgeState.toolTitles.set(toolCallId, title);
-
-			const status = mapToolStatus(
-				typeof event.status === "string" ? event.status : undefined,
-			);
-			const content = extractFirstText(event.content);
-			const entry: ChatEntry = {
-				entryId,
-				type: "tool-call",
-				toolCallId,
-				name: title,
+					: (existing?.toolName ?? "tool_call");
+			const toolArguments =
+				existing?.toolArguments ?? extractToolArguments(event);
+			const itemId = existing?.itemId ?? nextItemId(state, `tool:${callId}`);
+			const status = resolveToolUpsertStatus(event.status, "tool_call");
+			state.toolCallsById.set(callId, { itemId, toolName, toolArguments });
+			const toolOutput = extractFirstText(event.content);
+			const upsert: UpsertObject = {
+				type: "tool_call",
 				status,
+				turnId: state.turnId,
+				sessionId: state.sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				toolName,
+				toolArguments,
+				callId,
+				...(toolOutput.length > 0 ? { toolOutput } : {}),
+				...(status === "error"
+					? {
+							toolOutputIsError: true,
+							errorCode: "PROCESS_CRASH",
+							errorMessage: toolOutput || `Tool call ${callId} failed`,
+						}
+					: {}),
 			};
-			if (status === "complete" && content.length > 0) {
-				entry.result = content;
+			if (status === "complete" || status === "error") {
+				state.toolCallsById.delete(callId);
 			}
-			if (status === "error" && content.length > 0) {
-				entry.error = content;
-			}
-
-			return [{ type: "session:update", sessionId, entry }];
+			return upsert;
 		}
 
 		case "tool_call_update": {
-			const legacyToolCallId = (event as { tool_call_id?: unknown })
-				.tool_call_id;
-			const toolCallId =
-				typeof event.toolCallId === "string"
-					? event.toolCallId
-					: typeof legacyToolCallId === "string"
-						? legacyToolCallId
-						: randomUUID();
-			const existingEntryId = bridgeState.toolEntryIds.get(toolCallId);
-			const entryId = existingEntryId ?? randomUUID();
-			bridgeState.toolEntryIds.set(toolCallId, entryId);
-			const title = bridgeState.toolTitles.get(toolCallId) ?? "Tool call";
-
-			const status = mapToolStatus(
-				typeof event.status === "string" ? event.status : undefined,
-			);
-			const content = extractFirstText(event.content);
-			const entry: ChatEntry = {
-				entryId,
-				type: "tool-call",
-				toolCallId,
-				name: title,
+			const callId = extractToolCallId(event);
+			const existing = state.toolCallsById.get(callId);
+			const toolName = existing?.toolName ?? "tool_call";
+			const toolArguments = existing?.toolArguments ?? {};
+			const itemId = existing?.itemId ?? nextItemId(state, `tool:${callId}`);
+			const status = resolveToolUpsertStatus(event.status, "tool_call_update");
+			const toolOutput = extractFirstText(event.content);
+			const upsert: UpsertObject = {
+				type: "tool_call",
 				status,
+				turnId: state.turnId,
+				sessionId: state.sessionId,
+				itemId,
+				sourceTimestamp,
+				emittedAt,
+				toolName,
+				toolArguments,
+				callId,
+				...(toolOutput.length > 0 ? { toolOutput } : {}),
+				...(status === "error"
+					? {
+							toolOutputIsError: true,
+							errorCode: "PROCESS_CRASH",
+							errorMessage: toolOutput || `Tool call ${callId} failed`,
+						}
+					: {}),
 			};
-			if (status === "complete" && content.length > 0) {
-				entry.result = content;
+			if (status === "complete" || status === "error") {
+				state.toolCallsById.delete(callId);
+			} else {
+				state.toolCallsById.set(callId, { itemId, toolName, toolArguments });
 			}
-			if (status === "error" && content.length > 0) {
-				entry.error = content;
-			}
-
-			return [{ type: "session:update", sessionId, entry }];
+			return upsert;
 		}
 
-		case "plan":
-		case "config_options_update":
-		case "current_mode_update":
-		case "available_commands_update":
-			return [];
 		default:
-			return [];
+			return null;
 	}
+}
+
+function createTurnStartedEvent(sessionId: string, turnId: string): TurnEvent {
+	const providerId = parseSessionRouting(sessionId).cliType;
+	return {
+		type: "turn_started",
+		turnId,
+		sessionId,
+		modelId: providerId,
+		providerId,
+	};
 }
 
 function isClientMessage(value: unknown): value is ClientMessage {
@@ -403,9 +666,6 @@ export function handleWebSocket(
 			sendEnvelope(socket, message as ServerMessage);
 		},
 	});
-	// Story 6.1b keeps these locals for the green-phase wiring.
-	void connectionId;
-	void streamDelivery;
 	const disabledMessageTypes = deps.sessionManager
 		? new Set<ClientMessage["type"]>()
 		: AGENT_ONLY_DISABLED_MESSAGES;
@@ -445,6 +705,8 @@ export function handleWebSocket(
 			socket,
 			raw,
 			deps,
+			connectionId,
+			streamDelivery,
 			sessionCwdByCanonicalId,
 			inFlightPrompts,
 			disabledMessageTypes,
@@ -473,6 +735,8 @@ async function handleIncomingMessage(
 	socket: WebSocketLike,
 	raw: Buffer | string,
 	deps: WebSocketDeps,
+	connectionId: string,
+	streamDelivery: StreamDelivery,
 	sessionCwdByCanonicalId: Map<string, string>,
 	inFlightPrompts: Map<string, InFlightPromptState>,
 	disabledMessageTypes: Set<ClientMessage["type"]>,
@@ -506,6 +770,8 @@ async function handleIncomingMessage(
 			socket,
 			message,
 			deps,
+			connectionId,
+			streamDelivery,
 			sessionCwdByCanonicalId,
 			inFlightPrompts,
 		);
@@ -522,6 +788,8 @@ async function routeMessage(
 	socket: WebSocketLike,
 	message: ClientMessage,
 	deps: WebSocketDeps,
+	connectionId: string,
+	streamDelivery: StreamDelivery,
 	sessionCwdByCanonicalId: Map<string, string>,
 	inFlightPrompts: Map<string, InFlightPromptState>,
 ): Promise<void> {
@@ -619,7 +887,7 @@ async function routeMessage(
 
 		case "session:open": {
 			try {
-				const entries = deps.sessionManager
+				const loadedEntries = deps.sessionManager
 					? await deps.sessionManager.openSession(message.sessionId)
 					: await (async () => {
 							const routing = parseSessionRouting(message.sessionId);
@@ -634,13 +902,8 @@ async function routeMessage(
 							);
 							return client.sessionLoad(routing.acpSessionId, sessionCwd);
 						})();
-
-				sendEnvelope(socket, {
-					type: "session:history",
-					sessionId: message.sessionId,
-					entries,
-					requestId: message.requestId,
-				});
+				const entries = toHistoryUpserts(loadedEntries, message.sessionId);
+				streamDelivery.deliverHistory(connectionId, message.sessionId, entries);
 			} catch (error) {
 				const messageText = toErrorMessage(error);
 				sendEnvelope(socket, {
@@ -659,35 +922,36 @@ async function routeMessage(
 
 		case "session:send": {
 			try {
-				const bridgeState: PromptBridgeState = {
-					assistantEntryId: null,
-					toolEntryIds: new Map<string, string>(),
-					toolTitles: new Map<string, string>(),
-				};
+				const turnId = randomUUID();
+				const bridgeState = createUpsertBridgeState(message.sessionId, turnId);
 				const inFlightState: InFlightPromptState = {
-					assistantEntryId: null,
+					turnId,
 					cancelRequested: false,
 					completionTimer: null,
 				};
 				inFlightPrompts.set(message.sessionId, inFlightState);
+				streamDelivery.deliverTurn(
+					connectionId,
+					message.sessionId,
+					createTurnStartedEvent(message.sessionId, turnId),
+				);
+
+				const onEvent = (event: AcpUpdateEvent) => {
+					const upsert = mapAcpEventToUpsert(event, bridgeState);
+					if (upsert) {
+						streamDelivery.deliverUpsert(
+							connectionId,
+							message.sessionId,
+							upsert,
+						);
+					}
+				};
 
 				const promptResult = deps.sessionManager
 					? await deps.sessionManager.sendMessage(
 							message.sessionId,
 							message.content,
-							(event) => {
-								const outboundMessages = createPromptBridgeMessages(
-									message.sessionId,
-									event,
-									bridgeState,
-								);
-								if (bridgeState.assistantEntryId) {
-									inFlightState.assistantEntryId = bridgeState.assistantEntryId;
-								}
-								for (const outbound of outboundMessages) {
-									sendEnvelope(socket, outbound);
-								}
-							},
+							onEvent,
 						)
 					: await (async () => {
 							const routing = parseSessionRouting(message.sessionId);
@@ -697,20 +961,7 @@ async function routeMessage(
 							return client.sessionPrompt(
 								routing.acpSessionId,
 								message.content,
-								(event) => {
-									const outboundMessages = createPromptBridgeMessages(
-										message.sessionId,
-										event,
-										bridgeState,
-									);
-									if (bridgeState.assistantEntryId) {
-										inFlightState.assistantEntryId =
-											bridgeState.assistantEntryId;
-									}
-									for (const outbound of outboundMessages) {
-										sendEnvelope(socket, outbound);
-									}
-								},
+								onEvent,
 							);
 						})();
 
@@ -723,49 +974,63 @@ async function routeMessage(
 					});
 				}
 
-				inFlightState.assistantEntryId = bridgeState.assistantEntryId;
-				if (bridgeState.assistantEntryId !== null) {
-					const sendCancelled = () => {
-						sendEnvelope(socket, {
-							type: "session:cancelled",
-							sessionId: message.sessionId,
-							entryId: bridgeState.assistantEntryId as string,
-						});
-					};
+				for (const finalizedUpsert of finalizeBridgeUpserts(bridgeState)) {
+					streamDelivery.deliverUpsert(
+						connectionId,
+						message.sessionId,
+						finalizedUpsert,
+					);
+				}
 
-					const sendComplete = () => {
-						sendEnvelope(socket, {
-							type: "session:complete",
-							sessionId: message.sessionId,
-							entryId: bridgeState.assistantEntryId as string,
-						});
-					};
+				const completionStatus = resolveTurnCompletionStatus(
+					promptResult.stopReason,
+					inFlightState.cancelRequested,
+				);
+				if (completionStatus === null) {
+					streamDelivery.deliverTurn(connectionId, message.sessionId, {
+						type: "turn_error",
+						turnId,
+						sessionId: message.sessionId,
+						errorCode: "PROTOCOL_ERROR",
+						errorMessage: `Unsupported stop reason: ${promptResult.stopReason}`,
+					});
+					inFlightPrompts.delete(message.sessionId);
+					break;
+				}
 
-					if (
-						promptResult.stopReason === "cancelled" ||
-						inFlightState.cancelRequested
-					) {
-						sendCancelled();
+				if (completionStatus === "cancelled") {
+					streamDelivery.deliverTurn(connectionId, message.sessionId, {
+						type: "turn_complete",
+						turnId,
+						sessionId: message.sessionId,
+						status: "cancelled",
+					});
+					inFlightPrompts.delete(message.sessionId);
+					break;
+				}
+
+				if (deps.sessionManager) {
+					// session:cancel can race with prompt completion in local integration.
+					inFlightState.completionTimer = setTimeout(() => {
+						const latestState = inFlightPrompts.get(message.sessionId);
 						inFlightPrompts.delete(message.sessionId);
-					} else if (deps.sessionManager) {
-						// session:cancel can race with prompt completion in local integration.
-						inFlightState.completionTimer = setTimeout(() => {
-							const latestState = inFlightPrompts.get(message.sessionId);
-							inFlightPrompts.delete(message.sessionId);
-							if (!latestState) {
-								return;
-							}
-							if (latestState.cancelRequested) {
-								sendCancelled();
-								return;
-							}
-							sendComplete();
-						}, SESSION_COMPLETE_GRACE_MS);
-					} else {
-						sendComplete();
-						inFlightPrompts.delete(message.sessionId);
-					}
+						if (!latestState) {
+							return;
+						}
+						streamDelivery.deliverTurn(connectionId, message.sessionId, {
+							type: "turn_complete",
+							turnId: latestState.turnId,
+							sessionId: message.sessionId,
+							status: latestState.cancelRequested ? "cancelled" : "completed",
+						});
+					}, SESSION_COMPLETE_GRACE_MS);
 				} else {
+					streamDelivery.deliverTurn(connectionId, message.sessionId, {
+						type: "turn_complete",
+						turnId,
+						sessionId: message.sessionId,
+						status: "completed",
+					});
 					inFlightPrompts.delete(message.sessionId);
 				}
 			} catch (error) {
@@ -780,6 +1045,15 @@ async function routeMessage(
 					sessionId: message.sessionId,
 					message: messageText,
 				});
+				if (inFlightState) {
+					streamDelivery.deliverTurn(connectionId, message.sessionId, {
+						type: "turn_error",
+						turnId: inFlightState.turnId,
+						sessionId: message.sessionId,
+						errorCode: "PROCESS_CRASH",
+						errorMessage: messageText,
+					});
+				}
 				sendEnvelope(socket, {
 					type: "error",
 					requestId: message.requestId,
@@ -805,11 +1079,12 @@ async function routeMessage(
 						inFlightState.completionTimer = null;
 					}
 
-					if (hadCompletionTimer && inFlightState.assistantEntryId) {
-						sendEnvelope(socket, {
-							type: "session:cancelled",
+					if (hadCompletionTimer) {
+						streamDelivery.deliverTurn(connectionId, message.sessionId, {
+							type: "turn_complete",
+							turnId: inFlightState.turnId,
 							sessionId: message.sessionId,
-							entryId: inFlightState.assistantEntryId,
+							status: "cancelled",
 						});
 						inFlightPrompts.delete(message.sessionId);
 					}

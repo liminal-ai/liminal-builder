@@ -18,6 +18,7 @@ import { SessionManager } from "../../server/sessions/session-manager";
 import type { SessionMeta } from "../../server/sessions/session-types";
 import type { CliType } from "../../server/sessions/session-types";
 import { JsonStore } from "../../server/store/json-store";
+import type { UpsertObject } from "../../server/streaming/upsert-types";
 import type { ChatEntry } from "../../shared/types";
 import type { ServerMessage } from "../../shared/types";
 import { handleWebSocket, type WebSocketDeps } from "../../server/websocket";
@@ -156,19 +157,6 @@ function sendAndReceive(
 				clearTimeout(timer);
 				ws.removeEventListener("message", handler);
 				resolve(data);
-				return;
-			}
-			if (
-				expectedType === "session:cancelled" &&
-				data.type === "session:complete"
-			) {
-				clearTimeout(timer);
-				ws.removeEventListener("message", handler);
-				reject(
-					new Error(
-						"Received session:complete while waiting for session:cancelled",
-					),
-				);
 				return;
 			}
 			if (expectedType === "error" && data.type === "session:created") {
@@ -432,25 +420,34 @@ describe("handleWebSocket", () => {
 		);
 
 		const messages = harness.socket.getMessages();
-		const updates = messagesOfType(messages, "session:update");
-		const chunks = messagesOfType(messages, "session:chunk");
-		const completes = messagesOfType(messages, "session:complete");
+		const upserts = messagesOfType(messages, "session:upsert");
+		const turns = messagesOfType(messages, "session:turn");
+		const messageUpserts = upserts
+			.map((upsert) => upsert.payload)
+			.filter(
+				(payload): payload is Extract<UpsertObject, { type: "message" }> =>
+					payload.type === "message",
+			);
 
-		expect(updates).toHaveLength(1);
-		expect(updates[0].entry.type).toBe("assistant");
-		const assistantEntryId = updates[0].entry.entryId;
-
-		expect(chunks).toHaveLength(2);
-		expect(chunks.map((chunk) => chunk.content)).toEqual(["Hello", " world"]);
-		expect(chunks.every((chunk) => chunk.entryId === assistantEntryId)).toBe(
-			true,
+		expect(messageUpserts).toHaveLength(3);
+		expect(messageUpserts.map((payload) => payload.status)).toEqual([
+			"create",
+			"update",
+			"complete",
+		]);
+		expect(messageUpserts[2]?.content).toBe("Hello world");
+		expect(new Set(messageUpserts.map((payload) => payload.itemId)).size).toBe(
+			1,
 		);
-
-		expect(completes).toHaveLength(1);
-		expect(completes[0]).toMatchObject({
-			type: "session:complete",
+		expect(turns).toHaveLength(2);
+		expect(turns[0]?.payload).toMatchObject({
+			type: "turn_started",
 			sessionId: "claude-code:session-7",
-			entryId: assistantEntryId,
+		});
+		expect(turns[1]?.payload).toMatchObject({
+			type: "turn_complete",
+			sessionId: "claude-code:session-7",
+			status: "completed",
 		});
 	});
 
@@ -475,11 +472,11 @@ describe("handleWebSocket", () => {
 
 		const messages = harness.socket.getMessages();
 		expect(messagesOfType(messages, "error")).toHaveLength(0);
-		expect(messagesOfType(messages, "session:complete")).toHaveLength(0);
-		expect(messagesOfType(messages, "session:update")).toHaveLength(0);
+		expect(messagesOfType(messages, "session:upsert")).toHaveLength(0);
+		expect(messagesOfType(messages, "session:turn")).toHaveLength(2);
 	});
 
-	it("emits session:cancelled when prompt stopReason is cancelled", async () => {
+	it("emits turn_complete(cancelled) when prompt stopReason is cancelled", async () => {
 		harness.sessionPrompt.mockImplementation(
 			async (_sessionId, _content, onEvent) => {
 				onEvent({
@@ -498,10 +495,12 @@ describe("handleWebSocket", () => {
 		await flushAsync();
 
 		const messages = harness.socket.getMessages();
-		const cancelled = messagesOfType(messages, "session:cancelled");
-		const complete = messagesOfType(messages, "session:complete");
-		expect(cancelled).toHaveLength(1);
-		expect(complete).toHaveLength(0);
+		const turns = messagesOfType(messages, "session:turn");
+		expect(turns).toHaveLength(2);
+		expect(turns[1]?.payload).toMatchObject({
+			type: "turn_complete",
+			status: "cancelled",
+		});
 	});
 
 	it("preserves tool-call title across tool_call updates", async () => {
@@ -530,21 +529,20 @@ describe("handleWebSocket", () => {
 		});
 		await flushAsync();
 
-		const updates = messagesOfType(
+		const upserts = messagesOfType(
 			harness.socket.getMessages(),
-			"session:update",
-		);
-		const toolEntries = updates
-			.map((update) => update.entry)
+			"session:upsert",
+		)
+			.map((update) => update.payload)
 			.filter(
-				(entry): entry is Extract<ChatEntry, { type: "tool-call" }> =>
-					entry.type === "tool-call",
+				(payload): payload is Extract<UpsertObject, { type: "tool_call" }> =>
+					payload.type === "tool_call",
 			);
-		expect(toolEntries).toHaveLength(2);
-		expect(toolEntries[0].name).toBe("Run tests");
-		expect(toolEntries[1].name).toBe("Run tests");
-		expect(toolEntries[1].entryId).toBe(toolEntries[0].entryId);
-		expect(toolEntries[1].status).toBe("complete");
+		expect(upserts).toHaveLength(2);
+		expect(upserts[0]?.toolName).toBe("Run tests");
+		expect(upserts[1]?.toolName).toBe("Run tests");
+		expect(upserts[1]?.itemId).toBe(upserts[0]?.itemId);
+		expect(upserts[1]?.status).toBe("complete");
 	});
 
 	it("uses requested cliType + project cwd for session:create and returns canonical sessionId", async () => {
@@ -642,22 +640,23 @@ describe("handleWebSocket", () => {
 		await flushAsync();
 
 		const messages = harness.socket.getMessages();
-		expect(messagesOfType(messages, "session:update")).toHaveLength(0);
+		expect(messagesOfType(messages, "session:upsert")).toHaveLength(0);
 
 		const histories = messagesOfType(messages, "session:history");
 		expect(histories).toHaveLength(1);
 		expect(histories[0]).toMatchObject({
 			type: "session:history",
 			sessionId: "claude-code:history-once",
-			requestId: "open-once-1",
 		});
 		expect(histories[0].entries).toEqual([
-			{
-				entryId: "entry-1",
-				type: "assistant",
+			expect.objectContaining({
+				type: "message",
+				status: "complete",
+				itemId: "entry-1",
 				content: "Loaded once",
-				timestamp: "2026-02-15T00:00:00.000Z",
-			},
+				origin: "agent",
+				sourceTimestamp: "2026-02-15T00:00:00.000Z",
+			}),
 		]);
 	});
 
@@ -679,7 +678,6 @@ describe("handleWebSocket", () => {
 		expect(histories[0]).toMatchObject({
 			type: "session:history",
 			sessionId: "claude-code:open-123",
-			requestId: "open-1",
 		});
 
 		harness.socket.emitMessage({
@@ -902,7 +900,7 @@ describe("WebSocket Integration: Round-Trip Message Flow", () => {
 		expect(response.cliType).toBe("claude-code");
 	});
 
-	it("TC-3.7b: cancel round-trip - sends cancel during streaming, receives session:cancelled", async () => {
+	it("TC-3.7b: cancel round-trip - sends cancel during streaming, receives turn_complete(cancelled)", async () => {
 		const projectPath = makeProjectDir(tempRoot, "project-cancel");
 		const addResp = await sendAndReceive(
 			ws,
@@ -931,18 +929,30 @@ describe("WebSocket Integration: Round-Trip Message Flow", () => {
 
 				const handler = (event: MessageEvent) => {
 					const data = parseWsMessage(event.data);
-					if (data.type === "session:cancelled") {
+					if (
+						data.type === "session:turn" &&
+						typeof data.payload === "object" &&
+						data.payload !== null &&
+						(data.payload as { type?: unknown }).type === "turn_complete" &&
+						(data.payload as { status?: unknown }).status === "cancelled"
+					) {
 						clearTimeout(timer);
 						ws.removeEventListener("message", handler);
 						resolve(data);
 						return;
 					}
-					if (data.type === "session:complete") {
+					if (
+						data.type === "session:turn" &&
+						typeof data.payload === "object" &&
+						data.payload !== null &&
+						(data.payload as { type?: unknown }).type === "turn_complete" &&
+						(data.payload as { status?: unknown }).status === "completed"
+					) {
 						clearTimeout(timer);
 						ws.removeEventListener("message", handler);
 						reject(
 							new Error(
-								"Received session:complete before cancellation confirmation",
+								"Received completed turn before cancellation confirmation",
 							),
 						);
 					}
@@ -958,8 +968,13 @@ describe("WebSocket Integration: Round-Trip Message Flow", () => {
 			},
 		);
 
-		expect(response.type).toBe("session:cancelled");
-		expect(response.sessionId).toBe(sessionId);
+		expect(response.type).toBe("session:turn");
+		expect(
+			(response.payload as { type?: unknown; status?: unknown }).type,
+		).toBe("turn_complete");
+		expect(
+			(response.payload as { type?: unknown; status?: unknown }).status,
+		).toBe("cancelled");
 	});
 
 	it("project:remove WebSocket round-trip - sends project:remove, receives project:removed", async () => {

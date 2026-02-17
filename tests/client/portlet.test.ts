@@ -15,12 +15,51 @@ type ChatEntry =
 			error?: string;
 	  };
 
+type UpsertPayload = {
+	turnId: string;
+	sessionId: string;
+	itemId: string;
+	sourceTimestamp: string;
+	emittedAt: string;
+	status: "create" | "update" | "complete" | "error";
+	type: "message" | "thinking" | "tool_call";
+	content?: string;
+	origin?: "user" | "agent" | "system";
+	callId?: string;
+	toolName?: string;
+	toolArguments?: Record<string, unknown>;
+	toolOutput?: string;
+	errorMessage?: string;
+};
+
 type ShellToPortletMessage =
-	| { type: "session:history"; entries: ChatEntry[] }
-	| { type: "session:update"; entry: ChatEntry }
-	| { type: "session:chunk"; entryId: string; content: string }
-	| { type: "session:complete"; entryId: string }
-	| { type: "session:cancelled"; entryId: string }
+	| { type: "session:history"; sessionId: string; entries: UpsertPayload[] }
+	| { type: "session:upsert"; sessionId: string; payload: UpsertPayload }
+	| {
+			type: "session:turn";
+			sessionId: string;
+			payload:
+				| {
+						type: "turn_started";
+						turnId: string;
+						sessionId: string;
+						modelId: string;
+						providerId: string;
+				  }
+				| {
+						type: "turn_complete";
+						turnId: string;
+						sessionId: string;
+						status: "completed" | "cancelled";
+				  }
+				| {
+						type: "turn_error";
+						turnId: string;
+						sessionId: string;
+						errorCode: string;
+						errorMessage: string;
+				  };
+	  }
 	| {
 			type: "agent:status";
 			status: "starting" | "connected" | "disconnected" | "reconnecting";
@@ -116,22 +155,55 @@ describe("Portlet Chat Session", () => {
 		const chatContainer = getChatContainer();
 
 		portlet.handleShellMessage({
-			type: "session:update",
-			entry: {
-				entryId: "assistant-9",
-				type: "assistant",
+			type: "session:upsert",
+			sessionId: "claude-code:cancel-session",
+			payload: {
+				turnId: "turn-9",
+				sessionId: "claude-code:cancel-session",
+				itemId: "assistant-9",
+				sourceTimestamp: "2026-02-08T10:04:00.000Z",
+				emittedAt: "2026-02-08T10:04:00.000Z",
+				status: "create",
+				type: "message",
 				content: "",
-				timestamp: "2026-02-08T10:04:00.000Z",
+				origin: "agent",
 			},
 		});
 		portlet.handleShellMessage({
-			type: "session:chunk",
-			entryId: "assistant-9",
-			content: "partial response",
+			type: "session:upsert",
+			sessionId: "claude-code:cancel-session",
+			payload: {
+				turnId: "turn-9",
+				sessionId: "claude-code:cancel-session",
+				itemId: "assistant-9",
+				sourceTimestamp: "2026-02-08T10:04:01.000Z",
+				emittedAt: "2026-02-08T10:04:01.000Z",
+				status: "update",
+				type: "message",
+				content: "partial response",
+				origin: "agent",
+			},
 		});
 		portlet.handleShellMessage({
-			type: "session:cancelled",
-			entryId: "assistant-9",
+			type: "session:turn",
+			sessionId: "claude-code:cancel-session",
+			payload: {
+				type: "turn_started",
+				turnId: "turn-9",
+				sessionId: "claude-code:cancel-session",
+				modelId: "claude-code",
+				providerId: "claude-code",
+			},
+		});
+		portlet.handleShellMessage({
+			type: "session:turn",
+			sessionId: "claude-code:cancel-session",
+			payload: {
+				type: "turn_complete",
+				turnId: "turn-9",
+				sessionId: "claude-code:cancel-session",
+				status: "cancelled",
+			},
 		});
 
 		const messageInput = document.getElementById(
@@ -159,18 +231,29 @@ describe("Portlet Chat Session", () => {
 
 		portlet.handleShellMessage({
 			type: "session:history",
+			sessionId: "claude-code:history-1",
 			entries: [
 				{
-					entryId: "u-1",
-					type: "user",
+					turnId: "history-1",
+					sessionId: "claude-code:history-1",
+					itemId: "u-1",
+					type: "message",
+					status: "complete",
+					origin: "user",
 					content: "hello",
-					timestamp: "2026-02-15T10:00:00.000Z",
+					sourceTimestamp: "2026-02-15T10:00:00.000Z",
+					emittedAt: "2026-02-15T10:00:00.000Z",
 				},
 				{
-					entryId: "a-1",
-					type: "assistant",
+					turnId: "history-1",
+					sessionId: "claude-code:history-1",
+					itemId: "a-1",
+					type: "message",
+					status: "complete",
+					origin: "agent",
 					content: "hi there",
-					timestamp: "2026-02-15T10:00:01.000Z",
+					sourceTimestamp: "2026-02-15T10:00:01.000Z",
+					emittedAt: "2026-02-15T10:00:01.000Z",
 				},
 			],
 		});

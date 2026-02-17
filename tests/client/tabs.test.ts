@@ -491,15 +491,25 @@ describe("Tab Management", () => {
 		});
 
 		shell.routeToPortlet({
-			type: "session:update",
+			type: "session:upsert",
 			sessionId: "claude-code:session-1",
-			entry: { entryId: "e1", role: "user", type: "text", content: "hello" },
+			payload: {
+				turnId: "turn-1",
+				sessionId: "claude-code:session-1",
+				itemId: "e1",
+				sourceTimestamp: "2026-02-17T00:00:00.000Z",
+				emittedAt: "2026-02-17T00:00:00.000Z",
+				status: "complete",
+				type: "message",
+				content: "hello",
+				origin: "agent",
+			},
 		});
 
 		expect(spy1).toHaveBeenCalledOnce();
 		expect(spy2).not.toHaveBeenCalled();
 		expect(spy1).toHaveBeenCalledWith(
-			expect.objectContaining({ type: "session:update" }),
+			expect.objectContaining({ type: "session:upsert" }),
 			expect.any(String),
 		);
 	});
@@ -598,9 +608,19 @@ describe("Tab Management", () => {
 		});
 
 		shell.routeToPortlet({
-			type: "session:update",
+			type: "session:upsert",
 			sessionId: "claude-code:unknown-session",
-			entry: { entryId: "e1", role: "user", type: "text", content: "hello" },
+			payload: {
+				turnId: "turn-1",
+				sessionId: "claude-code:unknown-session",
+				itemId: "e1",
+				sourceTimestamp: "2026-02-17T00:00:00.000Z",
+				emittedAt: "2026-02-17T00:00:00.000Z",
+				status: "complete",
+				type: "message",
+				content: "hello",
+				origin: "agent",
+			},
 		});
 
 		expect(spy1).not.toHaveBeenCalled();

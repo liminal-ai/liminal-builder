@@ -37,10 +37,6 @@ const PORTLET_MESSAGE_TYPES = new Set([
 	"session:history",
 	"session:upsert",
 	"session:turn",
-	"session:update",
-	"session:chunk",
-	"session:complete",
-	"session:cancelled",
 	"session:error",
 ]);
 /** @type {((event: MessageEvent) => void) | null} */
@@ -150,8 +146,7 @@ export function setupPortletRelay(sendMessageFn) {
  * Called from the WebSocket onmessage handler for session-scoped messages.
  *
  * Session-scoped message types that should be relayed (all carry sessionId):
- * - session:history, session:update, session:chunk, session:complete,
- *   session:cancelled, session:error
+ * - session:history, session:upsert, session:turn, session:error
  *
  * NOTE: agent:status messages are NOT routed here — they carry cliType, not
  * sessionId, and require broadcast to ALL portlet iframes of that CLI type.
