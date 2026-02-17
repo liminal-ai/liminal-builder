@@ -287,6 +287,13 @@ describe("CodexAcpProvider (Story 5, Red)", () => {
 			content: [{ type: "text", text: "world" }],
 		});
 		fixture.emitTerminal("end_turn");
+		await waitFor(
+			() =>
+				upserts.some(
+					(upsert) => isMessageUpsert(upsert) && upsert.status === "complete",
+				),
+			"message complete upsert for TC-4.2a",
+		);
 
 		const messageUpserts = upserts.filter(isMessageUpsert);
 		expect(messageUpserts.map((upsert) => upsert.status)).toEqual([

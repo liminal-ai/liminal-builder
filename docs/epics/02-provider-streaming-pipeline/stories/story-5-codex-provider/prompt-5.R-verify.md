@@ -17,6 +17,12 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contrac
 
 ## Verification Checklist
 
+### Approved correction note (2026-02-17, user-approved)
+- A single Story 5 test timing correction is allowed in `TC-4.2a`:
+  - File: `tests/server/providers/codex-acp-provider.test.ts`
+  - Change intent: wait for async terminal microtask delivery before asserting final `message` `status: "complete"`.
+  - Constraint: TC semantics and assertions remain unchanged (`create` -> `update` -> `complete` with full accumulated content).
+
 ### 1) File and scope audit
 - Confirm Story 5 changes are limited to:
   - `server/providers/codex/codex-acp-provider.ts`
@@ -53,7 +59,7 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contrac
 
 ### 6) Regression and immutability checks
 - Confirm Story 0-2 + Story 4 suites remain green.
-- Confirm green phase did not rewrite Story 5 tests except approved pivot-contract corrections.
+- Confirm green phase did not rewrite Story 5 tests except the user-approved `TC-4.2a` async wait correction above and any separately approved pivot-contract corrections.
 - If `green-verify` fails, confirm failures are only known Story 3 red suites unless Story 3 was in scope.
 - Story 3 intentionally-red allowance is temporary and must be resolved before Story 6+ delivery/release gates.
 

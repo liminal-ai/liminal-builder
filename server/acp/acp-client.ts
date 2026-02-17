@@ -525,17 +525,11 @@ export class AcpClient {
 			}
 			case "tool_call": {
 				replayState.pendingTextEntry = null;
-				const toolCallId =
-					typeof event.toolCallId === "string"
-						? event.toolCallId
-						: crypto.randomUUID();
+				const toolCallId = this.extractToolCallId(event) ?? crypto.randomUUID();
 				const status = this.mapToolStatus(
 					typeof event.status === "string" ? event.status : undefined,
 				);
-				const toolName =
-					typeof event.title === "string" && event.title.length > 0
-						? event.title
-						: "Tool call";
+				const toolName = this.extractToolName(event) ?? "Tool call";
 				const existing = replayState.toolEntriesByCallId.get(toolCallId);
 				const entry =
 					existing ??
@@ -564,10 +558,7 @@ export class AcpClient {
 			}
 			case "tool_call_update": {
 				replayState.pendingTextEntry = null;
-				const toolCallId =
-					typeof event.toolCallId === "string"
-						? event.toolCallId
-						: crypto.randomUUID();
+				const toolCallId = this.extractToolCallId(event) ?? crypto.randomUUID();
 				const existing = replayState.toolEntriesByCallId.get(toolCallId);
 				const status = this.mapToolStatus(
 					typeof event.status === "string" ? event.status : undefined,
@@ -643,6 +634,18 @@ export class AcpClient {
 		if ("content" in normalized) {
 			normalized.content = this.normalizeContentBlocks(normalized.content);
 		}
+		if (type === "tool_call" || type === "tool_call_update") {
+			const callId = this.extractToolCallIdFromRecord(normalized);
+			if (callId) {
+				normalized.callId = callId;
+				normalized.toolCallId = callId;
+			}
+			const toolName = this.extractToolNameFromRecord(normalized);
+			if (toolName) {
+				normalized.toolName = toolName;
+				normalized.title = toolName;
+			}
+		}
 
 		return normalized as AcpUpdateEvent;
 	}
@@ -655,6 +658,43 @@ export class AcpClient {
 			return update.sessionUpdate;
 		}
 		return null;
+	}
+
+	private extractToolCallId(event: AcpUpdateEvent): string | undefined {
+		const candidate = event as Record<string, unknown>;
+		return this.extractToolCallIdFromRecord(candidate);
+	}
+
+	private extractToolCallIdFromRecord(
+		value: Record<string, unknown>,
+	): string | undefined {
+		if (typeof value.toolCallId === "string") {
+			return value.toolCallId;
+		}
+		if (typeof value.callId === "string") {
+			return value.callId;
+		}
+		if (typeof value.tool_call_id === "string") {
+			return value.tool_call_id;
+		}
+		return undefined;
+	}
+
+	private extractToolName(event: AcpUpdateEvent): string | undefined {
+		const candidate = event as Record<string, unknown>;
+		return this.extractToolNameFromRecord(candidate);
+	}
+
+	private extractToolNameFromRecord(
+		value: Record<string, unknown>,
+	): string | undefined {
+		if (typeof value.title === "string" && value.title.length > 0) {
+			return value.title;
+		}
+		if (typeof value.toolName === "string" && value.toolName.length > 0) {
+			return value.toolName;
+		}
+		return undefined;
 	}
 
 	private normalizeContentBlocks(
