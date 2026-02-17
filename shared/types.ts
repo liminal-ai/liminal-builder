@@ -1,8 +1,6 @@
 import type { Project } from "../server/projects/project-types";
 import type { CliType } from "../server/sessions/session-types";
 import type {
-	ConnectionCapabilities,
-	StreamProtocolFamily,
 	WsHistoryMessage,
 	WsTurnMessage,
 	WsUpsertMessage,
@@ -31,11 +29,6 @@ export type ClientMessage = {
 	requestId?: string;
 } & (
 	| { type: "session:open"; sessionId: string }
-	| {
-			type: "session:hello";
-			streamProtocol?: "upsert-v1";
-			capabilities?: ConnectionCapabilities;
-	  }
 	| { type: "session:create"; projectId: string; cliType: CliType }
 	| { type: "session:send"; sessionId: string; content: string }
 	| { type: "session:cancel"; sessionId: string }
@@ -51,10 +44,6 @@ export type ClientMessage = {
  * Server -> Client WebSocket messages.
  */
 export type ServerMessage =
-	| {
-			type: "session:hello:ack";
-			selectedFamily: StreamProtocolFamily;
-	  }
 	| WsUpsertMessage
 	| WsTurnMessage
 	| WsHistoryMessage

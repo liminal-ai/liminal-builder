@@ -7,7 +7,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Product/Project/Feature:** Liminal Builder, Epic 02 Provider Architecture + Streaming Pipeline.
 
-**Story:** Bring Story 6 to green by implementing direct provider→delivery→browser pipeline wiring and migrating browser rendering to upsert semantics. No compatibility window — upsert-v1 is the only message family.
+**Story:** Bring Story 6 to green by implementing ACP callback→delivery→browser pipeline wiring and migrating browser rendering to upsert semantics. No compatibility window — upsert-v1 is the only message family.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
@@ -28,9 +28,9 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 The pipeline wiring this story implements:
 
 ```
-Provider (onUpsert/onTurn callbacks)
+SessionManager + ACP client (`onEvent` updates)
     ↓
-server/websocket.ts (registers callbacks, receives upserts/turns)
+server/websocket.ts (translates ACP updates to upserts/turns)
     ↓
 server/websocket/stream-delivery.ts (wraps as session:upsert / session:turn / session:history)
     ↓
@@ -45,7 +45,7 @@ There is no compatibility gateway, no family selection, no legacy message path. 
 
 ### Required behavior
 
-1. **Provider callback wiring:** When a session is created or loaded, register `onUpsert` and `onTurn` callbacks with the provider. When callbacks fire, route the upsert/turn through `stream-delivery` to the WebSocket connection that owns that session.
+1. **Streaming callback wiring (current runtime path):** Wire streaming delivery through the existing `sessionManager.sendMessage(sessionId, content, onEvent)` path. Convert `AcpUpdateEvent` updates in `onEvent` to upsert/turn messages and route them through `stream-delivery` to the current WebSocket connection.
 
 2. **Legacy path removal (TC-7.4a):** Remove `createPromptBridgeMessages` usage from the active `session:send` flow. Remove legacy `session:update`, `session:chunk`, `session:complete`, `session:cancelled` emission from the streaming path. The browser no longer receives these message types for streaming content.
 
@@ -72,7 +72,7 @@ interface StreamDelivery {
 
 ### Key implementation notes
 
-**Session-to-connection mapping:** The WebSocket handler needs to know which connection(s) should receive upserts for a given session. The current architecture is one-connection-per-browser, so the simplest approach is: when the WebSocket handler calls `sendMessage` on a provider, it also registers `onUpsert`/`onTurn` callbacks that capture the current connection's `streamDelivery` and `connectionId`. This is analogous to how the current `onEvent` callback in `sessionManager.sendMessage` captures the socket.
+**Session-to-connection mapping:** The WebSocket handler needs to know which connection(s) should receive upserts for a given session. The current architecture is one-connection-per-browser, so the simplest approach is: in the `sessionManager.sendMessage(..., onEvent)` call, use an `onEvent` callback that captures the current connection's `streamDelivery` and `connectionId` context.
 
 **Provider access — critical implementation detail:** The Epic 2 providers (`ClaudeSdkProvider`, `CodexAcpProvider`) exist as implemented classes from Stories 4-5, but they are **not instantiated in the runtime**. The provider registry (`provider-registry.ts`) is a stub. There is no connection between the `SessionManager` and the provider instances.
 
@@ -150,6 +150,8 @@ These updates are specifically for replacing legacy streaming expectations (`ses
 
 Do not modify any other test files in this prompt.
 
+If any of these allowed legacy-assertion test files are modified, run `bun run guard:test-baseline-record` before `bun run green-verify` so the guard baseline reflects the intended updates.
+
 ## Non-Goals
 - No provider internal behavior rewrites
 - No new API routes
@@ -192,7 +194,8 @@ When complete, run in order:
 6. `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts` — Story 4 still green (14/14)
 7. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts` — Story 5 still green
 8. `bunx vitest run tests/server/providers/provider-interface.test.ts` — conformance still green
-9. `bun run green-verify` — full suite passes
+9. If any allowed legacy-assertion test files were modified, run `bun run guard:test-baseline-record`
+10. `bun run green-verify` — full suite passes
 
 Expected:
 - Story 6: 9 tests pass

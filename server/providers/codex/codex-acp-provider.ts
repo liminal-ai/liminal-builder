@@ -588,17 +588,17 @@ export class CodexAcpProvider implements CliProvider {
 			callId,
 		};
 
-			this.emitUpsert(session.sessionId, {
-				type: "tool_call",
-				status,
-				...upsert,
-				...(content.length > 0 ? { toolOutput: content } : {}),
-				...(status === "error" ? { toolOutputIsError: true } : {}),
-				...(status === "error"
-					? {
-							errorCode: "PROCESS_CRASH",
-							errorMessage:
-								content.length > 0
+		this.emitUpsert(session.sessionId, {
+			type: "tool_call",
+			status,
+			...upsert,
+			...(content.length > 0 ? { toolOutput: content } : {}),
+			...(status === "error" ? { toolOutputIsError: true } : {}),
+			...(status === "error"
+				? {
+						errorCode: "PROCESS_CRASH",
+						errorMessage:
+							content.length > 0
 								? content
 								: `Codex tool call ${callId} reported failure`,
 					}

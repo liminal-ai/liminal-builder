@@ -1,6 +1,5 @@
 import { randomUUID } from "node:crypto";
 import type { EventEmitter } from "node:events";
-import type { ConnectionContext } from "../shared/stream-contracts";
 import type { ChatEntry, ClientMessage, ServerMessage } from "../shared/types";
 import type { AcpPromptResult, AcpUpdateEvent } from "./acp/acp-types";
 import type { AcpClient } from "./acp/acp-client";
@@ -8,7 +7,6 @@ import type { AgentStatus } from "./acp/agent-manager";
 import type { ProjectStore } from "./projects/project-store";
 import type { CliType, SessionPromptResult } from "./sessions/session-types";
 import type { SessionManager } from "./sessions/session-manager";
-import { createCompatibilityGateway } from "./websocket/compatibility-gateway";
 import { createStreamDelivery } from "./websocket/stream-delivery";
 
 type WebSocketLike = {
@@ -57,10 +55,6 @@ type InFlightPromptState = {
 	assistantEntryId: string | null;
 	cancelRequested: boolean;
 	completionTimer: ReturnType<typeof setTimeout> | null;
-};
-
-type ConnectionState = {
-	context: ConnectionContext;
 };
 
 const SESSION_COMPLETE_GRACE_MS = 75;
@@ -328,24 +322,6 @@ function isClientMessage(value: unknown): value is ClientMessage {
 	}
 
 	switch (candidate.type) {
-		case "session:hello": {
-			const capabilities = candidate.capabilities;
-			const hasValidCapabilities =
-				capabilities === undefined ||
-				(typeof capabilities === "object" &&
-					capabilities !== null &&
-					("streamProtocol" in capabilities
-						? (capabilities as { streamProtocol?: unknown }).streamProtocol ===
-								"upsert-v1" ||
-							(capabilities as { streamProtocol?: unknown }).streamProtocol ===
-								undefined
-						: true));
-			return (
-				hasValidCapabilities &&
-				(candidate.streamProtocol === undefined ||
-					candidate.streamProtocol === "upsert-v1")
-			);
-		}
 		case "project:add":
 			return typeof candidate.path === "string";
 		case "project:remove":
@@ -427,18 +403,9 @@ export function handleWebSocket(
 			sendEnvelope(socket, message as ServerMessage);
 		},
 	});
-	const compatibilityGateway = createCompatibilityGateway({
-		streamDelivery,
-		sendLegacy(targetConnectionId, payload) {
-			if (targetConnectionId !== connectionId) {
-				return;
-			}
-			sendEnvelope(socket, payload as ServerMessage);
-		},
-	});
-	const connectionState: ConnectionState = {
-		context: compatibilityGateway.negotiate(connectionId),
-	};
+	// Story 6.1b keeps these locals for the green-phase wiring.
+	void connectionId;
+	void streamDelivery;
 	const disabledMessageTypes = deps.sessionManager
 		? new Set<ClientMessage["type"]>()
 		: AGENT_ONLY_DISABLED_MESSAGES;
@@ -481,9 +448,6 @@ export function handleWebSocket(
 			sessionCwdByCanonicalId,
 			inFlightPrompts,
 			disabledMessageTypes,
-			connectionId,
-			connectionState,
-			compatibilityGateway,
 		);
 	});
 
@@ -512,9 +476,6 @@ async function handleIncomingMessage(
 	sessionCwdByCanonicalId: Map<string, string>,
 	inFlightPrompts: Map<string, InFlightPromptState>,
 	disabledMessageTypes: Set<ClientMessage["type"]>,
-	connectionId: string,
-	connectionState: ConnectionState,
-	compatibilityGateway: ReturnType<typeof createCompatibilityGateway>,
 ): Promise<void> {
 	try {
 		const parsed = JSON.parse(
@@ -547,9 +508,6 @@ async function handleIncomingMessage(
 			deps,
 			sessionCwdByCanonicalId,
 			inFlightPrompts,
-			connectionId,
-			connectionState,
-			compatibilityGateway,
 		);
 	} catch (error) {
 		console.error("[ws] Failed to handle message:", error);
@@ -566,24 +524,8 @@ async function routeMessage(
 	deps: WebSocketDeps,
 	sessionCwdByCanonicalId: Map<string, string>,
 	inFlightPrompts: Map<string, InFlightPromptState>,
-	connectionId: string,
-	connectionState: ConnectionState,
-	compatibilityGateway: ReturnType<typeof createCompatibilityGateway>,
 ): Promise<void> {
 	switch (message.type) {
-		case "session:hello": {
-			const negotiated = compatibilityGateway.negotiate(connectionId, {
-				streamProtocol:
-					message.capabilities?.streamProtocol ?? message.streamProtocol,
-			});
-			connectionState.context = negotiated;
-			sendEnvelope(socket, {
-				type: "session:hello:ack",
-				selectedFamily: negotiated.selectedFamily,
-			});
-			break;
-		}
-
 		case "project:add": {
 			try {
 				const project = await deps.projectStore.addProject(message.path);
@@ -743,9 +685,7 @@ async function routeMessage(
 									inFlightState.assistantEntryId = bridgeState.assistantEntryId;
 								}
 								for (const outbound of outboundMessages) {
-									compatibilityGateway.deliver(connectionState.context, {
-										legacy: outbound,
-									});
+									sendEnvelope(socket, outbound);
 								}
 							},
 						)
@@ -768,9 +708,7 @@ async function routeMessage(
 											bridgeState.assistantEntryId;
 									}
 									for (const outbound of outboundMessages) {
-										compatibilityGateway.deliver(connectionState.context, {
-											legacy: outbound,
-										});
+										sendEnvelope(socket, outbound);
 									}
 								},
 							);
@@ -788,22 +726,18 @@ async function routeMessage(
 				inFlightState.assistantEntryId = bridgeState.assistantEntryId;
 				if (bridgeState.assistantEntryId !== null) {
 					const sendCancelled = () => {
-						compatibilityGateway.deliver(connectionState.context, {
-							legacy: {
-								type: "session:cancelled",
-								sessionId: message.sessionId,
-								entryId: bridgeState.assistantEntryId as string,
-							},
+						sendEnvelope(socket, {
+							type: "session:cancelled",
+							sessionId: message.sessionId,
+							entryId: bridgeState.assistantEntryId as string,
 						});
 					};
 
 					const sendComplete = () => {
-						compatibilityGateway.deliver(connectionState.context, {
-							legacy: {
-								type: "session:complete",
-								sessionId: message.sessionId,
-								entryId: bridgeState.assistantEntryId as string,
-							},
+						sendEnvelope(socket, {
+							type: "session:complete",
+							sessionId: message.sessionId,
+							entryId: bridgeState.assistantEntryId as string,
 						});
 					};
 
@@ -872,12 +806,10 @@ async function routeMessage(
 					}
 
 					if (hadCompletionTimer && inFlightState.assistantEntryId) {
-						compatibilityGateway.deliver(connectionState.context, {
-							legacy: {
-								type: "session:cancelled",
-								sessionId: message.sessionId,
-								entryId: inFlightState.assistantEntryId,
-							},
+						sendEnvelope(socket, {
+							type: "session:cancelled",
+							sessionId: message.sessionId,
+							entryId: inFlightState.assistantEntryId,
 						});
 						inFlightPrompts.delete(message.sessionId);
 					}
