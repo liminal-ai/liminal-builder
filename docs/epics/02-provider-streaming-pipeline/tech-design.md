@@ -34,7 +34,7 @@ The current runtime shape is a Fastify server plus WebSocket bridge. Chat transp
 
 The target shape introduces explicit provider, delivery, and compatibility-processing layers. Provider code maps SDK/ACP-native signals directly into `UpsertObject` and `TurnEvent` callbacks. The upsert processor remains available for canonical-envelope sources and compatibility paths that still require envelope-to-upsert transformation. Transport delivers upsert objects and turn events. This layering enables Phase 2 Redis insertion without refactoring provider logic or browser rendering semantics.
 
-The design also introduces an explicit Session API (`/api/session/*`) while preserving a temporary WebSocket compatibility window. During Story 6, legacy and new message families can coexist, but a single connection may only receive one family. Story 7 removes legacy streaming messages after rollout checks pass.
+The design also introduces an explicit Session API (`/api/session/*`). **Post-pivot (2026-02-17):** The compatibility window was removed. Story 6 wires provider outputs directly to `upsert-v1` delivery and removes legacy message paths. No dual-family coexistence or negotiation.
 
 ## Tech Design Questions: Decisions
 
@@ -92,8 +92,8 @@ flowchart LR
   - `POST /api/session/:id/cancel`
   - `POST /api/session/:id/kill`
 - WebSocket streaming surface:
-  - New family: `session:upsert`, `session:turn`, `session:history`
-  - Legacy family (temporary): `session:update`, `session:chunk`, `session:complete`, `session:cancelled`
+  - `session:upsert`, `session:turn`, `session:history`
+  - ~~Legacy family removed (post-pivot 2026-02-17): `session:update`, `session:chunk`, `session:complete`, `session:cancelled` are no longer emitted~~
 
 ### External Contracts
 
@@ -126,13 +126,9 @@ Primary vs compatibility contract split:
 - `loadSession()` is explicit external contract and maps to provider `loadSession()`.
 - `POST /api/session/:id/load` returns session handle metadata only; history is delivered through WebSocket `session:history`.
 
-#### Connection Capability Negotiation Contract
+#### Connection Streaming Contract
 
-Compatibility-family selection is an explicit contract.
-
-- Client hello (optional during Story 6): `session:hello { streamProtocol: "upsert-v1" }`
-- Server ack: `session:hello:ack { selectedFamily: "legacy" | "upsert-v1" }`
-- Routing rule: one family per connection for the lifetime of that connection.
+**Post-pivot (2026-02-17):** The compatibility negotiation protocol was removed. All connections receive `upsert-v1` messages. No `session:hello` / `session:hello:ack` negotiation exists. See `stories/story-6-pipeline-browser-migration/story-6-pivot-addendum.md`.
 
 ### Runtime Prerequisites
 
@@ -311,28 +307,23 @@ sequenceDiagram
     Prov-->>WS: turn_error
 ```
 
-### Flow 4: Compatibility Window and Legacy Removal
+### Flow 4: Direct Upsert Delivery (Post-Pivot)
 
 Covers AC-6.4, AC-7.4.
 
-Compatibility is connection-scoped, never per-message fan-out to both families. Negotiation happens once per connection. If absent, legacy is default during Story 6. Story 7 removes legacy branch.
+**Post-pivot (2026-02-17):** The compatibility window was removed. All connections receive upsert-v1 messages directly. No negotiation, no dual-family routing.
 
 ```mermaid
 sequenceDiagram
     participant Shell
-    participant WS as Compatibility Gateway
+    participant WS as Stream Delivery
 
-    Note over Shell,WS: Story 6 capability negotiation
-    Shell->>WS: session:hello { streamProtocol: upsert-v1 }
-    WS-->>Shell: ack + selected family
-
-    alt selected family is legacy
-        WS-->>Shell: session:update/session:chunk
-    else selected family is new
-        WS-->>Shell: session:upsert/session:turn
-    end
-
-    Note over WS: Never emit both families to same connection
+    Shell->>WS: session:send { sessionId, content }
+    WS-->>Shell: session:turn { turn_started }
+    WS-->>Shell: session:upsert { message, status: create }
+    WS-->>Shell: session:upsert { message, status: update }
+    WS-->>Shell: session:upsert { message, status: complete }
+    WS-->>Shell: session:turn { turn_complete }
 ```
 
 ### Flow 5: Session History Replay Through Provider Output Path
@@ -552,26 +543,20 @@ export interface SessionService {
 export async function registerSessionRoutes(app: FastifyInstance, deps: { sessionService: SessionService }): Promise<void>;
 ```
 
-### Compatibility Gateway
+### Stream Delivery (Post-Pivot)
+
+**Post-pivot (2026-02-17):** The `CompatibilityGateway` was removed. Stream delivery is handled directly by `server/websocket/stream-delivery.ts`:
 
 ```typescript
-// server/websocket/compatibility-gateway.ts
-export type StreamProtocolFamily = "legacy" | "upsert-v1";
-
-export interface ConnectionCapabilities {
-  streamProtocol?: "upsert-v1";
-}
-
-export interface ConnectionContext {
-  connectionId: string;
-  selectedFamily: StreamProtocolFamily;
-}
-
-export interface CompatibilityGateway {
-  negotiate(connectionId: string, capabilities?: ConnectionCapabilities): ConnectionContext;
-  deliver(context: ConnectionContext, payload: { upsert?: UpsertObject; turn?: TurnEvent; legacy?: ServerMessage }): void;
+// server/websocket/stream-delivery.ts
+interface StreamDelivery {
+  deliverUpsert(connectionId: string, sessionId: string, payload: UpsertObject): void;
+  deliverTurn(connectionId: string, sessionId: string, payload: TurnEvent): void;
+  deliverHistory(connectionId: string, sessionId: string, entries: UpsertObject[]): void;
 }
 ```
+
+No `StreamProtocolFamily`, `ConnectionCapabilities`, `ConnectionContext`, or `CompatibilityGateway` types exist.
 
 ## Functional to Technical Traceability (Design Summary)
 
@@ -699,29 +684,28 @@ Files:
 Estimated tests: 8
 Running total: 70
 
-### Chunk 5: Pipeline Integration and Browser Migration
+### Chunk 5: Pipeline Integration and Browser Migration (Post-Pivot: No Compatibility Window)
 
-Scope: Provider callback outputs -> websocket delivery, client upsert rendering, compatibility gate.
+Scope: Provider callback outputs -> websocket delivery via upsert-v1 only. Client upsert rendering. Legacy path removal.
 
-ACs: AC-6.4a, AC-6.4c, AC-7.1, AC-7.2, AC-7.3, AC-7.4.
+ACs: AC-6.4 (legacy removal), AC-7.1, AC-7.2, AC-7.3, AC-7.4.
 
 Files:
 
 - `server/websocket/stream-delivery.ts`
-- `server/websocket/compatibility-gateway.ts`
 - `server/websocket.ts`
 - `client/shell/shell.js`
 - `client/portlet/portlet.js`
 - `shared/types.ts` and/or `shared/stream-contracts.ts`
 
-Estimated tests: 11
-Running total: 81
+Estimated tests: 9
+Running total: 77
 
-### Chunk 6: End-to-End Verification and Cleanup
+### Chunk 6: End-to-End Verification, Dead Code Cleanup, and NFR Gates
 
-Scope: dual-provider end-to-end verification, remove legacy bridge paths, final migration checks.
+Scope: dual-provider end-to-end verification, dead code removal (processor, envelope schema), NFR performance/reliability gates.
 
-ACs: AC-6.4b, AC-8.1, AC-8.2, AC-8.3.
+ACs: AC-8.1, AC-8.2, AC-8.3.
 
 Files:
 
@@ -730,10 +714,10 @@ Files:
 - `tests/integration/perf-codex-load.test.ts`
 - `tests/integration/perf-stream-latency.test.ts`
 - `tests/integration/provider-lifecycle-reliability.test.ts`
-- cleanup in `server/websocket.ts` and legacy helpers
+- Dead code cleanup: `server/streaming/upsert-stream-processor.ts`, `server/streaming/stream-event-schema.ts`, related tests
 
-Estimated tests: 13 (8 TC-mapped + 5 required NFR verification checks)
-Running total: 94
+Estimated tests: 12 (7 TC-mapped + 5 required NFR verification checks)
+Running total: 89
 
 ### Chunk Dependency Graph
 

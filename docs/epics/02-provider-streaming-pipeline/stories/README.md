@@ -31,8 +31,8 @@ Resolved execution rule:
 4. `story-3-session-api-registry` (14 tests)
 5. `story-4-claude-provider` (14 tests)
 6. `story-5-codex-provider` (8 tests)
-7. `story-6-pipeline-browser-migration` (11 tests)
-8. `story-7-e2e-cleanup-nfr` (13 tests: 8 TC + 5 NFR)
+7. `story-6-pipeline-browser-migration` (9 tests — post-pivot; compatibility window removed)
+8. `story-7-e2e-cleanup-nfr` (12 tests: 7 TC + 5 NFR — post-pivot; TC-6.4b absorbed by Story 6)
 
 ## Running Totals
 These totals are the execution ledger for story-pack gate checks in this `stories/` folder.
@@ -44,11 +44,12 @@ If other epic artifacts temporarily show different aggregate counts (for example
 - Story 3: 46
 - Story 4: 60
 - Story 5: 68
-- Story 6: 79
-- Story 7: 92
+- Story 6: 77 (post-pivot: 9 tests, compatibility window removed)
+- Story 7: 89 (post-pivot: 12 tests, TC-6.4b absorbed by Story 6)
 
 ## Orchestration Sequence
 1. Execute Story 0 setup prompt, then Story 0 verify prompt.
 2. For each Story 1-7: run `Skeleton+Red` -> `Green` -> human gorilla checks (where applicable) -> `Verify`.
 3. Do not begin the next story until `green-verify` and story verify prompt pass.
-4. Story 7 is the release gate: includes legacy-removal sequencing checks and required NFR checks.
+4. Story 7 is the release gate: includes E2E verification, NFR checks, and dead code cleanup.
+   Note: Legacy removal was moved to Story 6 (compatibility window pivot). Story 7 no longer owns legacy-family removal.

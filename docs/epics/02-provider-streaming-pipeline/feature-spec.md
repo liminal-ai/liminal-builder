@@ -508,22 +508,13 @@ Session loading uses an explicit external contract: `POST /api/session/:id/load`
   - When: `GET /api/session/:id/status` is called
   - Then: The response includes whether the provider process is alive and the session's current state
 
-**AC-6.4:** Message contract migration strategy is explicit and testable
+**AC-6.4:** Message contract migration is complete and legacy paths are removed
 
-- **TC-6.4a: Story 6 includes a compatibility window**
-  - Given: Browser consumers still expecting legacy `session:update` / `session:chunk`
-  - When: Pipeline integration is introduced
-  - Then: A compatibility layer is provided during Story 6 so migration can complete without breaking active chat behavior
+**Post-pivot (2026-02-17):** The compatibility window was removed. TC-6.4a (compatibility window) and TC-6.4c (dual-family routing) are eliminated. Legacy removal happens in Story 6, not Story 7.
 
-- **TC-6.4b: Legacy contract removal is sequenced**
-  - Given: Browser migration to upsert-based messages is complete
-  - When: Story 7 cleanup executes
-  - Then: Legacy message paths are removed and only the new contract remains
-
-- **TC-6.4c: Compatibility routing prevents duplicate processing**
-  - Given: Story 6 compatibility window is active
-  - When: The server emits streaming updates to a browser connection
-  - Then: A single message family is emitted per connection (legacy or new), based on negotiated client capability/feature flag, so the same event is never processed twice by one client
+- **TC-6.4a:** ~~Removed — no compatibility window exists~~
+- **TC-6.4b:** Absorbed into Story 6 — legacy message paths are removed when upsert pipeline is wired
+- **TC-6.4c:** ~~Removed — only one message family (upsert-v1) exists~~
 
 ---
 
@@ -896,10 +887,7 @@ interface WsHistoryMessage {
 }
 ```
 
-Compatibility window (Story 6 only):
-- Across the full rollout, the server may support both new messages (`session:upsert`, `session:turn`) and legacy chat messages (`session:update`, `session:chunk`, `session:complete`, `session:cancelled`).
-- For any single browser connection, the server emits only one message family (legacy or new), selected by negotiated client capability/feature flag.
-- Story 7 removes legacy chat message emissions after rollout checks pass.
+**Post-pivot (2026-02-17):** The compatibility window was removed. The server emits only `session:upsert`, `session:turn`, and `session:history` messages. Legacy chat messages (`session:update`, `session:chunk`, `session:complete`, `session:cancelled`) are removed in Story 6, not deferred to Story 7. No `session:hello` negotiation or per-connection family routing exists. See `stories/story-6-pipeline-browser-migration/story-6-pivot-addendum.md` for rationale.
 
 ---
 
@@ -949,7 +937,7 @@ Questions for the Tech Lead to address during design:
 
 4. **Session history on load:** When a session is loaded via provider `loadSession` (which may use provider-specific resume mechanics), history can replay notifications. Should the provider process these through the normal event path (generating upsert objects for history), or should history loading be a separate code path that populates the browser differently?
 
-5. **WebSocket compatibility window details:** Story 6 uses a compatibility layer and Story 7 removes legacy messages. What observability and rollout checks are required before removing legacy message types?
+5. **WebSocket compatibility window details:** ~~Post-pivot (2026-02-17): The compatibility window was removed. Story 6 delivers upsert-v1 directly with no legacy coexistence. This question is resolved.~~
 
 6. **ACP code retention:** After refactoring, should the old `acp-client.ts` and `acp-types.ts` files be deleted entirely, or kept temporarily as reference? The Codex provider wraps ACP, so some ACP code must remain — the question is how much of the current 810-line file survives vs. gets extracted.
 
@@ -1018,21 +1006,20 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 - AC-4.1 (ACP extraction without behavior change)
 - AC-4.2 (ACP notification translation to upsert/turn)
 
-### Story 6: Pipeline Integration + Browser
-**Delivers:** Provider callback outputs wired to WebSocket delivery with compatibility-window routing. Browser consumes upsert objects.
+### Story 6: Pipeline Integration + Browser (Post-Pivot: No Compatibility Window)
+**Delivers:** Provider callback outputs wired directly to WebSocket delivery via upsert-v1. Legacy message paths removed. Browser consumes upsert objects.
 **Prerequisite:** Stories 2, 4, 5
 **ACs covered:**
-- AC-6.4 (compatibility window behavior and single-family routing)
+- AC-6.4 (legacy paths removed — no compatibility window, direct upsert-v1 only)
 - AC-7.1 (pipeline wiring)
 - AC-7.2 (browser rendering from upserts)
 - AC-7.3 (session loading)
 - AC-7.4 (old path removed)
 
-### Story 7: End-to-End Verification + Cleanup
-**Delivers:** Full system verified end-to-end. Dead code removed. Both CLIs working.
+### Story 7: End-to-End Verification + Cleanup + NFR
+**Delivers:** Full system verified end-to-end. Dead code removed (processor, envelope schema). Both CLIs working. NFR gates passed.
 **Prerequisite:** Story 6
 **ACs covered:**
-- AC-6.4 (legacy contract removal sequencing verification)
 - AC-8.1 (Claude Code end-to-end)
 - AC-8.2 (Codex end-to-end)
 - AC-8.3 (tab switching and session loading)

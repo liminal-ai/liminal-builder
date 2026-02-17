@@ -81,15 +81,13 @@ Latest recorded Story 4 pivot verification run:
 - `bunx vitest run tests/server/websocket.test.ts`: pass (`19/19`)
 - `bun run green-verify`: expected known-red only (`provider-registry`, `session-routes`), overall `106 passed`, `14 failed`, `1 todo`
 
-## Protocol Negotiation Contract Tests
+## Legacy Removal Verification (Post-Pivot)
 
-Compatibility-family negotiation is a formal contract in this design, not an implementation detail.
+**Post-pivot (2026-02-17):** The compatibility negotiation protocol was removed. No `session:hello`/`session:hello:ack` exists. The `websocket-compatibility.test.ts` suite now verifies legacy path removal via runtime assertion (TC-7.4a).
 
 | Contract | Test File | Assertion |
 |---|---|---|
-| `session:hello { streamProtocol: \"upsert-v1\" }` request | `tests/server/websocket/websocket-compatibility.test.ts` | server records selected family for connection |
-| `session:hello:ack { selectedFamily }` response | `tests/server/websocket/websocket-compatibility.test.ts` | client receives deterministic selected family |
-| one-family-per-connection rule | `tests/server/websocket/websocket-compatibility.test.ts` | connection never receives both legacy and upsert families |
+| No legacy streaming messages emitted | `tests/server/websocket/websocket-compatibility.test.ts` | active `session:send` flow emits only `session:upsert`/`session:turn`, no `session:update`/`session:chunk`/`session:complete`/`session:cancelled` |
 
 ## NFR Verification Coverage
 
@@ -175,9 +173,9 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-6.2d | `tests/server/api/session-routes.test.ts` | returned turnId matches all emitted turn/upsert outputs for request | Planned |
 | TC-6.3a | `tests/server/api/session-routes.test.ts` | POST kill terminates provider session and removes active entry | Planned |
 | TC-6.3b | `tests/server/api/session-routes.test.ts` | GET status returns provider liveness and session state | Planned |
-| TC-6.4a | `tests/server/websocket/websocket-compatibility.test.ts` | Story 6 connection can use compatibility window without breaking active chat | Planned |
-| TC-6.4b | `tests/server/websocket/websocket-compatibility.test.ts` | Story 7 removes legacy message family emissions | Planned |
-| TC-6.4c | `tests/server/websocket/websocket-compatibility.test.ts` | single connection receives only one negotiated message family | Planned |
+| TC-6.4a | ~~Removed~~ | ~~Compatibility window — removed in Story 6 pivot~~ | Removed |
+| TC-6.4b | ~~Absorbed into Story 6~~ | ~~Legacy removal — now done in Story 6, not Story 7~~ | Absorbed |
+| TC-6.4c | ~~Removed~~ | ~~Dual-family routing — removed in Story 6 pivot~~ | Removed |
 | TC-7.1a | `tests/server/pipeline/pipeline-integration.test.ts` | Claude text stream reaches browser as message upserts | Planned |
 | TC-7.1b | `tests/server/pipeline/pipeline-integration.test.ts` | Codex text stream reaches browser as message upserts | Planned |
 | TC-7.1c | `tests/server/pipeline/pipeline-integration.test.ts` | tool calls from both providers deliver create and complete tool_call upserts | Planned |
@@ -186,7 +184,7 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-7.2c | `tests/client/upsert/portlet-upsert-rendering.test.ts` | interleaved items render independently without cross-item mutation | Planned |
 | TC-7.3a | `tests/server/pipeline/session-history-pipeline.test.ts` | loading existing Claude session produces browser history rendering | Planned |
 | TC-7.3b | `tests/server/pipeline/session-history-pipeline.test.ts` | loading existing Codex session produces browser history rendering | Planned |
-| TC-7.4a | `tests/server/websocket/websocket-compatibility.test.ts` | confirms no direct ACP-to-WebSocket legacy bridge path remains | Planned |
+| TC-7.4a | `tests/server/websocket/websocket-compatibility.test.ts` | confirms legacy message emission paths are removed from active streaming flow (runtime assertion) | Planned |
 | TC-8.1a | `tests/integration/provider-streaming-e2e.test.ts` | Claude create-send-stream flow works end to end | Planned |
 | TC-8.1b | `tests/integration/provider-streaming-e2e.test.ts` | Claude tool calls display with name, args, and result | Planned |
 | TC-8.1c | `tests/integration/provider-streaming-e2e.test.ts` | Claude cancel interrupts turn and session remains usable | Planned |
@@ -197,10 +195,10 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 
 ## Coverage Summary
 
-- Total TCs in epic: 87
-- Total mapped TCs in this plan: 87
+- Total TCs in epic: 85 (post-pivot: TC-6.4a and TC-6.4c removed; TC-6.4b absorbed into Story 6)
+- Total mapped TCs in this plan: 85
 - Unmapped TCs: 0
-- Additional non-TC verification tests: 7 (legacy-removal guard + negotiation-ack contract + 5 NFR checks)
+- Additional non-TC verification tests: 5 (NFR checks only; negotiation contract tests removed in pivot)
 
 ## Story-Level Test Counts
 
@@ -211,9 +209,9 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | Chunk 2 | 14 |
 | Chunk 3 | 16 |
 | Chunk 4 | 8 |
-| Chunk 5 | 11 |
-| Chunk 6 | 13 |
-| Total | 94 |
+| Chunk 5 | 9 (post-pivot) |
+| Chunk 6 | 12 (post-pivot) |
+| Total | 89 (post-pivot) |
 
 ## Exit Criteria
 
