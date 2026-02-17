@@ -4,7 +4,7 @@
 This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context operating as an auditor.
 
 ## Context
-Audit Story 6 for compatibility-window correctness, pipeline integration fidelity, browser rendering behavior, and regression safety.
+Audit Story 6 for compatibility-window correctness, callback-to-delivery integration fidelity, browser rendering behavior, and regression safety.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
@@ -27,7 +27,7 @@ Audit Story 6 for compatibility-window correctness, pipeline integration fidelit
   - pipeline integration: 3
   - session history pipeline: 2
   - client upsert rendering: 3
-- Running traceability total remains 79.
+- Running traceability total remains 81.
 
 ### 3) TC coverage audit
 - `TC-6.4a`: compatibility window behavior present.
@@ -44,23 +44,29 @@ Audit Story 6 for compatibility-window correctness, pipeline integration fidelit
 - Story 6 does not remove legacy family globally (deferred to Story 7).
 
 ### 5) Pipeline and rendering correctness checks
-- Canonical event flow reaches delivery through processor.
-- Upsert messages carry progressive accumulated content semantics.
+- Provider callback outputs (`onUpsert`/`onTurn`) reach delivery layer.
+- Upsert messages carry progressive accumulated-content semantics.
 - Tool-call create/complete render transitions are stable.
 
 ### 6) Regression and immutability checks
-- Confirm no regressions in Story 1-5 suites.
-- Confirm green phase did not rewrite Story 6 tests except approved contract corrections.
+- Confirm no regressions in Story 0-2 + Story 4-5 suites.
+- Confirm green phase did not rewrite Story 6 tests except approved pivot-contract corrections.
+- If `green-verify` fails, confirm failures are only known Story 3 red suites unless Story 3 was in scope.
 
 ## Commands
-1. `bun run green-verify`
-2. `bun run test -- tests/server/websocket/websocket-compatibility.test.ts tests/server/pipeline/pipeline-integration.test.ts tests/server/pipeline/session-history-pipeline.test.ts tests/client/upsert/portlet-upsert-rendering.test.ts`
-3. `git status --porcelain`
+1. `bun run red-verify`
+2. `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts tests/server/pipeline/pipeline-integration.test.ts tests/server/pipeline/session-history-pipeline.test.ts tests/client/upsert/portlet-upsert-rendering.test.ts`
+3. `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`
+4. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
+5. `bunx vitest run tests/server/providers/provider-interface.test.ts`
+6. `bun run green-verify`
+7. `git status --porcelain`
 
 ## Expected Results
 - Story 6 suites: 11 passing tests.
-- Running traceability total remains 79.
+- Running traceability total remains 81.
 - One-family-per-connection rule enforced and stable.
+- `green-verify` fails only on known out-of-scope Story 3 reds, unless Story 3 was completed.
 - No unexplained out-of-scope diffs.
 
 ## If Blocked or Uncertain

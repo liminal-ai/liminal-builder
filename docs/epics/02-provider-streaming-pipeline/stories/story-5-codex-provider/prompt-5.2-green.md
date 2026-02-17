@@ -7,14 +7,15 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Product/Project/Feature:** Liminal Builder, Epic 02 Provider Architecture + Streaming Pipeline.
 
-**Story:** Bring Story 5 to green for Codex provider behavior and canonical mapping while preserving red-test contracts.
+**Story:** Bring Story 5 to green for Codex provider behavior and pivot-contract output semantics while preserving red-test intent.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
 **Prerequisites complete:**
 - Story 5 red baseline exists.
 - `TC-2.1c` is activated in `provider-interface.test.ts`.
-- Story 0 through Story 4 suites remain green.
+- Story 0-2 and Story 4 pivot suites remain green.
+- Story 3 suites may still be intentionally red and are out of scope.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined.)
@@ -28,38 +29,39 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ### Required Codex provider behavior
 - `createSession` preserves ACP `session/new` behavior.
 - `loadSession` preserves ACP `session/load` replay behavior.
-- `sendMessage` preserves ACP `session/prompt` behavior.
-- `cancelTurn`, `killSession`, `isAlive`, and `onEvent` remain contract-compliant.
+- `sendMessage` preserves ACP `session/prompt` behavior and resolves after deterministic turn-start bind.
+- `cancelTurn`, `killSession`, `isAlive`, `onUpsert`, and `onTurn` remain contract-compliant.
+- Output consumer starts during `createSession`/`loadSession`, not on first send.
 
-### ACP -> canonical mapping table
-| ACP signal | Canonical output |
+### ACP -> provider output mapping table
+| ACP signal | Provider output |
 |---|---|
-| `session/update` with `agent_message_chunk` | `item_delta` (`itemType: "message"`) |
-| `session/update` with `tool_call` | `item_start` (`itemType: "function_call"`, `name`, `callId`) |
-| `session/update` with `tool_call_update` (completed) | `item_done` completion correlated by `callId` |
-| ACP/adapter fatal failure | `response_error` preferred; `response_done(status:"error", error)` supported |
+| `session/update` with `agent_message_chunk` | `MessageUpsert` (`create`/`update`/`complete`) |
+| `session/update` with `tool_call` | `ToolCallUpsert` (`status: "create"`) |
+| `session/update` with `tool_call_update` (completed) | `ToolCallUpsert` (`status: "complete"`) correlated by `callId` |
+| ACP fatal/terminal error | `TurnEvent` (`type: "turn_error"`) with structured `errorCode`/`errorMessage` |
+| terminal success | `TurnEvent` (`type: "turn_complete"`) |
 
 ### Normalization semantics
 - Invocation starts may carry partial arguments.
 - Finalized argument completeness is authoritative at completion phase.
 - Correlation identifiers remain stable across invocation and completion.
+- Defensive handling must not crash on unknown tool-result correlation IDs.
 
 ### ProviderError usage expectations
 - `SESSION_CREATE_FAILED`: create path cannot establish ACP session.
 - `SESSION_NOT_FOUND`: unknown session for load/send/cancel/kill.
 - `PROCESS_CRASH`: ACP process unexpectedly unavailable.
 - `PROTOCOL_ERROR`: invalid ACP sequence or malformed update semantics.
-- `INVALID_STREAM_EVENT`: cannot map ACP update to canonical contract.
+- `INVALID_STREAM_EVENT`: cannot map ACP update to provider output contract.
 - `INTERRUPT_FAILED`: cancel operation cannot be completed.
 
 ### File responsibility boundary
-- `codex-acp-provider.ts`: provider lifecycle and ACP orchestration.
-- `codex-event-normalizer.ts`: notification normalization and correlation.
+- `codex-acp-provider.ts`: provider lifecycle, ACP orchestration, output mapping, and callback emission.
 - `acp-client.ts`: adapter-facing updates only; keep behavior-compatible request surface.
 
 ## Files to Modify
 - `server/providers/codex/codex-acp-provider.ts`
-- `server/providers/codex/codex-event-normalizer.ts`
 - `server/acp/acp-client.ts`
 
 ## Optional Files (only if red contract is objectively wrong)
@@ -75,11 +77,11 @@ If this is needed, document exact contract mismatch before editing tests.
 - No legacy message-family removal.
 
 ## Constraints
-- Do NOT modify tests in green unless there is a proven contract inconsistency.
+- Do NOT rewrite tests casually in green.
+- If pivot contract alignment requires test updates, keep TC intent unchanged and document why.
 - Do NOT add new dependencies.
 - Do NOT modify files outside scoped list.
 - Preserve red test intent and TC naming.
-- Keep canonical error signaling wording consistent: `response_error` preferred, `response_done(status:"error", error)` supported.
 
 ## If Blocked or Uncertain
 - If ACP behavior preservation conflicts with provider interface constraints, stop and report exact mismatch.
@@ -88,20 +90,25 @@ If this is needed, document exact contract mismatch before editing tests.
 
 ## Verification
 When complete:
-1. Run `bun run green-verify`
-2. Run `bun run test -- tests/server/providers/provider-interface.test.ts tests/server/providers/claude-sdk-provider.test.ts tests/server/providers/codex-acp-provider.test.ts`
+1. Run `bun run red-verify`
+2. Run `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
+3. Run `bunx vitest run tests/server/providers/provider-interface.test.ts`
+4. Run `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`
+5. Run `bunx vitest run tests/server/streaming/upsert-stream-processor.test.ts`
+6. Run `bunx vitest run tests/server/contracts/`
+7. Run `bunx vitest run tests/server/websocket.test.ts`
+8. Run `bun run green-verify` (expected to fail only on known Story 3 red suites unless those were fixed in this branch)
 
 Expected:
 - 8 Story 5 tests pass in `codex-acp-provider.test.ts` (6 TC-mapped + 2 regression guards).
 - `TC-2.1c` passes as active conformance test.
-- Running traceability total remains 68.
-- Executable total after Story 5 is 68.
+- Running traceability total remains 70.
 
 ## Done When
 - [ ] Story 5 scoped tests are green.
 - [ ] `TC-2.1c` active conformance check is green.
 - [ ] No unapproved test rewrites in green.
-- [ ] `green-verify` passes.
+- [ ] Verification commands pass with only allowed known-red suites failing.
 - [ ] No out-of-scope files changed.
 
 ## Handoff Output Contract

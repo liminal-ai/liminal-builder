@@ -3,7 +3,7 @@
  *
  * Phase 2 ingestion boundary note:
  * - `sourceTimestamp` preserves provider/source event time for downstream canonical sourceTimestamp derivation.
- * - `emittedAt` is processor emission time.
+ * - `emittedAt` is emitter (provider or processor) emission time.
  * - Fields NOT resolved in this epic (deferred to Phase 2 Tech Design):
  *   `turnSequenceNumber`, `llmTurnNumber`, and canonical `entryType` derivation.
  *   Phase 2 defines the field-by-field transformation from upsert objects to Context canonical entries.
@@ -15,7 +15,7 @@ export interface UpsertObjectBase {
 	itemId: string;
 	/** Provider/source event time for downstream canonical sourceTimestamp derivation */
 	sourceTimestamp: string; // ISO 8601 UTC
-	/** Time the processor emitted this upsert object */
+	/** Time the emitter (provider or processor) produced this upsert object */
 	emittedAt: string; // ISO 8601 UTC
 	status: "create" | "update" | "complete" | "error";
 	errorCode?: string;

@@ -17,24 +17,24 @@ The epic is design-ready after revalidation. The prior ambiguity set was resolve
 
 - Explicit load route and loadSession external contract.
 - Canonical turnId ownership contract.
-- AC-6.4 sequencing clarity across Story 5 and Story 6.
+- AC-6.4 sequencing clarity across Story 6 and Story 7.
 - Deterministic default batch gradient.
 
 This design keeps provenance mapping explicit at implementation boundaries:
 
-- `StreamEventEnvelope.timestamp` is the provider/source event time.
-- `UpsertObject.sourceTimestamp` is derived from that envelope timestamp.
-- `UpsertObject.emittedAt` is processor emission time.
+- For provider callback paths, `UpsertObject.sourceTimestamp` is provider source-event time.
+- For envelope-processor paths, `StreamEventEnvelope.timestamp` is source-event time and maps to `UpsertObject.sourceTimestamp`.
+- `UpsertObject.emittedAt` is emission time from whichever component emits the upsert.
 
 ## Context
 
-This work replaces the current ACP-centric streaming bridge with a provider architecture where each CLI has a purpose-built provider that emits one canonical event vocabulary. The business outcome is no user-visible behavior change, but materially improved architecture quality: Claude Code startup and reuse become stable, stream processing becomes deterministic, and the pipeline becomes ready for Redis fan-out and Context ingestion.
+This work replaces the current ACP-centric streaming bridge with a provider architecture where each CLI has a purpose-built provider that emits upsert/turn outputs through callbacks. The business outcome is no user-visible behavior change, but materially improved architecture quality: Claude Code startup and reuse become stable, streaming behavior becomes deterministic, and the pipeline becomes ready for Redis fan-out and Context ingestion.
 
 The current runtime shape is a Fastify server plus WebSocket bridge. Chat transport and translation logic are concentrated in `/Users/leemoore/liminal/apps/liminal-builder/server/websocket.ts` and `/Users/leemoore/liminal/apps/liminal-builder/server/acp/acp-client.ts`. That shape works for MVP but couples protocol-specific translation directly to transport. It also encodes behavior around `session:update` and `session:chunk` that cannot scale cleanly to multiple providers and downstream consumers.
 
-The target shape introduces three explicit layers: provider normalization, upsert processing, and delivery. Provider code maps SDK/ACP-native signals into canonical stream events. The upsert processor owns accumulation, batching, correlation, and terminal behavior. Transport delivers upsert objects and turn events. This layering is what enables Phase 2 insertion of Redis without refactoring provider logic or browser rendering semantics.
+The target shape introduces explicit provider, delivery, and compatibility-processing layers. Provider code maps SDK/ACP-native signals directly into `UpsertObject` and `TurnEvent` callbacks. The upsert processor remains available for canonical-envelope sources and compatibility paths that still require envelope-to-upsert transformation. Transport delivers upsert objects and turn events. This layering enables Phase 2 Redis insertion without refactoring provider logic or browser rendering semantics.
 
-The design also introduces an explicit Session API (`/api/session/*`) while preserving a temporary WebSocket compatibility window. During Story 5, legacy and new message families can coexist, but a single connection may only receive one family. Story 6 removes legacy streaming messages after rollout checks pass.
+The design also introduces an explicit Session API (`/api/session/*`) while preserving a temporary WebSocket compatibility window. During Story 6, legacy and new message families can coexist, but a single connection may only receive one family. Story 7 removes legacy streaming messages after rollout checks pass.
 
 ## Tech Design Questions: Decisions
 
@@ -43,14 +43,14 @@ All 11 questions from the epic are resolved here.
 | Q | Question | Decision | Applied In |
 |---|---|---|---|
 | 1 | SDK dependency installation | Add `@anthropic-ai/claude-agent-sdk` as direct runtime dependency. Add `@anthropic-ai/sdk` for event typing parity (`RawMessageStreamEvent`) to prevent transitive type drift. | Story 0, provider package setup |
-| 2 | Streaming input generator lifecycle | Generator/subprocess failures become `ProviderError` events, then canonical terminal error signaling (`response_error` preferred, `response_done(status: "error")` with structured `error` also supported), then processor `turn_error`. Provider marks session dead and `isAlive=false`. | Claude provider lifecycle and error model |
-| 3 | Content block index tracking | Deterministic item IDs: `${turnId}:${messageOrdinal}:${blockIndex}`. This avoids collisions when multiple assistant messages occur in one turn. | Claude provider normalization |
-| 4 | Session history on load | Use the same normalization path for live and replay events. History is materialized through the processor into `session:history`. No separate ad-hoc translation path. | loadSession flow |
-| 5 | Compatibility-window rollout checks | Emit protocol-family metrics per connection, duplicate-prevention assertions, and error-rate dashboards. Remove legacy only after a clean window (0 legacy consumers in active rollout cohort for 7 days). | Story 5-6 migration gate |
-| 6 | ACP code retention | Keep ACP protocol primitives needed by Codex provider, remove old ACP-to-WebSocket bridge logic (`createPromptBridgeMessages`, legacy normalization paths) once Story 6 completes. | Codex provider refactor + cleanup |
+| 2 | Streaming input generator lifecycle | Generator/subprocess failures become `ProviderError` outcomes and emit `turn_error` through provider callbacks. For envelope-based fallback paths, `response_error` and/or `response_done(status: "error")` remain supported before processor mapping. Provider marks session dead and `isAlive=false`. | Claude provider lifecycle and error model |
+| 3 | Content block index tracking | Deterministic item IDs: `${turnId}:${messageOrdinal}:${blockIndex}`. This avoids collisions when multiple assistant messages occur in one turn. | Claude provider translation |
+| 4 | Session history on load | Use the same provider translation path for live and replay events. History is materialized into `session:history` without ad-hoc websocket bridge translation. | loadSession flow |
+| 5 | Compatibility-window rollout checks | Emit protocol-family metrics per connection, duplicate-prevention assertions, and error-rate dashboards. Remove legacy only after a clean window (0 legacy consumers in active rollout cohort for 7 days). | Story 6-7 migration gate |
+| 6 | ACP code retention | Keep ACP protocol primitives needed by Codex provider, remove old ACP-to-WebSocket bridge logic (`createPromptBridgeMessages`, legacy translation/replay paths) once Story 7 completes. | Codex provider refactor + cleanup |
 | 7 | Error propagation model | Introduce typed `ProviderError` hierarchy with stable codes (`SESSION_NOT_FOUND`, `PROCESS_CRASH`, `PROTOCOL_ERROR`, `UNSUPPORTED_CLI_TYPE`, etc.). | Provider interface and Session API |
 | 8 | SDK integration test boundary | Service tests mock SDK `query()` output stream. Optional gated live tests run only with explicit env (`RUN_PROVIDER_LIVE_TESTS=1`). | Test strategy |
-| 9 | Browser rendering compatibility | Story 5 uses thin transport adapter per connection capability. Story 6 removes adapter and legacy ChatEntry stream paths. | WebSocket compatibility design |
+| 9 | Browser rendering compatibility | Story 6 uses thin transport adapter per connection capability. Story 7 removes adapter and legacy ChatEntry stream paths. | WebSocket compatibility design |
 | 10 | Thinking tradeoff | Default to streaming-capable mode (no fixed `maxThinkingTokens`) for parity with reasoning events. Allow per-session override via provider options when budget control is required. | Claude provider session options |
 | 11 | Session metadata persistence | Keep `~/.liminal-builder/sessions.json` in Phase 1. Context-owned persistence is deferred to Phase 2. | Session API/session service |
 
@@ -67,15 +67,15 @@ flowchart LR
     REG["Provider Registry"]
     CLAUDE["Claude SDK Provider"]
     CODEX["Codex ACP Provider"]
-    CANON["Canonical Stream Events"]
-    PROC["Upsert Stream Processor"]
+    CANON["Canonical Stream Events (Compatibility Sources)"]
+    PROC["Upsert Stream Processor (Compatibility Path)"]
 
     Browser --> API
     SVC --> REG
     REG --> CLAUDE
     REG --> CODEX
-    CLAUDE --> CANON
-    CODEX --> CANON
+    CLAUDE --> WS
+    CODEX --> WS
     CANON --> PROC
     PROC --> WS
     WS --> Browser
@@ -97,10 +97,16 @@ flowchart LR
 
 ### External Contracts
 
+Primary vs compatibility contract split:
+
+- Primary path: providers emit `UpsertObject` and `TurnEvent` through `onUpsert` / `onTurn`.
+- Compatibility path: canonical stream envelopes pass through `upsert-stream-processor` when envelope-based inputs still exist.
+- Design rule: provider interface compliance does not require provider->processor coupling.
+
 #### Provider Boundary
 
 - Input: CLI-native events (Claude Agent SDK stream events, Codex ACP notifications).
-- Output: `StreamEventEnvelope` with stable envelope fields plus typed `payload`.
+- Output: `UpsertObject` and `TurnEvent` via provider callbacks (`onUpsert`, `onTurn`).
 - Error boundary: `ProviderError` codes; no raw adapter errors cross module boundaries.
 
 #### Processor Boundary
@@ -116,6 +122,7 @@ flowchart LR
 #### Session API Boundary
 
 - `sendMessage()` returns canonical `turnId` that must match all emitted events for that turn.
+- `sendMessage()` resolves after deterministic turn-start binding; it does not wait for terminal turn completion.
 - `loadSession()` is explicit external contract and maps to provider `loadSession()`.
 - `POST /api/session/:id/load` returns session handle metadata only; history is delivered through WebSocket `session:history`.
 
@@ -123,7 +130,7 @@ flowchart LR
 
 Compatibility-family selection is an explicit contract.
 
-- Client hello (optional during Story 5): `session:hello { streamProtocol: "upsert-v1" }`
+- Client hello (optional during Story 6): `session:hello { streamProtocol: "upsert-v1" }`
 - Server ack: `session:hello:ack { selectedFamily: "legacy" | "upsert-v1" }`
 - Routing rule: one family per connection for the lifetime of that connection.
 
@@ -152,10 +159,8 @@ server/
     provider-registry.ts                # NEW
     claude/
       claude-sdk-provider.ts            # NEW
-      claude-event-normalizer.ts        # NEW
     codex/
       codex-acp-provider.ts             # NEW
-      codex-event-normalizer.ts         # NEW
   streaming/
     stream-event-schema.ts              # NEW
     upsert-types.ts                     # NEW
@@ -191,11 +196,11 @@ tests/
 | Module | Responsibility | Dependencies | AC Coverage |
 |---|---|---|---|
 | `stream-event-schema.ts` | Canonical stream contract and validation | Zod | AC-1.1, AC-1.2, AC-1.3 |
-| `provider-types.ts` | Provider interface, send/load lifecycle signatures | stream contracts | AC-2.1 |
+| `provider-types.ts` | Provider interface, send/load lifecycle signatures and callback outputs | upsert types | AC-2.1 |
 | `provider-registry.ts` | Provider lookup by cliType | provider implementations | AC-2.2 |
-| `claude-sdk-provider.ts` | Claude session/process control and event normalization | SDK query stream | AC-3.x, AC-2.1 |
-| `codex-acp-provider.ts` | Codex ACP adaptation behind provider contract | acp-client | AC-4.x, AC-2.1 |
-| `upsert-stream-processor.ts` | Canonical event accumulation, batching, tool correlation | upsert types | AC-5.x |
+| `claude-sdk-provider.ts` | Claude session/process control and direct upsert/turn translation | SDK query stream | AC-3.x, AC-2.1 |
+| `codex-acp-provider.ts` | Codex ACP adaptation behind provider contract and direct upsert/turn translation | acp-client | AC-4.x, AC-2.1 |
+| `upsert-stream-processor.ts` | Canonical-envelope accumulation, batching, tool correlation for compatibility sources | upsert types | AC-5.x |
 | `session-service.ts` | Session lifecycle orchestration across providers | registry, processor, metadata store | AC-6.x |
 | `routes.ts` | HTTP contract adapter for Session API | session-service | AC-6.x |
 | `stream-delivery.ts` | Delivery of upserts/turn events to browser | websocket connection context | AC-7.1, AC-7.3 |
@@ -209,8 +214,8 @@ flowchart TD
     Route["Session API Route"] --> Service["Session Service"]
     Service --> Registry["Provider Registry"]
     Registry --> Provider["Provider"]
-    Provider --> Canonical["Canonical Stream Event"]
-    Canonical --> Processor["Upsert Stream Processor"]
+    Provider --> Gateway["Compatibility Gateway"]
+    Canonical["Canonical Stream Event (Compatibility Sources)"] --> Processor["Upsert Stream Processor"]
     Processor --> Gateway["Compatibility Gateway"]
     Gateway --> WS["WebSocket Delivery"]
     WS --> Portlet["Portlet Render State"]
@@ -222,7 +227,7 @@ flowchart TD
 
 Covers AC-6.1, AC-2.2, AC-3.1, AC-4.1, AC-7.3.
 
-Session lifecycle now has explicit create and load contracts at the HTTP layer. `create` instantiates new provider-backed state. `load` re-opens an existing session and replays history through the same normalization pipeline used for live events.
+Session lifecycle now has explicit create and load contracts at the HTTP layer. `create` instantiates new provider-backed state. `load` re-opens an existing session and replays history through the same provider output path used for live events.
 
 ```mermaid
 sequenceDiagram
@@ -231,7 +236,6 @@ sequenceDiagram
     participant Svc as Session Service
     participant Reg as Provider Registry
     participant Prov as CLI Provider
-    participant Proc as Upsert Processor
     participant WS as WebSocket Delivery
 
     Note over Browser,API: AC-6.1a create session
@@ -248,8 +252,7 @@ sequenceDiagram
     Browser->>API: POST /api/session/:id/load
     API->>Svc: loadSession(sessionId)
     Svc->>Prov: loadSession(sessionId)
-    Prov-->>Proc: replay events (canonical)
-    Proc-->>Svc: upsert snapshots for history materialization
+    Prov-->>Svc: replayed upserts/turns for history materialization
     Svc-->>API: { sessionId, cliType }
     API-->>Browser: 200 { sessionId, cliType }
     Svc-->>WS: session:history { entries }
@@ -260,7 +263,7 @@ sequenceDiagram
 
 Covers AC-3.2, AC-3.3, AC-4.2, AC-5.x, AC-6.2, AC-7.1, AC-7.2.
 
-This flow is the core functional weave of the epic. Session API returns the canonical `turnId`. Provider emits canonical events. Processor emits upserts. Browser renders by replacing current item state with latest upsert payload.
+This flow is the core functional weave of the epic. Session API returns the canonical `turnId`. Provider emits upserts/turn events through callbacks. Browser renders by replacing current item state with latest upsert payload.
 
 ```mermaid
 sequenceDiagram
@@ -268,7 +271,6 @@ sequenceDiagram
     participant API as Session API
     participant Svc as Session Service
     participant Prov as Provider
-    participant Proc as Upsert Processor
     participant WS as WebSocket Gateway
 
     Note over Browser,API: AC-6.2d turnId ownership
@@ -279,11 +281,9 @@ sequenceDiagram
     Svc-->>API: { turnId }
     API-->>Browser: 202 { turnId }
 
-    Note over Prov,Proc: AC-3.3 and AC-4.2 normalization
-    Prov->>Proc: response_start/item_start/item_delta/item_done...
-    Note over Proc,WS: AC-5.x batching and correlation
-    Proc-->>WS: session:upsert
-    WS-->>Browser: upsert payloads
+    Note over Prov,WS: AC-3.3 and AC-4.2 direct translation
+    Prov-->>WS: session:upsert/session:turn
+    WS-->>Browser: upsert/turn payloads
     Note over Browser: AC-7.2 in-place render by itemId
 ```
 
@@ -291,7 +291,7 @@ sequenceDiagram
 
 Covers AC-3.4, AC-5.4, AC-6.3.
 
-Cancellation and fatal provider errors produce distinct terminal behavior. Cancelled turns emit `turn_complete` with cancelled status. Error turns emit `turn_error` and must never surface as `turn_complete` with error status. Providers may signal error terminal state through `response_error` and/or `response_done(status: "error", error)`.
+Cancellation and fatal provider errors produce distinct terminal behavior. Cancelled turns emit `turn_complete` with cancelled status. Error turns emit `turn_error` and must never surface as `turn_complete` with error status.
 
 ```mermaid
 sequenceDiagram
@@ -299,33 +299,30 @@ sequenceDiagram
     participant API
     participant Svc
     participant Prov
-    participant Proc
     participant WS
 
     Note over Browser,API: AC-6.2c cancel route
     Browser->>API: POST /api/session/:id/cancel
     API->>Svc: cancelTurn(sessionId)
     Svc->>Prov: cancelTurn(sessionId)
-    Prov-->>Proc: item_cancelled / response_done(cancelled)
-    Proc-->>WS: turn_complete(cancelled)
+    Prov-->>WS: turn_complete(cancelled)
 
-    Note over Prov,Proc: AC-5.4f error path
-    Prov-->>Proc: response_done(error, {code,message}) and/or response_error
-    Proc-->>WS: turn_error
+    Note over Prov,WS: error terminal path
+    Prov-->>WS: turn_error
 ```
 
 ### Flow 4: Compatibility Window and Legacy Removal
 
 Covers AC-6.4, AC-7.4.
 
-Compatibility is connection-scoped, never per-message fan-out to both families. Negotiation happens once per connection. If absent, legacy is default during Story 5. Story 6 removes legacy branch.
+Compatibility is connection-scoped, never per-message fan-out to both families. Negotiation happens once per connection. If absent, legacy is default during Story 6. Story 7 removes legacy branch.
 
 ```mermaid
 sequenceDiagram
     participant Shell
     participant WS as Compatibility Gateway
 
-    Note over Shell,WS: Story 5 capability negotiation
+    Note over Shell,WS: Story 6 capability negotiation
     Shell->>WS: session:hello { streamProtocol: upsert-v1 }
     WS-->>Shell: ack + selected family
 
@@ -338,11 +335,11 @@ sequenceDiagram
     Note over WS: Never emit both families to same connection
 ```
 
-### Flow 5: Session History Replay Through Canonical Pipeline
+### Flow 5: Session History Replay Through Provider Output Path
 
 Covers AC-7.3.
 
-History replay reuses provider normalization and processor semantics so load behavior and live behavior remain consistent. This avoids drift and duplicate translation bugs.
+History replay reuses provider translation semantics so load behavior and live behavior remain consistent. This avoids drift and duplicate translation bugs.
 
 ```mermaid
 sequenceDiagram
@@ -350,14 +347,12 @@ sequenceDiagram
     participant API
     participant Svc
     participant Prov
-    participant Proc
     participant WS
 
     Browser->>API: POST /api/session/:id/load
     API->>Svc: loadSession(sessionId)
     Svc->>Prov: loadSession(sessionId)
-    Prov-->>Proc: replay events (canonical)
-    Proc-->>Svc: upsert snapshots for history materialization
+    Prov-->>Svc: replayed upserts/turns for history materialization
     API-->>Browser: 200 { sessionId, cliType }
     Svc-->>WS: session:history { entries }
     WS-->>Browser: render history
@@ -471,7 +466,7 @@ export type StreamEventEnvelope = z.infer<typeof streamEventEnvelopeSchema>;
 
 ```typescript
 // server/providers/provider-types.ts
-import type { StreamEventEnvelope } from "../streaming/stream-event-schema";
+import type { UpsertObject, TurnEvent } from "../streaming/upsert-types";
 
 export type CliType = "claude-code" | "codex";
 
@@ -501,7 +496,8 @@ export interface CliProvider {
   cancelTurn(sessionId: string): Promise<void>;
   killSession(sessionId: string): Promise<void>;
   isAlive(sessionId: string): boolean;
-  onEvent(sessionId: string, callback: (event: StreamEventEnvelope) => void): void;
+  onUpsert(sessionId: string, callback: (upsert: UpsertObject) => void): void;
+  onTurn(sessionId: string, callback: (event: TurnEvent) => void): void;
 }
 
 // server/providers/provider-registry.ts
@@ -585,8 +581,8 @@ At module level:
 
 - AC-1.x -> `stream-event-schema.ts`, `upsert-types.ts`.
 - AC-2.x -> `provider-types.ts`, `provider-registry.ts`.
-- AC-3.x -> `claude-sdk-provider.ts` and normalizer.
-- AC-4.x -> `codex-acp-provider.ts` and normalizer.
+- AC-3.x -> `claude-sdk-provider.ts` (direct upsert/turn translation).
+- AC-4.x -> `codex-acp-provider.ts` (direct upsert/turn translation).
 - AC-5.x -> `upsert-stream-processor.ts`.
 - AC-6.x -> `session-service.ts`, `routes.ts`.
 - AC-7.x -> `stream-delivery.ts`, `compatibility-gateway.ts`, client portlet updates.
@@ -597,7 +593,7 @@ At module level:
 The test philosophy is service mocks at external boundaries:
 
 - Mock SDK stream and ACP adapter boundaries.
-- Exercise internal integration paths (`route -> service -> provider -> processor`) for real.
+- Exercise internal integration paths (`route -> service -> provider -> delivery`, and processor paths where applicable) for real.
 - Do not mock hooks/services/components that are part of system-under-test.
 
 Mock boundaries:
@@ -621,11 +617,11 @@ The epic includes explicit performance and reliability constraints. These are no
 
 | NFR | Epic Target | Verification Method | Gate |
 |---|---|---|---|
-| Claude startup-to-first-token | median + P95 benchmarked before/after | benchmark harness in `tests/integration/perf-claude-startup.test.ts` with baseline fixture output | required before Story 6 signoff |
-| Codex session load regression | within +/-10% of ACP baseline | benchmark harness in `tests/integration/perf-codex-load.test.ts` | required before Story 6 signoff |
-| Provider-event to browser-render latency | within +/-10% baseline | transport latency probe in `tests/integration/perf-stream-latency.test.ts` | required before Story 6 signoff |
-| First visible token latency | <=200ms from CLI response start | processor timing assertions in streaming integration suite | required before Story 6 signoff |
-| Crash/orphan reliability | crash detectable, kill cleans up | lifecycle integration tests plus process-table assertions | required before Story 6 signoff |
+| Claude startup-to-first-token | median + P95 benchmarked before/after | benchmark harness in `tests/integration/perf-claude-startup.test.ts` with baseline fixture output | required before Story 7 signoff |
+| Codex session load regression | within +/-10% of ACP baseline | benchmark harness in `tests/integration/perf-codex-load.test.ts` | required before Story 7 signoff |
+| Provider-event to browser-render latency | within +/-10% baseline | transport latency probe in `tests/integration/perf-stream-latency.test.ts` | required before Story 7 signoff |
+| First visible token latency | <=200ms from CLI response start | processor timing assertions in streaming integration suite | required before Story 7 signoff |
+| Crash/orphan reliability | crash detectable, kill cleans up | lifecycle integration tests plus process-table assertions | required before Story 7 signoff |
 
 ## Work Breakdown: Chunks
 
@@ -678,36 +674,34 @@ Running total: 46
 
 ### Chunk 3: Claude SDK Provider
 
-Scope: Claude provider process lifecycle, streaming input, canonical normalization.
+Scope: Claude provider process lifecycle, streaming input, and direct upsert/turn translation.
 
 ACs: AC-2.1 (Claude), AC-3.1, AC-3.2, AC-3.3, AC-3.4.
 
 Files:
 
 - `server/providers/claude/claude-sdk-provider.ts`
-- `server/providers/claude/claude-event-normalizer.ts`
 
-Estimated tests: 14
-Running total: 60
+Estimated tests: 16
+Running total: 62
 
 ### Chunk 4: Codex ACP Provider Refactor
 
-Scope: Move ACP-backed behavior behind provider contract and canonical events.
+Scope: Move ACP-backed behavior behind provider contract and direct upsert/turn outputs.
 
 ACs: AC-2.1 (Codex), AC-4.1, AC-4.2.
 
 Files:
 
 - `server/providers/codex/codex-acp-provider.ts`
-- `server/providers/codex/codex-event-normalizer.ts`
 - `server/acp/acp-client.ts` (adapter-facing updates only)
 
 Estimated tests: 8
-Running total: 68
+Running total: 70
 
 ### Chunk 5: Pipeline Integration and Browser Migration
 
-Scope: Provider -> processor -> websocket delivery, client upsert rendering, compatibility gate.
+Scope: Provider callback outputs -> websocket delivery, client upsert rendering, compatibility gate.
 
 ACs: AC-6.4a, AC-6.4c, AC-7.1, AC-7.2, AC-7.3, AC-7.4.
 
@@ -721,7 +715,7 @@ Files:
 - `shared/types.ts` and/or `shared/stream-contracts.ts`
 
 Estimated tests: 11
-Running total: 79
+Running total: 81
 
 ### Chunk 6: End-to-End Verification and Cleanup
 
@@ -739,14 +733,13 @@ Files:
 - cleanup in `server/websocket.ts` and legacy helpers
 
 Estimated tests: 13 (8 TC-mapped + 5 required NFR verification checks)
-Running total: 92
+Running total: 94
 
 ### Chunk Dependency Graph
 
 ```text
 Chunk 0 -> Chunk 1 -> Chunk 5 -> Chunk 6
-       \-> Chunk 2 -> Chunk 3 -/
-                    \-> Chunk 4 -/
+       \-> Chunk 2 -> Chunk 3 -> Chunk 4 -/
 ```
 
 ## Open Questions

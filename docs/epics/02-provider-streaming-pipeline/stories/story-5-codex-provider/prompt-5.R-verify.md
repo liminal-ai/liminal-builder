@@ -4,7 +4,7 @@
 This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context operating as an auditor.
 
 ## Context
-Audit Story 5 for AC/TC traceability, Codex behavior preservation, canonical mapping fidelity, and regression safety.
+Audit Story 5 for AC/TC traceability, Codex behavior preservation, pivot-contract fidelity, and regression safety.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
@@ -20,7 +20,6 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, canonical map
 ### 1) File and scope audit
 - Confirm Story 5 changes are limited to:
   - `server/providers/codex/codex-acp-provider.ts`
-  - `server/providers/codex/codex-event-normalizer.ts`
   - `server/acp/acp-client.ts`
   - `tests/server/providers/codex-acp-provider.test.ts`
   - `tests/server/providers/provider-interface.test.ts` (for `TC-2.1c` activation only)
@@ -31,19 +30,21 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, canonical map
   - 6 TC-mapped tests with TC IDs in names.
   - 2 non-TC regression guard tests.
 - Confirm `tests/server/providers/provider-interface.test.ts` has active/passable `TC-2.1c`.
-- Running traceability total remains 68.
+- Running traceability total remains 70.
 
 ### 3) TC coverage audit
 - `TC-2.1c` provider conformance is active and passing.
 - `TC-4.1a..TC-4.1c` ACP behavior parity checks are represented.
-- `TC-4.2a..TC-4.2c` mapping checks are represented.
+- `TC-4.2a..TC-4.2c` output-mapping checks are represented.
 
-### 4) Mapping fidelity checks
-- `agent_message_chunk` maps to canonical message delta.
-- `tool_call` maps to canonical function_call start with `name` and `callId`.
-- `tool_call_update` completion maps to canonical done/completion event semantics.
-- Tool invocation/completion correlation is preserved even when start-time arguments are partial.
-- Terminal errors follow canonical signaling contract (`response_error` preferred, `response_done(status:"error", error)` supported).
+### 4) Pivot-contract fidelity checks
+- Provider implements `onUpsert` and `onTurn` callbacks (not `onEvent`).
+- `sendMessage` resolves after deterministic turn-start bind, not terminal completion.
+- Output consumer starts on `createSession`/`loadSession`.
+- `agent_message_chunk` maps to message upserts.
+- `tool_call` maps to tool_call create with stable `callId`.
+- `tool_call_update` completion maps to tool_call complete with stable correlation.
+- Terminal failures map to `turn_error` with structured error fields.
 
 ### 5) Lifecycle and error correctness
 - Provider lifecycle methods remain contract-compliant.
@@ -51,18 +52,26 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, canonical map
 - No ACP-direct websocket bridge behavior is reintroduced.
 
 ### 6) Regression and immutability checks
-- Confirm Story 1-4 suites remain green.
-- Confirm green phase did not rewrite Story 5 tests except approved contract corrections.
+- Confirm Story 0-2 + Story 4 suites remain green.
+- Confirm green phase did not rewrite Story 5 tests except approved pivot-contract corrections.
+- If `green-verify` fails, confirm failures are only known Story 3 red suites unless Story 3 was in scope.
 
 ## Commands
-1. `bun run green-verify`
-2. `bun run test -- tests/server/contracts/stream-contracts.test.ts tests/server/providers/provider-interface.test.ts tests/server/streaming/upsert-stream-processor.test.ts tests/server/providers/provider-registry.test.ts tests/server/api/session-routes.test.ts tests/server/providers/claude-sdk-provider.test.ts tests/server/providers/codex-acp-provider.test.ts`
-3. `git status --porcelain`
+1. `bun run red-verify`
+2. `bunx vitest run tests/server/providers/codex-acp-provider.test.ts`
+3. `bunx vitest run tests/server/providers/provider-interface.test.ts`
+4. `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`
+5. `bunx vitest run tests/server/streaming/upsert-stream-processor.test.ts`
+6. `bunx vitest run tests/server/contracts/`
+7. `bunx vitest run tests/server/websocket.test.ts`
+8. `bun run green-verify`
+9. `git status --porcelain`
 
 ## Expected Results
 - Story 5 provider suite: 8 passing tests.
 - `TC-2.1c` is active and passing.
-- Story 1-4 suites remain green (no regression).
+- Story 0-2 + Story 4 suites remain green (no regression).
+- `green-verify` fails only on known out-of-scope Story 3 reds, unless Story 3 was completed.
 - No unexplained out-of-scope diffs.
 
 ## If Blocked or Uncertain
@@ -73,7 +82,7 @@ Audit Story 5 for AC/TC traceability, Codex behavior preservation, canonical map
 ## Done When
 - [ ] Story 5 is green and audit-complete.
 - [ ] `TC-2.1c` activation is verified.
-- [ ] Mapping fidelity checks pass.
+- [ ] Pivot-contract fidelity checks pass.
 - [ ] Regression safety checks pass.
 - [ ] Scope discipline is confirmed.
 

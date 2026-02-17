@@ -9,15 +9,16 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Project:** Epic 02 Provider Architecture + Streaming Pipeline.
 
-**Feature:** Provider -> processor -> websocket delivery with browser upsert rendering.
+**Feature:** Provider callback outputs -> websocket delivery -> browser upsert rendering.
 
 **Story:** Story 6 (Tech Design Chunk 5) implements pipeline wiring + browser migration under a compatibility window.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
 **Prerequisites complete:**
-- Story 0 through Story 5 are green.
-- Canonical contracts and provider implementations are stable.
+- Story 0-2 are green.
+- Story 4 + Story 5 provider contracts are stable (`onUpsert`/`onTurn`, turn-start send semantics).
+- Story 3 suites may remain intentionally red and out of scope.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined below.)
@@ -40,18 +41,19 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - `session:history` with materialized history entries
 
 ### Required flow semantics
-- Providers emit canonical events.
-- Processor emits upsert/turn outputs.
-- Delivery layer routes to selected family only.
+- Providers emit `UpsertObject`/`TurnEvent` via callbacks.
+- Websocket delivery routes callback outputs to the selected family only.
 - Browser upsert rendering is replace-by-`itemId` semantics.
 - History load path: HTTP load returns metadata; websocket delivers history entries.
+- Legacy and upsert families must not be emitted together on one connection.
 
 ### File responsibility split
 - `stream-delivery.ts`: transport delivery of upsert/turn/history payloads.
 - `compatibility-gateway.ts`: connection negotiation + one-family-per-connection enforcement.
-- `websocket.ts`: connection/session glue, no direct ACP normalization path.
+- `websocket.ts`: connection/session glue, no active direct ACP streaming-bridge path.
 - `client/shell/shell.js`: capability negotiation.
 - `client/portlet/portlet.js`: upsert rendering state transitions and item isolation.
+- `shared/stream-contracts.ts` + `shared/types.ts`: websocket contract shapes shared by server/client.
 
 ## TCs In Scope
 - TC-6.4a
@@ -81,6 +83,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - `client/shell/shell.js`
 - `client/portlet/portlet.js`
 - `shared/stream-contracts.ts`
+- `shared/types.ts`
 - `tests/server/websocket/websocket-compatibility.test.ts`
 - `tests/server/pipeline/pipeline-integration.test.ts`
 - `tests/server/pipeline/session-history-pipeline.test.ts`
@@ -89,7 +92,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ## Task
 1. Add minimal delivery/gateway/client skeletons for Story 6 scope.
 2. Add exactly 11 Story 6 tests across the listed suites with TC-prefixed names.
-3. Ensure tests establish red baseline for compatibility routing, pipeline flow, history, and rendering semantics.
+3. Ensure tests establish red baseline for compatibility routing, callback-delivery flow, history, and rendering semantics.
 
 ## Non-Goals
 - No legacy-family removal (Story 7 scope).
@@ -111,12 +114,12 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ## Verification
 When complete:
 1. Run `bun run red-verify`
-2. Run `bun run test -- tests/server/websocket/websocket-compatibility.test.ts tests/server/pipeline/pipeline-integration.test.ts tests/server/pipeline/session-history-pipeline.test.ts tests/client/upsert/portlet-upsert-rendering.test.ts`
+2. Run `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts tests/server/pipeline/pipeline-integration.test.ts tests/server/pipeline/session-history-pipeline.test.ts tests/client/upsert/portlet-upsert-rendering.test.ts`
 3. Run `bun run guard:test-baseline-record`
 
 Expected:
 - Story 6 red suites exist with 11 TC-traceability tests.
-- Compatibility routing, pipeline, history, and rendering tests fail/red before green implementation.
+- Compatibility routing, callback delivery, history, and rendering tests fail/red before green implementation.
 - Red baseline is recorded.
 
 ## Done When

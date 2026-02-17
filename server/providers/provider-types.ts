@@ -1,5 +1,5 @@
 import type { CliType } from "@server/sessions/session-types";
-import type { StreamEventEnvelope } from "@server/streaming/stream-event-schema";
+import type { UpsertObject, TurnEvent } from "@server/streaming/upsert-types";
 
 // Re-export CliType for provider-layer consumers (source of truth: session-types)
 export type { CliType } from "@server/sessions/session-types";
@@ -34,10 +34,8 @@ export interface CliProvider {
 	cancelTurn(sessionId: string): Promise<void>;
 	killSession(sessionId: string): Promise<void>;
 	isAlive(sessionId: string): boolean;
-	onEvent(
-		sessionId: string,
-		callback: (event: StreamEventEnvelope) => void,
-	): void;
+	onUpsert(sessionId: string, callback: (upsert: UpsertObject) => void): void;
+	onTurn(sessionId: string, callback: (event: TurnEvent) => void): void;
 }
 
 export interface ProviderRegistry {

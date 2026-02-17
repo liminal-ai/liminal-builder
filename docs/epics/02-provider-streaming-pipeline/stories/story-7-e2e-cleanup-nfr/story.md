@@ -6,9 +6,13 @@ Finalize migration by removing legacy streaming emissions, validating dual-provi
 Story 7 is the release gate for this epic.
 
 ## Prerequisites
-- Story 0 through Story 6 are green.
+- Story 0-2 and Story 4-6 are green.
+- Provider contract from Story 4/5 pivot is stable:
+  - `onUpsert`/`onTurn` callback delivery
+  - `sendMessage` resolves at turn-start bind (not turn completion)
 - Compatibility window behavior is already operational from Story 6.
 - Baselines for performance comparisons are available.
+- Story 3 suites may remain intentionally red and out of scope unless explicitly pulled into this story.
 
 ## ACs Covered
 - AC-6.4b
@@ -32,6 +36,7 @@ Story 7 is the release gate for this epic.
 ## Files
 
 **Create/Modify:**
+- `tests/server/websocket/websocket-compatibility.test.ts` (TC-6.4b legacy-family removal assertion updates)
 - `tests/integration/provider-streaming-e2e.test.ts`
 - `tests/integration/perf-claude-startup.test.ts`
 - `tests/integration/perf-codex-load.test.ts`
@@ -43,7 +48,7 @@ Story 7 is the release gate for this epic.
 - TC-mapped tests: 8
 - Non-TC required checks: 5
 - Story total: 13
-- Running total: 92
+- Running total: 94
 - Executable test/check delta in this story: +13
 
 ## Prompts

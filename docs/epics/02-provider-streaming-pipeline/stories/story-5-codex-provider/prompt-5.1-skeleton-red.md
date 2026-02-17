@@ -9,19 +9,20 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Project:** Epic 02 Provider Architecture + Streaming Pipeline.
 
-**Feature:** Codex provider extraction behind canonical stream contracts.
+**Feature:** Codex provider extraction behind pivoted provider contracts.
 
-**Story:** Story 5 (Tech Design Chunk 4) implements Codex ACP provider lifecycle + normalization and activates deferred interface conformance `TC-2.1c`.
+**Story:** Story 5 (Tech Design Chunk 4) implements Codex ACP provider lifecycle + direct output translation and activates deferred interface conformance `TC-2.1c`.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
 **Prerequisites complete:**
-- Story 0 through Story 4 are green.
+- Story 0-2 are green.
+- Story 4 pivot is green with contracts from `server/providers/provider-types.ts`:
+  - `onUpsert(sessionId, callback)`
+  - `onTurn(sessionId, callback)`
+  - `sendMessage` deterministic turn-start synchronization (no completion wait)
+- Story 3 suites (`provider-registry`, `session-routes`) may remain intentionally red and are out of scope.
 - Story 1 placeholder tests still exist in `tests/server/providers/provider-interface.test.ts`.
-- Contracts from Story 0/1 are stable:
-  - `server/providers/provider-types.ts`
-  - `server/providers/provider-errors.ts`
-  - `server/streaming/stream-event-schema.ts`
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined below.)
@@ -38,11 +39,12 @@ interface CliProvider {
   readonly cliType: "claude-code" | "codex";
   createSession(options: CreateSessionOptions): Promise<ProviderSession>;
   loadSession(sessionId: string, options?: LoadSessionOptions): Promise<ProviderSession>;
-  sendMessage(sessionId: string, message: string): Promise<SendMessageResult>;
+  sendMessage(sessionId: string, message: string): Promise<SendMessageResult>; // resolves after turn-start bind
   cancelTurn(sessionId: string): Promise<void>;
   killSession(sessionId: string): Promise<void>;
   isAlive(sessionId: string): boolean;
-  onEvent(sessionId: string, callback: (event: StreamEventEnvelope) => void): void;
+  onUpsert(sessionId: string, callback: (upsert: UpsertObject) => void): void;
+  onTurn(sessionId: string, callback: (event: TurnEvent) => void): void;
 }
 ```
 
@@ -59,19 +61,23 @@ interface CliProvider {
   - `session/new`
   - `session/load`
   - `session/prompt`
-- Refactor only layering/ownership, not functional behavior.
-- Keep ACP primitives needed by Codex provider; do not reintroduce ACP-direct websocket bridge behavior.
+- Refactor layering/ownership, not user-visible behavior.
+- Do not reintroduce ACP-direct websocket bridge behavior.
 
-### ACP -> canonical mapping requirements
-- `agent_message_chunk` -> canonical `item_delta` (message).
-- `tool_call` -> canonical `item_start` (`itemType: "function_call"`, `name`, `callId`).
-- `tool_call_update` completion -> canonical `item_done` (function_call output/finalization path as appropriate).
+### ACP -> provider output mapping requirements
+- `agent_message_chunk` -> `MessageUpsert` create/update/complete progression.
+- `tool_call` -> `ToolCallUpsert` create.
+- `tool_call_update` completion -> `ToolCallUpsert` complete (same `callId`).
+- Terminal success/failure -> `TurnEvent` (`turn_complete`/`turn_error`).
 - Tool invocation may start with partial arguments; finalized argument completeness is authoritative at completion.
-- Terminal error signaling: `response_error` preferred; `response_done(status:"error", error)` supported.
+
+### Lifecycle and timing requirements
+- `sendMessage` must enqueue input and wait for deterministic turn-start bind only.
+- `sendMessage` must not wait for terminal completion.
+- Output consumer must start immediately after successful session establishment in `createSession` and `loadSession`.
 
 ### File responsibility split
-- `codex-acp-provider.ts` owns session lifecycle, ACP call orchestration, and provider process state.
-- `codex-event-normalizer.ts` owns ACP notification to canonical event mapping and correlation.
+- `codex-acp-provider.ts` owns session lifecycle, ACP call orchestration, output translation, and callback emission.
 
 ### Mock boundary (service tests)
 Mock ACP boundary only (request/notification protocol layer). Do not mock provider internals.
@@ -87,26 +93,25 @@ Use deterministic mocked notification sequences for:
 
 ## Non-TC Regression Checks (also required)
 - Session/process liveness and callback delivery regression guard.
-- ACP terminal/error normalization parity guard.
+- Terminal error-shaping parity guard.
 
 ## TC Expectation Map (must be encoded in test names)
 - `TC-2.1c`: Codex provider satisfies `CliProvider` surface with no type errors (activate placeholder test).
 - `TC-4.1a`: `createSession` preserves ACP `session/new` behavior.
 - `TC-4.1b`: `loadSession` preserves ACP `session/load` behavior.
-- `TC-4.1c`: `sendMessage` preserves ACP `session/prompt` behavior.
-- `TC-4.2a`: `agent_message_chunk` maps to canonical message delta events.
-- `TC-4.2b`: `tool_call` maps to canonical function_call start events.
-- `TC-4.2c`: `tool_call_update` completion maps to canonical completion events.
+- `TC-4.1c`: `sendMessage` preserves ACP `session/prompt` behavior with turn-start synchronization semantics.
+- `TC-4.2a`: `agent_message_chunk` maps to message upsert emissions.
+- `TC-4.2b`: `tool_call` maps to tool_call create upsert.
+- `TC-4.2c`: `tool_call_update` completion maps to tool_call complete upsert.
 
 ## Files to Create/Modify
 - `server/providers/codex/codex-acp-provider.ts`
-- `server/providers/codex/codex-event-normalizer.ts`
 - `server/acp/acp-client.ts`
 - `tests/server/providers/codex-acp-provider.test.ts`
 - `tests/server/providers/provider-interface.test.ts` (activate only `TC-2.1c`)
 
 ## Task
-1. Add minimal Codex provider and normalizer skeletons implementing provider contract surface.
+1. Add minimal Codex provider skeleton implementing provider contract surface.
 2. Create exactly 8 Story 5 tests in `codex-acp-provider.test.ts`:
    - 6 TC-mapped tests using the expectation map above.
    - 2 non-TC regression guard tests listed above.
@@ -125,7 +130,7 @@ Use deterministic mocked notification sequences for:
 - Do NOT add new dependencies.
 - Do NOT mock provider internals.
 - Every TC-mapped Story 5 test title must include its TC ID.
-- Keep error signaling wording consistent: `response_error` preferred, `response_done(status:"error", error)` supported.
+- Keep pivot contract semantics explicit in test expectations (`onUpsert`/`onTurn`, start-only `sendMessage`).
 
 ## If Blocked or Uncertain
 - If ACP parity requires touching unrelated modules, stop and report exact blocker.
@@ -145,7 +150,7 @@ Expected:
 - Red baseline is recorded.
 
 ## Done When
-- [ ] Five Story 5 files are created/updated as scoped.
+- [ ] Four Story 5 files are created/updated as scoped.
 - [ ] Exactly 8 Story 5 tests exist (6 TC-prefixed + 2 regression guards).
 - [ ] `TC-2.1c` is active.
 - [ ] `bun run red-verify` passes.

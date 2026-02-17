@@ -2,9 +2,6 @@ import type { UpsertObject, TurnEvent } from "@server/streaming/upsert-types";
 
 // Types re-exported for client consumption
 export type {
-	StreamEventEnvelope,
-	StreamEventPayload,
-	StreamEventType,
 	FinalizedItem,
 	Usage,
 } from "@server/streaming/stream-event-schema";
@@ -16,14 +13,6 @@ export type {
 	ToolCallUpsert,
 	TurnEvent,
 } from "@server/streaming/upsert-types";
-
-// Zod schemas re-exported for runtime validation (e.g., client-side WS message validation)
-export {
-	streamEventEnvelopeSchema,
-	streamEventPayloadSchema,
-	finalizedItemSchema,
-	usageSchema,
-} from "@server/streaming/stream-event-schema";
 
 // -- WebSocket message types (Builder -> Browser) --
 export interface WsUpsertMessage {

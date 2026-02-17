@@ -16,8 +16,9 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
 **Prerequisites complete:**
-- Story 0 through Story 6 are green.
+- Story 0-2 and Story 4-6 are green.
 - Compatibility window behavior is active.
+- Story 3 suites may remain intentionally red and out of scope unless explicitly included.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined below.)
@@ -44,6 +45,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ### Cleanup boundary
 - Story 7 removes legacy message-family emissions after Story 6 compatibility window.
 - Story 7 verifies migration cleanup sequencing and safety.
+- Story 7 must preserve pivoted provider semantics (`onUpsert`/`onTurn`, turn-start send acknowledgment) after cleanup.
 
 ### File responsibility split
 - Integration/perf/reliability test files own release-gate assertions.
@@ -60,6 +62,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - `TC-8.3b`: loading pre-refactor session history works correctly.
 
 ## Files to Create/Modify
+- `tests/server/websocket/websocket-compatibility.test.ts` (TC-6.4b legacy-family removal assertions)
 - `tests/integration/provider-streaming-e2e.test.ts`
 - `tests/integration/perf-claude-startup.test.ts`
 - `tests/integration/perf-codex-load.test.ts`
@@ -91,8 +94,9 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 ## Verification
 When complete:
 1. Run `bun run red-verify`
-2. Run `bun run test:integration`
-3. Run `bun run guard:test-baseline-record`
+2. Run `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts`
+3. Run `bun run test:integration`
+4. Run `bun run guard:test-baseline-record`
 
 Expected:
 - Story 7 integration/perf/reliability suites execute and fail/red before green.

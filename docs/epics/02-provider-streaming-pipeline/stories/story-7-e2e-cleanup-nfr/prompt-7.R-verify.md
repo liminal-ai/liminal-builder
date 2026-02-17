@@ -4,7 +4,7 @@
 This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution context operating as an independent release auditor.
 
 ## Context
-Perform final Story 7 verification for release signoff: TC coverage, NFR gates, legacy cleanup, and regression safety.
+Perform final Story 7 verification for release signoff: TC coverage, NFR gates, legacy cleanup, pivot-contract preservation, and regression safety.
 
 **Working Directory:** `/Users/leemoore/liminal/apps/liminal-builder`
 
@@ -36,24 +36,31 @@ Perform final Story 7 verification for release signoff: TC coverage, NFR gates, 
 - First visible token latency is <=200ms.
 - Crash/orphan lifecycle reliability checks pass.
 
-### 4) Regression safety audit
-- Confirm Story 1-6 behavior is not regressed by cleanup.
-- Confirm full verification pipeline passes.
+### 4) Pivot-contract preservation audit
+- Provider callback flow still uses `onUpsert`/`onTurn`.
+- Cleanup did not regress turn-start send acknowledgment behavior.
+- No reintroduction of completion-blocked send semantics.
 
-### 5) Traceability and totals
+### 5) Regression safety audit
+- Confirm Story 0-2 and Story 4-6 behavior is not regressed by cleanup.
+- Confirm full verification pipeline passes aside from known out-of-scope reds.
+
+### 6) Traceability and totals
 - Story 7 contributes 13 checks/tests (8 TC + 5 NFR).
-- Epic running total is 92.
+- Epic running total is 94.
 
 ## Commands
-1. `bun run green-verify`
-2. `bun run test:integration`
-3. `bun run verify-all`
-4. `git status --porcelain`
+1. `bun run red-verify`
+2. `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts`
+3. `bun run test:integration`
+4. `bun run verify-all`
+5. `bun run green-verify`
+6. `git status --porcelain`
 
 ## Expected Results
 - All Story 7 release-gate checks pass.
 - Legacy-family cleanup is complete and stable.
-- Full epic verification is green.
+- Full epic verification is green except known Story 3 out-of-scope reds unless Story 3 was completed.
 - No unexplained out-of-scope diffs.
 
 ## If Blocked or Uncertain
@@ -65,7 +72,7 @@ Perform final Story 7 verification for release signoff: TC coverage, NFR gates, 
 - [ ] Story 7 release-gate verification passes.
 - [ ] TC and NFR coverage are complete.
 - [ ] Legacy cleanup is validated.
-- [ ] Regression safety is confirmed.
+- [ ] Pivot-contract preservation is validated.
 - [ ] Epic is ready for execution signoff.
 
 ## Auditor Output Contract
@@ -73,4 +80,4 @@ Return:
 - Findings list (ordered by severity)
 - Pass/fail per checklist section
 - Exact blockers (if any)
-- Final Go/No-Go recommendation
+- Final recommendation (proceed / hold)

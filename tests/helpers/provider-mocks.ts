@@ -7,7 +7,7 @@ import type {
 	SendMessageResult,
 } from "@server/providers";
 import type { CliType } from "@server/sessions/session-types";
-import type { StreamEventEnvelope } from "@server/streaming";
+import type { TurnEvent, UpsertObject } from "@server/streaming";
 
 /**
  * Creates a fully typed mock CliProvider with vi.fn() stubs.
@@ -35,12 +35,14 @@ export function createMockProvider(
 	cancelTurn: ReturnType<typeof vi.fn<(sessionId: string) => Promise<void>>>;
 	killSession: ReturnType<typeof vi.fn<(sessionId: string) => Promise<void>>>;
 	isAlive: ReturnType<typeof vi.fn<(sessionId: string) => boolean>>;
-	onEvent: ReturnType<
+	onUpsert: ReturnType<
 		typeof vi.fn<
-			(
-				sessionId: string,
-				callback: (event: StreamEventEnvelope) => void,
-			) => void
+			(sessionId: string, callback: (upsert: UpsertObject) => void) => void
+		>
+	>;
+	onTurn: ReturnType<
+		typeof vi.fn<
+			(sessionId: string, callback: (event: TurnEvent) => void) => void
 		>
 	>;
 } {
@@ -75,12 +77,13 @@ export function createMockProvider(
 			Promise.resolve(),
 		),
 		isAlive: vi.fn<(sessionId: string) => boolean>(() => true),
-		onEvent:
+		onUpsert:
 			vi.fn<
-				(
-					sessionId: string,
-					callback: (event: StreamEventEnvelope) => void,
-				) => void
+				(sessionId: string, callback: (upsert: UpsertObject) => void) => void
+			>(),
+		onTurn:
+			vi.fn<
+				(sessionId: string, callback: (event: TurnEvent) => void) => void
 			>(),
 	};
 }

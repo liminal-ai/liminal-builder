@@ -13,7 +13,8 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 
 **Prerequisites complete:**
 - Story 7 red baseline exists.
-- Story 0 through Story 6 suites remain green.
+- Story 0-2 and Story 4-6 suites remain green.
+- Story 3 suites may remain intentionally red and out of scope unless explicitly included.
 
 ## Reference Documents
 (For human traceability only. Execution details are inlined.)
@@ -28,6 +29,9 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - Remove legacy streaming-family emissions after compatibility window.
 - Keep new upsert family and turn/history flow fully functional.
 - Ensure cleanup does not break dual-provider runtime behavior.
+- Preserve pivot provider semantics after cleanup:
+  - providers continue emitting via `onUpsert`/`onTurn`
+  - send path remains turn-start acknowledged (not completion-blocked)
 
 ### Required release-gate outcomes
 - All TC-mapped integration tests pass:
@@ -48,6 +52,7 @@ This prompt targets a fresh GPT-5.3-Codex (or equivalent Codex) execution contex
 - `server/websocket.ts`
 
 ## Optional Files (only if red contract is objectively wrong)
+- `tests/server/websocket/websocket-compatibility.test.ts`
 - `tests/integration/provider-streaming-e2e.test.ts`
 - `tests/integration/perf-claude-startup.test.ts`
 - `tests/integration/perf-codex-load.test.ts`
@@ -62,7 +67,8 @@ If needed, document exact contract mismatch before editing tests.
 - No scope expansion beyond Story 7 release criteria.
 
 ## Constraints
-- Do NOT modify tests in green unless there is a proven contract inconsistency.
+- Do NOT rewrite tests casually in green.
+- If pivot-contract alignment requires test updates, keep TC intent unchanged and document why.
 - Do NOT add new dependencies.
 - Do NOT weaken or skip NFR assertions.
 - Do NOT modify files outside scoped list unless explicitly justified.
@@ -74,20 +80,22 @@ If needed, document exact contract mismatch before editing tests.
 
 ## Verification
 When complete:
-1. Run `bun run green-verify`
-2. Run `bun run test:integration`
-3. Run `bun run verify-all`
+1. Run `bun run red-verify`
+2. Run `bunx vitest run tests/server/websocket/websocket-compatibility.test.ts`
+3. Run `bun run test:integration`
+4. Run `bun run verify-all`
+5. Run `bun run green-verify` (expected to fail only on known Story 3 red suites unless those were fixed in this branch)
 
 Expected:
 - Story 7 TC-mapped tests and NFR checks pass.
-- Full running total reaches 92.
+- Full running total reaches 94.
 - Epic is ready for execution signoff.
 
 ## Done When
 - [ ] Legacy-family cleanup is complete.
 - [ ] All Story 7 TC-mapped tests are green.
 - [ ] All 5 NFR checks are green.
-- [ ] `green-verify`, `test:integration`, and `verify-all` pass.
+- [ ] Verification commands pass with only allowed known-red suites failing.
 - [ ] No out-of-scope or unapproved test rewrites occurred.
 
 ## Handoff Output Contract

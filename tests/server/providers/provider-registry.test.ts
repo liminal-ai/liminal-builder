@@ -6,7 +6,7 @@ import type {
 	LoadSessionOptions,
 	SendMessageResult,
 } from "../../../server/providers/provider-types";
-import type { StreamEventEnvelope } from "../../../server/streaming";
+import type { TurnEvent, UpsertObject } from "../../../server/streaming";
 
 function createProviderDouble(cliType: "claude-code" | "codex"): CliProvider {
 	return {
@@ -26,10 +26,10 @@ function createProviderDouble(cliType: "claude-code" | "codex"): CliProvider {
 		cancelTurn: async (_sessionId: string) => undefined,
 		killSession: async (_sessionId: string) => undefined,
 		isAlive: (_sessionId: string) => true,
-		onEvent: (
-			_sessionId: string,
-			_callback: (event: StreamEventEnvelope) => void,
-		) => undefined,
+		onUpsert: (_sessionId: string, _callback: (upsert: UpsertObject) => void) =>
+			undefined,
+		onTurn: (_sessionId: string, _callback: (event: TurnEvent) => void) =>
+			undefined,
 	};
 }
 

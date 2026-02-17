@@ -2,15 +2,15 @@
 
 This epic defines the complete requirements for replacing Liminal Builder's ACP-centric streaming path with a layered provider architecture and upsert streaming pipeline. It serves as the source of truth for the Tech Lead's design work.
 
-This is a technical refactoring epic. From the user's perspective, nothing changes — same UI, same chat, same session management. The value is structural: cleaner architecture, faster Claude Code session loads, canonical streaming format, and the foundation for Redis fan-out and Context integration.
+This is a technical refactoring epic. From the user's perspective, nothing changes — same UI, same chat, same session management. The value is structural: cleaner architecture, faster Claude Code session loads, deterministic streaming contracts, and the foundation for Redis fan-out and Context integration.
 
 ---
 
 ## System Profile
 
 **Primary Consumer:** Builder's session module and browser client
-**Context:** The session module coordinates CLI providers, feeds streaming events through the upsert processor, and delivers rendered objects to the browser. The browser renders conversation history and real-time streaming from upsert objects.
-**Mental Model:** "I call a provider, it gives me canonical events. I feed them to the processor, it gives me upsert objects. I push them to the browser, it renders by replacing state per item."
+**Context:** The session module coordinates CLI providers and delivers rendered objects to the browser from provider callback outputs (`onUpsert`, `onTurn`). Canonical stream envelopes and the upsert processor remain available for compatibility paths that still require envelope-to-upsert transformation.
+**Mental Model:** "I call a provider, it gives me upserts/turn events. I push them to the browser, it renders by replacing state per item. Canonical event envelopes remain available for compatibility paths that still use the processor."
 **Key Constraint:** The existing ACP integration works. This epic replaces its internals without changing external behavior. Both Claude Code and Codex must continue functioning throughout. The browser client should require minimal changes.
 
 ---
@@ -19,7 +19,7 @@ This is a technical refactoring epic. From the user's perspective, nothing chang
 
 Today, Builder talks to CLIs through a single ACP client (`server/acp/acp-client.ts`, ~810 lines). ACP notifications are translated to `ChatEntry` objects and pushed to the browser via WebSocket. There is no provider abstraction — ACP is hardcoded. Claude Code and Codex both go through the same ACP path, and Builder currently keeps one ACP process alive per CLI type.
 
-After this epic, the ACP client is replaced by a provider registry with purpose-built providers per CLI type. Claude Code uses the SDK directly (persistent subprocess, no per-load cold start). Codex uses the ACP adapter behind the provider interface. Both emit canonical stream events that flow through the upsert processor, producing renderable upsert objects for the browser. The pipeline is ready for Redis insertion (next epic) without architectural changes.
+After this epic, the ACP client is replaced by a provider registry with purpose-built providers per CLI type. Claude Code uses the SDK directly (persistent subprocess, no per-load cold start). Codex uses the ACP adapter behind the provider interface. Both providers emit `UpsertObject` and `TurnEvent` outputs through provider callbacks. Canonical stream-event envelopes remain as compatibility/processor input contracts where needed. The pipeline is ready for Redis insertion (next epic) without architectural changes.
 
 The key architectural shift: **streaming events become first-class data objects** rather than ad-hoc translations of ACP notifications. Every event has a defined schema, lifecycle, and consumption contract.
 
@@ -33,14 +33,14 @@ Reference: `docs/architecture.md` (workspace root) for full cross-domain archite
 
 This epic delivers the internal streaming infrastructure that all future capabilities build on:
 
-- Canonical stream event format (Zod schema defining the event vocabulary shared across all providers)
+- Canonical stream event format (Zod schema defining the compatibility event vocabulary for envelope-based paths)
 - Provider interface (the contract every CLI provider implements)
 - Claude Code provider using V1 SDK `query()` with streaming input mode
 - Codex provider refactored from existing ACP code behind the provider interface
 - Upsert stream processor ported from cody-fastify prior art (batching, gradient, tool call correlation)
 - Session API module (`/api/session/*` routes) coordinating providers and lifecycle
 - Browser client updated to consume upsert objects instead of ChatEntry
-- Pipeline integration wiring providers → processor → WebSocket delivery
+- Pipeline integration wiring providers → WebSocket delivery (with processor path retained for compatibility sources)
 
 ### Out of Scope
 
@@ -59,7 +59,7 @@ This epic delivers the internal streaming infrastructure that all future capabil
 
 | ID | Assumption | Status | Notes |
 |----|------------|--------|-------|
-| A1 | Claude Agent SDK V1 `query()` with `AsyncIterable<SDKUserMessage>` streaming input keeps one subprocess alive across multiple turns | Unvalidated | Core assumption — Story 3 validates this |
+| A1 | Claude Agent SDK V1 `query()` with `AsyncIterable<SDKUserMessage>` streaming input keeps one subprocess alive across multiple turns | Unvalidated | Core assumption — Story 4 validates this |
 | A2 | SDK `includePartialMessages: true` streams `SDKPartialAssistantMessage` events wrapping raw Anthropic API events | Validated | Confirmed in SDK docs and reference |
 | A3 | Existing Codex ACP behavior can be preserved while refactoring behind the provider interface | High confidence | Mechanical refactor, not behavioral change |
 | A4 | The cody-fastify upsert stream processor can be ported with input type adaptation | High confidence | 20 fixture-driven tests provide regression safety |
@@ -70,9 +70,15 @@ This epic delivers the internal streaming infrastructure that all future capabil
 
 ## Contracts & Requirements
 
+### Primary vs Compatibility Streaming Paths
+
+- Primary path: providers emit `UpsertObject` and `TurnEvent` through `onUpsert` / `onTurn`, and these outputs flow to session/delivery.
+- Compatibility path: canonical stream event envelopes flow through the upsert processor for sources that still produce envelopes.
+- Guardrail: provider implementations are not required to emit canonical envelopes at the provider interface boundary.
+
 ### 1. Canonical Stream Event Format
 
-The canonical stream event format is the vocabulary that all providers speak. It normalizes the differences between Claude Code's SDK events and Codex's ACP notifications into a single event model that the upsert processor consumes.
+The canonical stream event format is a compatibility vocabulary for sources that feed the upsert processor directly. Provider implementations may emit upsert/turn callbacks directly instead of exposing canonical envelopes at the provider interface boundary.
 
 The format is distinct from Context's canonical entry types. Stream events represent in-flight data (`item_start`, `item_delta`, `item_done`). Canonical entries represent completed, persisted data. The upsert processor bridges them — a completed upsert object maps to what will eventually become a canonical entry.
 
@@ -154,7 +160,7 @@ The provider interface defines the contract that every CLI provider implements. 
 - **TC-2.1a: Interface defines all lifecycle methods**
   - Given: The provider interface type definition
   - When: Inspected
-  - Then: It includes `createSession`, `sendMessage`, `loadSession`, `cancelTurn`, `killSession`, `isAlive`, and an event callback registration mechanism
+  - Then: It includes `createSession`, `sendMessage`, `loadSession`, `cancelTurn`, `killSession`, `isAlive`, `onUpsert`, and `onTurn`
 
 - **TC-2.1b: Claude Code provider satisfies the interface**
   - Given: The Claude Code provider implementation
@@ -210,44 +216,54 @@ This is the highest-risk story. The SDK streaming model is different from ACP �
 - **TC-3.2a: User message is delivered to the subprocess**
   - Given: An active session with a running subprocess
   - When: `sendMessage` is called with text content
-  - Then: The message is yielded into the SDK's `AsyncIterable<SDKUserMessage>` and the subprocess begins processing
+  - Then: The message is yielded into the SDK's `AsyncIterable<SDKUserMessage>`, the subprocess begins processing, and `sendMessage` resolves after deterministic turn-start binding (not turn completion)
 
 - **TC-3.2b: Multiple sequential messages are delivered in order**
   - Given: An active session
   - When: Two messages are sent sequentially (second after first turn completes)
   - Then: Both are processed in order by the same subprocess without restart
 
-**AC-3.3:** The provider normalizes SDK streaming events to canonical stream events
+- **TC-3.2c: Send rejects when process is already dead**
+  - Given: A session whose underlying process/handle is no longer alive
+  - When: `sendMessage` is called
+  - Then: The call fails with `PROCESS_CRASH` (or equivalent structured provider error) and does not return a fake-success `{ turnId }`
+
+**AC-3.3:** The provider translates SDK streaming events to upsert and turn outputs
 
 - **TC-3.3a: Text content blocks map to message events**
   - Given: The SDK emits `content_block_start` (type: text), followed by `content_block_delta` (text_delta), followed by `content_block_stop`
   - When: The provider processes these events
-  - Then: Canonical events `item_start` (message), `item_delta`, and `item_done` are emitted with correct content
+  - Then: `message` upsert emissions are produced with create/update/complete lifecycle and correct accumulated content
 
 - **TC-3.3b: Tool use blocks map to function call events**
   - Given: The SDK emits `content_block_start` (type: tool_use) with tool name and ID, followed by `content_block_delta` (input_json_delta) with partial JSON, followed by `content_block_stop`
   - When: The provider processes these events
-  - Then: Canonical events `item_start` (function_call) with tool name/call ID, `item_delta` with argument fragments, and `item_done` with parsed arguments are emitted (argument completeness is authoritative at `item_done`)
+  - Then: `tool_call` upsert create/complete emissions are produced with tool name/call ID and parsed arguments (argument completeness is authoritative at complete)
 
 - **TC-3.3c: Tool results from SDK user messages map to function call output events**
   - Given: The SDK emits an `SDKUserMessage` containing a tool result for a previous tool call
   - When: The provider processes this event
-  - Then: A canonical `item_done` (function_call_output) is emitted with the result content and the original `callId` for correlation
+  - Then: A `tool_call` completion output emission is produced with result content and original `callId` for correlation
 
 - **TC-3.3d: Thinking blocks map to reasoning events (when available)**
   - Given: The SDK emits a complete `SDKAssistantMessage` containing thinking content blocks
   - When: The provider processes the message
-  - Then: Canonical `item_start`/`item_done` events with `itemType` `reasoning` are emitted with the thinking text
+  - Then: `thinking` upsert emissions are produced with the thinking text
 
 - **TC-3.3e: Multiple content blocks in a single response are handled**
   - Given: The SDK streams a response containing interleaved text and tool_use content blocks
   - When: The provider processes the events
-  - Then: Each content block is tracked independently by block index, and canonical events are emitted with distinct `itemId`s for each block
+  - Then: Each content block is tracked independently by block index, and emitted upserts use distinct `itemId`s for each block
 
 - **TC-3.3f: Message completion maps to response lifecycle events**
   - Given: The SDK emits `message_start`, content blocks, `message_delta` (with stop_reason and usage), and `message_stop`
   - When: The provider processes these events
-  - Then: `response_start` is emitted at the beginning with model info, and `response_done` is emitted at the end with `status`, `usage`, and `finishReason`; when terminal status is `error`, structured `error` is emitted on `response_done` and/or via `response_error`
+  - Then: `turn_started` is emitted at the beginning with model info, and terminal `turn_complete` or `turn_error` is emitted at the end with structured error details for failure states
+
+- **TC-3.3g: Unknown tool result IDs are handled defensively**
+  - Given: The SDK emits `user_tool_result` with a `toolUseId` that has no known prior tool invocation
+  - When: The provider processes this event
+  - Then: The provider does not crash and emits a defensive `tool_call` completion upsert with `callId`, `toolOutput`, and `toolOutputIsError`
 
 **AC-3.4:** The provider handles session lifecycle operations
 
@@ -289,24 +305,24 @@ The Codex provider extracts the existing ACP client code into the provider inter
 - **TC-4.1c: Codex message sending works as before**
   - Given: An active Codex session
   - When: `sendMessage` is called
-  - Then: The ACP `session/prompt` flow executes and the agent processes the message
+  - Then: The ACP `session/prompt` flow executes, and `sendMessage` resolves after deterministic turn-start binding (not terminal completion)
 
-**AC-4.2:** The Codex provider normalizes ACP notifications to canonical stream events
+**AC-4.2:** The Codex provider translates ACP notifications to upsert and turn outputs
 
-- **TC-4.2a: ACP agent_message_chunk maps to canonical message events**
+- **TC-4.2a: ACP agent_message_chunk maps to message upsert emissions**
   - Given: An ACP `session/update` notification with `sessionUpdate: "agent_message_chunk"` containing text
   - When: The Codex provider processes this notification
-  - Then: A canonical `item_delta` event with `itemType` `message` is emitted
+  - Then: A `message` upsert emission is produced with accumulated content semantics
 
-- **TC-4.2b: ACP tool_call maps to canonical function call events**
+- **TC-4.2b: ACP tool_call maps to tool_call create emissions**
   - Given: An ACP `session/update` notification with `sessionUpdate: "tool_call"` containing tool name, ID, and status
   - When: The Codex provider processes this notification
-  - Then: A canonical `item_start` event with `itemType` `function_call` is emitted with the tool name and call ID
+  - Then: A `tool_call` create emission is produced with the tool name and call ID
 
-- **TC-4.2c: ACP tool_call_update maps to canonical function call update/completion events**
+- **TC-4.2c: ACP tool_call_update maps to tool_call completion emissions**
   - Given: An ACP `session/update` notification with `sessionUpdate: "tool_call_update"` containing status `completed` and content
   - When: The Codex provider processes this notification
-  - Then: A canonical `item_done` event with the result content and call ID is emitted
+  - Then: A `tool_call` complete emission is produced with result content and call ID
 
 ---
 
@@ -477,8 +493,8 @@ Session loading uses an explicit external contract: `POST /api/session/:id/load`
 
 - **TC-6.2d: Returned turnId is the canonical turn identifier**
   - Given: A successful `POST /api/session/:id/send` response with `{ turnId }`
-  - When: Canonical stream events for that turn are observed
-  - Then: All events for that turn use the same `turnId`
+  - When: Emitted turn events and related upsert emissions for that turn are observed
+  - Then: All outputs for that turn use the same `turnId`
 
 **AC-6.3:** Session API coordinates provider process lifecycle
 
@@ -494,18 +510,18 @@ Session loading uses an explicit external contract: `POST /api/session/:id/load`
 
 **AC-6.4:** Message contract migration strategy is explicit and testable
 
-- **TC-6.4a: Story 5 includes a compatibility window**
+- **TC-6.4a: Story 6 includes a compatibility window**
   - Given: Browser consumers still expecting legacy `session:update` / `session:chunk`
   - When: Pipeline integration is introduced
-  - Then: A compatibility layer is provided during Story 5 so migration can complete without breaking active chat behavior
+  - Then: A compatibility layer is provided during Story 6 so migration can complete without breaking active chat behavior
 
 - **TC-6.4b: Legacy contract removal is sequenced**
   - Given: Browser migration to upsert-based messages is complete
-  - When: Story 6 cleanup executes
+  - When: Story 7 cleanup executes
   - Then: Legacy message paths are removed and only the new contract remains
 
 - **TC-6.4c: Compatibility routing prevents duplicate processing**
-  - Given: Story 5 compatibility window is active
+  - Given: Story 6 compatibility window is active
   - When: The server emits streaming updates to a browser connection
   - Then: A single message family is emitted per connection (legacy or new), based on negotiated client capability/feature flag, so the same event is never processed twice by one client
 
@@ -513,11 +529,11 @@ Session loading uses an explicit external contract: `POST /api/session/:id/load`
 
 ### 7. Pipeline Integration + Browser
 
-The pipeline integration wires providers through the upsert processor to WebSocket delivery. The browser client is updated to consume upsert objects instead of the current ChatEntry format.
+The pipeline integration wires provider callback outputs through WebSocket delivery. The browser client is updated to consume upsert objects instead of the current ChatEntry format.
 
 #### Acceptance Criteria
 
-**AC-7.1:** Providers are wired through the upsert processor to WebSocket delivery
+**AC-7.1:** Provider callback outputs are wired to WebSocket delivery (with compatibility processor path where needed)
 
 - **TC-7.1a: Claude Code text streaming reaches the browser as upsert objects**
   - Given: A Claude Code session with an active turn
@@ -568,7 +584,7 @@ The pipeline integration wires providers through the upsert processor to WebSock
 - **TC-7.4a: No direct ACP-to-WebSocket code remains**
   - Given: The codebase after pipeline integration
   - When: Inspected
-  - Then: All streaming flows go through the provider → processor → WebSocket path. Legacy bridge paths are removed, including `createPromptBridgeMessages` (WebSocket bridge) and ACP-specific normalization/replay paths (`normalizeUpdateEvent`, `applyReplayEvent`) from the old ACP-centric flow.
+  - Then: All active streaming flows go through provider/session-service contracts into websocket delivery. Legacy bridge paths are removed, including `createPromptBridgeMessages` and related ACP-centric direct-stream wiring.
 
 ---
 
@@ -814,8 +830,10 @@ interface CliProvider {
   killSession(sessionId: string): Promise<void>;
   isAlive(sessionId: string): boolean;
 
-  /** Register callback for canonical stream events */
-  onEvent(sessionId: string, callback: (event: StreamEventEnvelope) => void): void;
+  /** Register callback for upsert object emissions */
+  onUpsert(sessionId: string, callback: (upsert: UpsertObject) => void): void;
+  /** Register callback for turn lifecycle emissions */
+  onTurn(sessionId: string, callback: (event: TurnEvent) => void): void;
 }
 
 interface CreateSessionOptions {
@@ -878,10 +896,10 @@ interface WsHistoryMessage {
 }
 ```
 
-Compatibility window (Story 5 only):
+Compatibility window (Story 6 only):
 - Across the full rollout, the server may support both new messages (`session:upsert`, `session:turn`) and legacy chat messages (`session:update`, `session:chunk`, `session:complete`, `session:cancelled`).
 - For any single browser connection, the server emits only one message family (legacy or new), selected by negotiated client capability/feature flag.
-- Story 6 removes legacy chat message emissions after rollout checks pass.
+- Story 7 removes legacy chat message emissions after rollout checks pass.
 
 ---
 
@@ -895,7 +913,7 @@ Technical dependencies:
 
 Process dependencies:
 - Canonical stream event format (Story 0) must stabilize before providers are built
-- Claude Code SDK provider (Story 3) is the critical path — if the streaming input model doesn't work as documented, the approach needs revision
+- Claude Code SDK provider (Story 4 in current story sharding) is the critical path — if the streaming input model doesn't work as documented, the approach needs revision
 
 ---
 
@@ -913,7 +931,7 @@ Process dependencies:
 - The processor's error-path flush-on-destroy guarantees no buffered content is silently lost, and no cancelled/error item is mislabeled as `complete`
 
 ### Testability
-- All provider event normalization is testable with mock CLI events (no real subprocess needed)
+- All provider event translation behavior is testable with mock CLI events (no real subprocess needed)
 - The upsert processor is testable with fixture-driven inputs (20 scenarios from cody-fastify)
 - Session API routes are testable via Fastify inject (no real providers needed)
 
@@ -931,7 +949,7 @@ Questions for the Tech Lead to address during design:
 
 4. **Session history on load:** When a session is loaded via provider `loadSession` (which may use provider-specific resume mechanics), history can replay notifications. Should the provider process these through the normal event path (generating upsert objects for history), or should history loading be a separate code path that populates the browser differently?
 
-5. **WebSocket compatibility window details:** Story 5 uses a compatibility layer and Story 6 removes legacy messages. What observability and rollout checks are required before removing legacy message types?
+5. **WebSocket compatibility window details:** Story 6 uses a compatibility layer and Story 7 removes legacy messages. What observability and rollout checks are required before removing legacy message types?
 
 6. **ACP code retention:** After refactoring, should the old `acp-client.ts` and `acp-types.ts` files be deleted entirely, or kept temporarily as reference? The Codex provider wraps ACP, so some ACP code must remain — the question is how much of the current 810-line file survives vs. gets extracted.
 
@@ -956,7 +974,15 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 - AC-1.2 (correlation IDs)
 - AC-1.3 (Phase 1 contract compatibility boundary for Phase 2 ingestion)
 
-### Story 1: Upsert Stream Processor
+### Story 1: Contracts + Interface Tests
+**Delivers:** Contract-level tests for schemas/interfaces, including provider-interface placeholders that activate in provider stories.
+**Prerequisite:** Story 0
+**ACs covered:**
+- AC-1.1, AC-1.2, AC-1.3 (executable contract coverage)
+- AC-2.1a (provider interface method surface)
+- TC-2.1b/TC-2.1c placeholders (activated in Stories 4/5)
+
+### Story 2: Upsert Stream Processor
 **Delivers:** The streaming processor converts canonical events to upsert objects with batching, gradient, and tool call correlation.
 **Prerequisite:** Story 0
 **ACs covered:**
@@ -965,8 +991,8 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 - AC-5.3 (tool call correlation)
 - AC-5.4 (edge cases)
 
-### Story 2: Session API + Provider Registry
-**Delivers:** HTTP routes for session lifecycle, a provider registry mapping CLI types to providers.
+### Story 3: Session API + Provider Registry
+**Delivers:** HTTP routes for session lifecycle and provider lookup by CLI type.
 **Prerequisite:** Story 0
 **ACs covered:**
 - AC-2.2 (provider registry)
@@ -974,27 +1000,27 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 - AC-6.2 (messaging routes)
 - AC-6.3 (process lifecycle routes)
 
-### Story 3: Claude Code SDK Provider
-**Delivers:** Claude Code sessions use the SDK directly with persistent subprocess and streaming input.
-**Prerequisite:** Stories 0, 2
+### Story 4: Claude Code SDK Provider
+**Delivers:** Claude Code sessions use the SDK directly with persistent subprocess and streaming input, emitting upsert/turn outputs via provider callbacks.
+**Prerequisite:** Stories 0, 2, 3
 **ACs covered:**
 - AC-2.1 (provider satisfies interface — Claude Code)
 - AC-3.1 (session creation/loading via SDK)
 - AC-3.2 (message delivery via streaming input)
-- AC-3.3 (SDK event normalization)
+- AC-3.3 (SDK event translation to upsert/turn)
 - AC-3.4 (lifecycle operations)
 
-### Story 4: Codex ACP Provider Refactor
-**Delivers:** Existing ACP code extracted behind the provider interface. Codex behavior unchanged.
-**Prerequisite:** Stories 0, 2
+### Story 5: Codex ACP Provider Refactor
+**Delivers:** Existing ACP code extracted behind the provider interface. Codex behavior preserved while emitting upsert/turn outputs via provider callbacks.
+**Prerequisite:** Stories 0, 2, 3, 4
 **ACs covered:**
 - AC-2.1 (provider satisfies interface — Codex)
 - AC-4.1 (ACP extraction without behavior change)
-- AC-4.2 (ACP notification normalization)
+- AC-4.2 (ACP notification translation to upsert/turn)
 
-### Story 5: Pipeline Integration + Browser
-**Delivers:** Providers wired through the upsert processor to WebSocket delivery. Browser consumes upsert objects.
-**Prerequisite:** Stories 1, 3, 4
+### Story 6: Pipeline Integration + Browser
+**Delivers:** Provider callback outputs wired to WebSocket delivery with compatibility-window routing. Browser consumes upsert objects.
+**Prerequisite:** Stories 2, 4, 5
 **ACs covered:**
 - AC-6.4 (compatibility window behavior and single-family routing)
 - AC-7.1 (pipeline wiring)
@@ -1002,9 +1028,9 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 - AC-7.3 (session loading)
 - AC-7.4 (old path removed)
 
-### Story 6: End-to-End Verification + Cleanup
+### Story 7: End-to-End Verification + Cleanup
 **Delivers:** Full system verified end-to-end. Dead code removed. Both CLIs working.
-**Prerequisite:** Story 5
+**Prerequisite:** Story 6
 **ACs covered:**
 - AC-6.4 (legacy contract removal sequencing verification)
 - AC-8.1 (Claude Code end-to-end)
@@ -1015,17 +1041,20 @@ Types, Zod schemas (stream events, upsert objects, turn events, provider interfa
 
 ```
 Story 0 (Infrastructure + Canonical Format)
-    ├──→ Story 1 (Upsert Stream Processor)
-    └──→ Story 2 (Session API + Provider Registry)
-              ├──→ Story 3 (Claude Code SDK Provider)      ← critical path
-              └──→ Story 4 (Codex ACP Provider Refactor)
-                          ↓
-         Story 5 (Pipeline Integration + Browser; depends on Stories 1, 3, 4)
+    ├──→ Story 1 (Contracts + Interface Tests)
+    ├──→ Story 2 (Upsert Stream Processor)
+    └──→ Story 3 (Session API + Provider Registry)
               ↓
-         Story 6 (Verification + Cleanup)
+         Story 4 (Claude Code SDK Provider)                 ← critical path
+              ↓
+         Story 5 (Codex ACP Provider Refactor)
+              ↓
+         Story 6 (Pipeline Integration + Browser; depends on Stories 2, 4, 5)
+              ↓
+         Story 7 (Verification + Cleanup)
 ```
 
-**Parallelism:** Stories 1 and 2 can execute in parallel after Story 0. Stories 3 and 4 can execute in parallel after Story 2 (though Story 3 is the critical path and should be prioritized). Stories 5-6 are sequential.
+**Parallelism:** Stories 1, 2, and 3 can execute in parallel after Story 0 where dependencies allow. Story 5 depends on Story 4 for pivot-contract continuity, so they execute sequentially. Stories 6-7 are sequential.
 
 ---
 
@@ -1036,7 +1065,7 @@ Story 0 (Infrastructure + Canonical Format)
 `UpsertObject` (or `UpsertStreamObject` if renamed in implementation) refers to a technical stream/render transport mechanism. It is not a domain entity.
 
 Use mechanism terminology where the mechanism matters:
-- Provider event normalization
+- Provider event translation
 - Stream processor behavior (batching, correlation, replacement semantics)
 - WebSocket payload contracts for progressive rendering
 

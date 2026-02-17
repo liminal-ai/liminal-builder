@@ -17,6 +17,9 @@ This plan is the executable confidence chain for the epic:
 
 Run fast, deterministic tests at module entry points while mocking only external boundaries.
 
+- Primary path under test: provider callback outputs (`onUpsert` / `onTurn`) flowing through session/delivery.
+- Compatibility path under test: canonical envelope inputs flowing through `upsert-stream-processor`.
+- Rule: provider tests should not require provider->processor coupling to validate contract compliance.
 - Provider tests mock SDK/ACP boundaries.
 - Session API tests exercise route-to-service wiring with mocked providers.
 - Processor tests run real processor logic with fixture events.
@@ -66,6 +69,18 @@ Use project scripts as gates:
 
 `verify-all` currently includes placeholder `test:e2e`; E2E coverage in this plan is implemented as integration-level tests unless a full browser E2E suite is introduced later.
 
+## Current Pivot Baseline (As Of February 16, 2026)
+
+Latest recorded Story 4 pivot verification run:
+
+- `bun run red-verify`: pass
+- `bunx vitest run tests/server/providers/claude-sdk-provider.test.ts`: pass (`14/14`)
+- `bunx vitest run tests/server/providers/provider-interface.test.ts`: pass (`2 passed`, `1 todo`)
+- `bunx vitest run tests/server/streaming/upsert-stream-processor.test.ts`: pass (`18/18`)
+- `bunx vitest run tests/server/contracts/`: pass (`11/11`)
+- `bunx vitest run tests/server/websocket.test.ts`: pass (`19/19`)
+- `bun run green-verify`: expected known-red only (`provider-registry`, `session-routes`), overall `106 passed`, `14 failed`, `1 todo`
+
 ## Protocol Negotiation Contract Tests
 
 Compatibility-family negotiation is a formal contract in this design, not an implementation detail.
@@ -103,7 +118,7 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-1.2c | `tests/server/contracts/stream-contracts.test.ts` | enforces tool correlation by shared callId | Planned |
 | TC-1.3a | `tests/server/contracts/stream-contracts.test.ts` | verifies provenance fields needed for downstream ingestion | Planned |
 | TC-1.3b | `tests/server/contracts/stream-contracts.test.ts` | verifies documented Phase 2 derivation boundary is explicit | Planned |
-| TC-2.1a | `tests/server/providers/provider-interface.test.ts` | asserts interface includes create/load/send/cancel/kill/isAlive/onEvent | Planned |
+| TC-2.1a | `tests/server/providers/provider-interface.test.ts` | asserts interface includes create/load/send/cancel/kill/isAlive/onUpsert/onTurn | Planned |
 | TC-2.1b | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Claude provider (placeholder in Story 1; activated in Story 4) | Planned |
 | TC-2.1c | `tests/server/providers/provider-interface.test.ts` | compile-time conformance check for Codex provider (placeholder in Story 1; activated in Story 5) | Planned |
 | TC-2.2a | `tests/server/providers/provider-registry.test.ts` | resolves provider by `claude-code` key | Planned |
@@ -111,23 +126,25 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-3.1a | `tests/server/providers/claude-sdk-provider.test.ts` | createSession starts persistent SDK query session | Planned |
 | TC-3.1b | `tests/server/providers/claude-sdk-provider.test.ts` | loadSession restores prior session using provider resume mechanics | Planned |
 | TC-3.1c | `tests/server/providers/claude-sdk-provider.test.ts` | create failure returns descriptive error and no orphan process | Planned |
-| TC-3.2a | `tests/server/providers/claude-sdk-provider.test.ts` | sendMessage delivers user message into AsyncIterable input | Planned |
+| TC-3.2a | `tests/server/providers/claude-sdk-provider.test.ts` | sendMessage delivers user message into AsyncIterable input and returns after deterministic turn-start bind | Planned |
 | TC-3.2b | `tests/server/providers/claude-sdk-provider.test.ts` | sequential sends preserve ordering on same subprocess | Planned |
-| TC-3.3a | `tests/server/providers/claude-sdk-provider.test.ts` | maps text content blocks to message start/delta/done events | Planned |
-| TC-3.3b | `tests/server/providers/claude-sdk-provider.test.ts` | maps tool_use blocks to function_call canonical events with finalized arguments authoritative at `item_done` | Planned |
-| TC-3.3c | `tests/server/providers/claude-sdk-provider.test.ts` | maps SDK user tool-result messages to function_call_output done event | Planned |
-| TC-3.3d | `tests/server/providers/claude-sdk-provider.test.ts` | maps thinking blocks to reasoning canonical events | Planned |
+| TC-3.2c | `tests/server/providers/claude-sdk-provider.test.ts` | sendMessage fails with PROCESS_CRASH (or equivalent provider error) when process is already dead; no fake-success turnId is returned | Planned |
+| TC-3.3a | `tests/server/providers/claude-sdk-provider.test.ts` | maps text content blocks to `message` upsert create/update/complete emissions | Planned |
+| TC-3.3b | `tests/server/providers/claude-sdk-provider.test.ts` | maps tool_use blocks to `tool_call` upserts with finalized arguments authoritative at complete emission | Planned |
+| TC-3.3c | `tests/server/providers/claude-sdk-provider.test.ts` | maps SDK user tool-result messages to `tool_call` completion output correlated by callId | Planned |
+| TC-3.3d | `tests/server/providers/claude-sdk-provider.test.ts` | maps thinking blocks to `thinking` upsert emissions | Planned |
 | TC-3.3e | `tests/server/providers/claude-sdk-provider.test.ts` | tracks interleaved blocks independently with unique itemIds | Planned |
-| TC-3.3f | `tests/server/providers/claude-sdk-provider.test.ts` | emits response_start/response_done terminal metadata and structured error details for error terminal states | Planned |
+| TC-3.3f | `tests/server/providers/claude-sdk-provider.test.ts` | emits `turn_started`/`turn_complete` and structured `turn_error` terminal events for failure states | Planned |
+| TC-3.3g | `tests/server/providers/claude-sdk-provider.test.ts` | emits defensive `tool_call` complete upsert for unknown `toolUseId` (with callId/toolOutput/toolOutputIsError) and does not crash | Planned |
 | TC-3.4a | `tests/server/providers/claude-sdk-provider.test.ts` | cancelTurn calls SDK interrupt and ends turn as cancelled | Planned |
 | TC-3.4b | `tests/server/providers/claude-sdk-provider.test.ts` | killSession terminates subprocess and marks dead | Planned |
 | TC-3.4c | `tests/server/providers/claude-sdk-provider.test.ts` | isAlive reflects before/after process kill state | Planned |
 | TC-4.1a | `tests/server/providers/codex-acp-provider.test.ts` | createSession executes ACP session/new path unchanged | Planned |
 | TC-4.1b | `tests/server/providers/codex-acp-provider.test.ts` | loadSession executes ACP session/load replay path unchanged | Planned |
-| TC-4.1c | `tests/server/providers/codex-acp-provider.test.ts` | sendMessage executes ACP session/prompt path unchanged | Planned |
-| TC-4.2a | `tests/server/providers/codex-acp-provider.test.ts` | maps `agent_message_chunk` to canonical message delta | Planned |
-| TC-4.2b | `tests/server/providers/codex-acp-provider.test.ts` | maps `tool_call` to canonical function_call start | Planned |
-| TC-4.2c | `tests/server/providers/codex-acp-provider.test.ts` | maps `tool_call_update` completion to canonical function_call completion | Planned |
+| TC-4.1c | `tests/server/providers/codex-acp-provider.test.ts` | sendMessage executes ACP session/prompt path and resolves after deterministic turn-start bind (not terminal completion) | Planned |
+| TC-4.2a | `tests/server/providers/codex-acp-provider.test.ts` | maps `agent_message_chunk` to message upsert emissions | Planned |
+| TC-4.2b | `tests/server/providers/codex-acp-provider.test.ts` | maps `tool_call` to `tool_call` create upsert | Planned |
+| TC-4.2c | `tests/server/providers/codex-acp-provider.test.ts` | maps `tool_call_update` completion to `tool_call` complete upsert | Planned |
 | TC-5.1a | `tests/server/streaming/upsert-stream-processor.test.ts` | emits create then complete for simple text stream with accumulated content | Planned |
 | TC-5.1b | `tests/server/streaming/upsert-stream-processor.test.ts` | each emission contains full accumulated text not incremental delta | Planned |
 | TC-5.1c | `tests/server/streaming/upsert-stream-processor.test.ts` | emits exactly invocation create (arguments may be partial/empty) and completion complete for tool call lifecycle | Planned |
@@ -155,11 +172,11 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | TC-6.2a | `tests/server/api/session-routes.test.ts` | POST send routes to matching provider and returns turnId | Planned |
 | TC-6.2b | `tests/server/api/session-routes.test.ts` | POST send unknown session returns 404 | Planned |
 | TC-6.2c | `tests/server/api/session-routes.test.ts` | POST cancel routes to provider cancelTurn | Planned |
-| TC-6.2d | `tests/server/api/session-routes.test.ts` | returned turnId matches all emitted turn events for request | Planned |
+| TC-6.2d | `tests/server/api/session-routes.test.ts` | returned turnId matches all emitted turn/upsert outputs for request | Planned |
 | TC-6.3a | `tests/server/api/session-routes.test.ts` | POST kill terminates provider session and removes active entry | Planned |
 | TC-6.3b | `tests/server/api/session-routes.test.ts` | GET status returns provider liveness and session state | Planned |
-| TC-6.4a | `tests/server/websocket/websocket-compatibility.test.ts` | Story 5 connection can use compatibility window without breaking active chat | Planned |
-| TC-6.4b | `tests/server/websocket/websocket-compatibility.test.ts` | Story 6 removes legacy message family emissions | Planned |
+| TC-6.4a | `tests/server/websocket/websocket-compatibility.test.ts` | Story 6 connection can use compatibility window without breaking active chat | Planned |
+| TC-6.4b | `tests/server/websocket/websocket-compatibility.test.ts` | Story 7 removes legacy message family emissions | Planned |
 | TC-6.4c | `tests/server/websocket/websocket-compatibility.test.ts` | single connection receives only one negotiated message family | Planned |
 | TC-7.1a | `tests/server/pipeline/pipeline-integration.test.ts` | Claude text stream reaches browser as message upserts | Planned |
 | TC-7.1b | `tests/server/pipeline/pipeline-integration.test.ts` | Codex text stream reaches browser as message upserts | Planned |
@@ -180,8 +197,8 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 
 ## Coverage Summary
 
-- Total TCs in epic: 85
-- Total mapped TCs in this plan: 85
+- Total TCs in epic: 87
+- Total mapped TCs in this plan: 87
 - Unmapped TCs: 0
 - Additional non-TC verification tests: 7 (legacy-removal guard + negotiation-ack contract + 5 NFR checks)
 
@@ -192,16 +209,16 @@ NFR coverage contributes 5 required non-TC verification checks and is included i
 | Chunk 0 | 14 |
 | Chunk 1 | 18 |
 | Chunk 2 | 14 |
-| Chunk 3 | 14 |
+| Chunk 3 | 16 |
 | Chunk 4 | 8 |
 | Chunk 5 | 11 |
 | Chunk 6 | 13 |
-| Total | 92 |
+| Total | 94 |
 
 ## Exit Criteria
 
 - All mapped tests implemented and passing in target suites.
 - `bun run verify` passes on each green chunk.
-- `bun run green-verify` passes at each chunk handoff.
+- `bun run green-verify` passes at each chunk handoff, or fails only for explicitly documented out-of-scope known-red suites during pivot execution.
 - `bun run verify-all` passes at epic completion.
 - Manual gorilla pass completed for tab switching, mixed-provider sessions, and cancellation behavior.

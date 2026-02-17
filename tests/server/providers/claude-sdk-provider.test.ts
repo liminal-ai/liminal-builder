@@ -4,15 +4,46 @@ import type {
 	ClaudeSdkAdapter,
 	ClaudeSdkQueryHandle,
 	ClaudeSdkQueryRequest,
+	ClaudeSdkStreamEvent,
 } from "../../../server/providers/claude/claude-sdk-provider";
-import type { ClaudeSdkStreamEvent } from "../../../server/providers/claude/claude-event-normalizer";
-import type { StreamEventEnvelope } from "../../../server/streaming";
+import type {
+	MessageUpsert,
+	ThinkingUpsert,
+	ToolCallUpsert,
+	TurnEvent,
+	UpsertObject,
+} from "@server/streaming/upsert-types";
 
-async function* streamFrom(
+async function* streamFromRequest(
+	request: ClaudeSdkQueryRequest,
 	events: ClaudeSdkStreamEvent[],
 ): AsyncGenerator<ClaudeSdkStreamEvent> {
+	if (events.length === 0) {
+		return;
+	}
+
+	const inputIterator = request.input[Symbol.asyncIterator]();
+	const firstInput = await inputIterator.next();
+	if (firstInput.done) {
+		return;
+	}
+
 	for (const event of events) {
 		yield event;
+	}
+}
+
+async function waitFor(
+	predicate: () => boolean,
+	description: string,
+	timeoutMs = 500,
+): Promise<void> {
+	const start = Date.now();
+	while (!predicate()) {
+		if (Date.now() - start >= timeoutMs) {
+			throw new Error(`Timed out waiting for ${description}`);
+		}
+		await new Promise((resolve) => setTimeout(resolve, 5));
 	}
 }
 
@@ -32,8 +63,8 @@ function createMockSdkBoundary(events: ClaudeSdkStreamEvent[] = []): {
 	const isAlive = vi.fn<() => boolean>(() => true);
 	const query = vi.fn<
 		(request: ClaudeSdkQueryRequest) => Promise<ClaudeSdkQueryHandle>
-	>(async () => ({
-		output: streamFrom(events),
+	>(async (request) => ({
+		output: streamFromRequest(request, events),
 		interrupt,
 		close,
 		isAlive,
@@ -61,7 +92,32 @@ function createProvider(boundary: {
 				return `turn-${ordinal}`;
 			};
 		})(),
+		now: () => "2026-02-15T10:00:00.000Z",
 	});
+}
+
+function isMessageUpsert(upsert: UpsertObject): upsert is MessageUpsert {
+	return upsert.type === "message";
+}
+
+function isToolCallUpsert(upsert: UpsertObject): upsert is ToolCallUpsert {
+	return upsert.type === "tool_call";
+}
+
+function isThinkingUpsert(upsert: UpsertObject): upsert is ThinkingUpsert {
+	return upsert.type === "thinking";
+}
+
+function isCompleteMessageUpsert(
+	upsert: UpsertObject,
+): upsert is MessageUpsert {
+	return isMessageUpsert(upsert) && upsert.status === "complete";
+}
+
+function isCompleteThinkingUpsert(
+	upsert: UpsertObject,
+): upsert is ThinkingUpsert {
+	return isThinkingUpsert(upsert) && upsert.status === "complete";
 }
 
 describe("ClaudeSdkProvider (Story 4, Red)", () => {
@@ -172,7 +228,7 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		});
 	});
 
-	it("TC-3.3a: text blocks map to canonical item_start/item_delta/item_done (message)", async () => {
+	it("TC-3.3a: text blocks emit message upserts bracketed by turn lifecycle events", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -202,21 +258,78 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
 
-		await provider.sendMessage(session.sessionId, "say hello");
+		const upserts: UpsertObject[] = [];
+		const turns: TurnEvent[] = [];
+		const emissionOrder: Array<{
+			kind: "turn" | "upsert";
+			type?: TurnEvent["type"];
+		}> = [];
+		provider.onUpsert(session.sessionId, (upsert) => {
+			upserts.push(upsert);
+			emissionOrder.push({ kind: "upsert" });
+		});
+		provider.onTurn(session.sessionId, (event) => {
+			turns.push(event);
+			emissionOrder.push({ kind: "turn", type: event.type });
+		});
 
-		expect(emitted.map((event) => event.type)).toEqual([
-			"response_start",
-			"item_start",
-			"item_delta",
-			"item_done",
-			"response_done",
-		]);
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"say hello",
+		);
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(
+			() => turns.some((event) => event.type === "turn_complete"),
+			"turn_complete for TC-3.3a",
+		);
+		await waitFor(
+			() =>
+				upserts.some(
+					(upsert) =>
+						isMessageUpsert(upsert) &&
+						upsert.status === "create" &&
+						upsert.origin === "agent" &&
+						upsert.itemId === "turn-1:1:0",
+				),
+			"message create upsert for TC-3.3a",
+		);
+
+		expect(turns[0]).toMatchObject({
+			type: "turn_started",
+			turnId: "turn-1",
+			sessionId: session.sessionId,
+			modelId: "claude-sonnet-4-5-20250929",
+		});
+
+		const createMessage = upserts.find(
+			(upsert) =>
+				isMessageUpsert(upsert) &&
+				upsert.status === "create" &&
+				upsert.origin === "agent" &&
+				upsert.itemId === "turn-1:1:0",
+		);
+		expect(createMessage).toBeDefined();
+
+		const completeMessages = upserts.filter(isCompleteMessageUpsert);
+		expect(completeMessages.at(-1)?.content).toContain("Hello");
+
+		expect(turns.at(-1)).toMatchObject({
+			type: "turn_complete",
+			turnId: "turn-1",
+			sessionId: session.sessionId,
+			status: "completed",
+			usage: { inputTokens: 10, outputTokens: 4 },
+		});
+		expect(emissionOrder[0]).toEqual({ kind: "turn", type: "turn_started" });
+		expect(emissionOrder.at(-1)).toEqual({
+			kind: "turn",
+			type: "turn_complete",
+		});
+		expect(emissionOrder.some((entry) => entry.kind === "upsert")).toBe(true);
 	});
 
-	it("TC-3.3b: tool-use blocks map to canonical function_call lifecycle and final arguments are authoritative at item_done(function_call)", async () => {
+	it("TC-3.3b: tool-use blocks emit tool call upserts with finalized arguments", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -251,28 +364,47 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
+		const upserts: UpsertObject[] = [];
+		provider.onUpsert(session.sessionId, (upsert) => upserts.push(upsert));
+		provider.onTurn(session.sessionId, () => undefined);
 
-		await provider.sendMessage(session.sessionId, "run read_file");
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"run read_file",
+		);
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(
+			() =>
+				upserts.some(
+					(upsert) =>
+						isToolCallUpsert(upsert) &&
+						upsert.status === "complete" &&
+						upsert.callId === "toolu-1",
+				),
+			"tool call complete upsert for TC-3.3b",
+		);
 
-		const functionCallStart = emitted.find(
-			(event) =>
-				event.type === "item_start" &&
-				event.payload.type === "item_start" &&
-				event.payload.itemType === "function_call",
+		const createdCall = upserts.find(
+			(upsert) =>
+				isToolCallUpsert(upsert) &&
+				upsert.status === "create" &&
+				upsert.toolName === "read_file" &&
+				upsert.callId === "toolu-1" &&
+				upsert.itemId === "turn-1:1:0",
 		);
-		const functionCallDone = emitted.find(
-			(event) =>
-				event.type === "item_done" &&
-				event.payload.type === "item_done" &&
-				event.payload.finalItem.type === "function_call",
+		expect(createdCall).toBeDefined();
+
+		const completedCall = upserts.find(
+			(upsert) =>
+				isToolCallUpsert(upsert) &&
+				upsert.status === "complete" &&
+				upsert.callId === "toolu-1" &&
+				upsert.toolArguments.path === "src/a.ts",
 		);
-		expect(functionCallStart).toBeDefined();
-		expect(functionCallDone).toBeDefined();
+		expect(completedCall).toBeDefined();
 	});
 
-	it("TC-3.3c: SDK user tool-result messages map to item_done(function_call_output) with original callId", async () => {
+	it("TC-3.3c: user tool-result messages emit complete tool output upserts", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -297,22 +429,40 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
+		const upserts: UpsertObject[] = [];
+		provider.onUpsert(session.sessionId, (upsert) => upserts.push(upsert));
+		provider.onTurn(session.sessionId, () => undefined);
 
-		await provider.sendMessage(session.sessionId, "tool output arrived");
-
-		const outputDone = emitted.find(
-			(event) =>
-				event.type === "item_done" &&
-				event.payload.type === "item_done" &&
-				event.payload.finalItem.type === "function_call_output" &&
-				event.payload.finalItem.callId === "toolu-1",
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"tool output arrived",
 		);
-		expect(outputDone).toBeDefined();
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(
+			() =>
+				upserts.some(
+					(upsert) =>
+						isToolCallUpsert(upsert) &&
+						upsert.status === "complete" &&
+						upsert.callId === "toolu-1" &&
+						upsert.toolOutput === '{"ok":true}' &&
+						upsert.toolOutputIsError === false,
+				),
+			"tool result upsert for TC-3.3c",
+		);
+
+		const toolOutput = upserts.find(
+			(upsert) =>
+				isToolCallUpsert(upsert) &&
+				upsert.status === "complete" &&
+				upsert.callId === "toolu-1" &&
+				upsert.toolOutput === '{"ok":true}' &&
+				upsert.toolOutputIsError === false,
+		);
+		expect(toolOutput).toBeDefined();
 	});
 
-	it("TC-3.3d: thinking blocks map to canonical reasoning events", async () => {
+	it("TC-3.3d: thinking blocks emit thinking upserts", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -342,21 +492,42 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
+		const upserts: UpsertObject[] = [];
+		provider.onUpsert(session.sessionId, (upsert) => upserts.push(upsert));
+		provider.onTurn(session.sessionId, () => undefined);
 
-		await provider.sendMessage(session.sessionId, "think this through");
-
-		const reasoningDone = emitted.find(
-			(event) =>
-				event.type === "item_done" &&
-				event.payload.type === "item_done" &&
-				event.payload.finalItem.type === "reasoning",
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"think this through",
 		);
-		expect(reasoningDone).toBeDefined();
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(
+			() =>
+				upserts.some(
+					(upsert) => isThinkingUpsert(upsert) && upsert.status === "complete",
+				),
+			"thinking complete upsert for TC-3.3d",
+		);
+
+		const createdThinking = upserts.find(
+			(upsert) =>
+				isThinkingUpsert(upsert) &&
+				upsert.status === "create" &&
+				upsert.providerId === "claude-code",
+		);
+		expect(createdThinking).toBeDefined();
+
+		const completedThinking = upserts.filter(isCompleteThinkingUpsert);
+		const lastCompletedThinking = completedThinking.at(-1);
+		expect(lastCompletedThinking).toBeDefined();
+		if (!lastCompletedThinking) {
+			throw new Error("Expected a complete thinking upsert");
+		}
+		expect(lastCompletedThinking.content).toContain("Plan first.");
+		expect(lastCompletedThinking.providerId).toBe("claude-code");
 	});
 
-	it("TC-3.3e: interleaved content blocks get distinct deterministic itemId values", async () => {
+	it("TC-3.3e: interleaved content blocks use distinct deterministic itemIds", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -402,22 +573,39 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
+		const upserts: UpsertObject[] = [];
+		provider.onUpsert(session.sessionId, (upsert) => upserts.push(upsert));
+		provider.onTurn(session.sessionId, () => undefined);
 
-		await provider.sendMessage(session.sessionId, "mix text and tool");
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"mix text and tool",
+		);
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(() => upserts.length >= 4, "interleaved upserts for TC-3.3e");
 
-		const itemStartIds: string[] = [];
-		for (const event of emitted) {
-			if (event.type === "item_start" && event.payload.type === "item_start") {
-				itemStartIds.push(event.payload.itemId);
-			}
-		}
-		expect(new Set(itemStartIds).size).toBe(itemStartIds.length);
-		expect(itemStartIds).toEqual(["turn-1:1:0", "turn-1:1:1"]);
+		const itemIds = new Set(upserts.map((upsert) => upsert.itemId));
+		expect(itemIds.size).toBeGreaterThanOrEqual(2);
+		expect(itemIds).toEqual(new Set(["turn-1:1:0", "turn-1:1:1"]));
+
+		const textItemIds = new Set(
+			upserts
+				.filter((upsert) => isMessageUpsert(upsert))
+				.map((upsert) => upsert.itemId),
+		);
+		const toolItemIds = new Set(
+			upserts
+				.filter((upsert) => isToolCallUpsert(upsert))
+				.map((upsert) => upsert.itemId),
+		);
+
+		const hasDistinctTextAndToolIds = [...textItemIds].some(
+			(textItemId) => !toolItemIds.has(textItemId),
+		);
+		expect(hasDistinctTextAndToolIds).toBe(true);
 	});
 
-	it("TC-3.3f: response lifecycle emits response_start and terminal metadata, with structured error details for error terminal states", async () => {
+	it("TC-3.3f: response lifecycle uses turn_error terminal for error stop reasons", async () => {
 		const boundary = createMockSdkBoundary([
 			{
 				type: "message_start",
@@ -436,22 +624,48 @@ describe("ClaudeSdkProvider (Story 4, Red)", () => {
 		const session = await provider.createSession({
 			projectDir: "/tmp/liminal-builder",
 		});
-		const emitted: StreamEventEnvelope[] = [];
-		provider.onEvent(session.sessionId, (event) => emitted.push(event));
+		const upserts: UpsertObject[] = [];
+		const turns: TurnEvent[] = [];
+		const emissionOrder: Array<{
+			kind: "turn" | "upsert";
+			type?: TurnEvent["type"];
+		}> = [];
+		provider.onUpsert(session.sessionId, (upsert) => {
+			upserts.push(upsert);
+			emissionOrder.push({ kind: "upsert" });
+		});
+		provider.onTurn(session.sessionId, (event) => {
+			turns.push(event);
+			emissionOrder.push({ kind: "turn", type: event.type });
+		});
 
-		await provider.sendMessage(session.sessionId, "trigger error");
+		const sendResult = await provider.sendMessage(
+			session.sessionId,
+			"trigger error",
+		);
+		expect(sendResult.turnId).toBe("turn-1");
+		await waitFor(
+			() => turns.some((event) => event.type === "turn_error"),
+			"turn_error terminal for TC-3.3f",
+		);
 
-		expect(emitted[0]?.type).toBe("response_start");
-		const responseError = emitted.find(
-			(event) => event.type === "response_error",
+		expect(turns[0]?.type).toBe("turn_started");
+		expect(turns[0]?.turnId).toBe("turn-1");
+		const errorTurn = turns.find((event) => event.type === "turn_error");
+		expect(errorTurn).toBeDefined();
+		if (!errorTurn || errorTurn.type !== "turn_error") {
+			throw new Error("Expected turn_error terminal event");
+		}
+		expect(errorTurn.turnId).toBe("turn-1");
+		expect(errorTurn.sessionId).toBe(session.sessionId);
+		expect(errorTurn.errorCode.length).toBeGreaterThan(0);
+		expect(errorTurn.errorMessage.length).toBeGreaterThan(0);
+		expect(turns.some((event) => event.type === "turn_complete")).toBe(false);
+		expect(emissionOrder[0]).toEqual({ kind: "turn", type: "turn_started" });
+		const firstUpsertIndex = emissionOrder.findIndex(
+			(entry) => entry.kind === "upsert",
 		);
-		const responseDoneError = emitted.find(
-			(event) =>
-				event.type === "response_done" &&
-				event.payload.type === "response_done" &&
-				event.payload.status === "error",
-		);
-		expect(responseError ?? responseDoneError).toBeDefined();
+		expect(firstUpsertIndex === -1 || firstUpsertIndex > 0).toBe(true);
 	});
 
 	it("TC-3.4a: cancelTurn triggers SDK interrupt and turn cancellation semantics", async () => {
