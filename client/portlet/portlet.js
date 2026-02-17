@@ -12,6 +12,10 @@ const EXPECTED_ORIGIN_KEY = "__lbPortletExpectedOrigin";
 
 /** @type {object[]} */
 const entries = [];
+/** @type {Map<string, object>} */
+const upsertsByItemId = new Map();
+/** @type {Map<string, string>} */
+const entryIdByItemId = new Map();
 
 /** @type {{ value: SessionState }} */
 const sessionState = { value: "idle" };
@@ -193,6 +197,119 @@ function replaceEntry(entryId, nextEntry) {
 	}
 }
 
+function toToolStatus(status) {
+	if (status === "complete") {
+		return "complete";
+	}
+	if (status === "error") {
+		return "error";
+	}
+	return "running";
+}
+
+function mapUpsertToEntry(upsert) {
+	if (!upsert || typeof upsert !== "object") {
+		return null;
+	}
+
+	const entryId =
+		entryIdByItemId.get(upsert.itemId) ?? `upsert-${upsert.itemId}`;
+	entryIdByItemId.set(upsert.itemId, entryId);
+
+	if (upsert.type === "message") {
+		return {
+			entryId,
+			type: "assistant",
+			content: typeof upsert.content === "string" ? upsert.content : "",
+			timestamp:
+				typeof upsert.sourceTimestamp === "string"
+					? upsert.sourceTimestamp
+					: new Date().toISOString(),
+		};
+	}
+
+	if (upsert.type === "thinking") {
+		return {
+			entryId,
+			type: "thinking",
+			content: typeof upsert.content === "string" ? upsert.content : "",
+		};
+	}
+
+	if (upsert.type === "tool_call") {
+		return {
+			entryId,
+			type: "tool-call",
+			toolCallId:
+				typeof upsert.callId === "string"
+					? upsert.callId
+					: `tool-${upsert.itemId}`,
+			name:
+				typeof upsert.callId === "string" && upsert.callId.length > 0
+					? upsert.callId
+					: "Tool call",
+			status: toToolStatus(upsert.status),
+			result: typeof upsert.content === "string" ? upsert.content : undefined,
+			error:
+				upsert.status === "error" && typeof upsert.content === "string"
+					? upsert.content
+					: undefined,
+		};
+	}
+
+	return null;
+}
+
+function applyUpsert(upsert) {
+	if (
+		!upsert ||
+		typeof upsert !== "object" ||
+		typeof upsert.itemId !== "string"
+	) {
+		return;
+	}
+
+	upsertsByItemId.set(upsert.itemId, upsert);
+	const nextEntry = mapUpsertToEntry(upsert);
+	if (!nextEntry) {
+		return;
+	}
+
+	replaceEntry(nextEntry.entryId, nextEntry);
+	chat.renderEntry(nextEntry);
+	if (nextEntry.type === "assistant" && upsert.status === "complete") {
+		chat.finalizeEntry(nextEntry.entryId);
+	}
+}
+
+function isUpsertHistory(entriesValue) {
+	return (
+		Array.isArray(entriesValue) &&
+		entriesValue.every(
+			(entry) =>
+				entry &&
+				typeof entry === "object" &&
+				typeof entry.itemId === "string" &&
+				typeof entry.type === "string",
+		)
+	);
+}
+
+function applyUpsertHistory(historyEntries) {
+	upsertsByItemId.clear();
+	entryIdByItemId.clear();
+	const nextEntries = [];
+	for (const upsert of historyEntries) {
+		upsertsByItemId.set(upsert.itemId, upsert);
+		const mapped = mapUpsertToEntry(upsert);
+		if (mapped) {
+			nextEntries.push(mapped);
+		}
+	}
+	entries.splice(0, entries.length, ...nextEntries);
+	chat.renderAll(entries);
+}
+
 if (typeof window !== "undefined") {
 	if (typeof document !== "undefined") {
 		if (document.readyState === "loading") {
@@ -240,9 +357,33 @@ export function handleShellMessage(msg) {
 	switch (msg.type) {
 		case "session:history": {
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
+			if (isUpsertHistory(msg.entries)) {
+				applyUpsertHistory(msg.entries);
+				break;
+			}
 			entries.splice(0, entries.length, ...msg.entries);
 			pendingOptimisticUserEntryIds.length = 0;
 			chat.renderAll(entries);
+			break;
+		}
+
+		case "session:upsert": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
+			applyUpsert(msg.payload);
+			break;
+		}
+
+		case "session:turn": {
+			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
+			if (msg.payload?.type === "turn_complete") {
+				input.enable();
+				sessionState.value = "idle";
+			}
+			if (msg.payload?.type === "turn_error") {
+				chat.showError(msg.payload.errorMessage || "Turn failed");
+				input.enable();
+				sessionState.value = "idle";
+			}
 			break;
 		}
 
@@ -481,6 +622,8 @@ export function getEntries() {
  */
 export function reset() {
 	entries.length = 0;
+	upsertsByItemId.clear();
+	entryIdByItemId.clear();
 	pendingOptimisticUserEntryIds.length = 0;
 	sessionState.value = "idle";
 	bootstrapped = false;

@@ -20,6 +20,7 @@ let ws = null;
 let wsState = "connecting";
 let reconnectAttempt = 0;
 let reconnectTimer = null;
+let selectedFamily = "legacy";
 /** @type {object[]} */
 const wsSendQueue = [];
 
@@ -35,6 +36,8 @@ const PORTLET_WS_TYPES = new Set(["session:send", "session:cancel"]);
 const PORTLET_LOCAL_TYPES = new Set(["portlet:ready", "portlet:title"]);
 const PORTLET_MESSAGE_TYPES = new Set([
 	"session:history",
+	"session:upsert",
+	"session:turn",
 	"session:update",
 	"session:chunk",
 	"session:complete",
@@ -206,6 +209,13 @@ function handleServerMessage(msg) {
 		handler(msg);
 	});
 
+	if (msg?.type === "session:hello:ack") {
+		selectedFamily =
+			msg.selectedFamily === "upsert-v1" ? "upsert-v1" : "legacy";
+		document.documentElement.dataset.streamFamily = selectedFamily;
+		return;
+	}
+
 	if (
 		msg?.type === "session:created" &&
 		typeof msg.sessionId === "string" &&
@@ -289,6 +299,7 @@ function connectWebSocket() {
 		wsState = "connected";
 		reconnectAttempt = 0;
 		updateWSStatusUI(wsState);
+		wsSend({ type: "session:hello", streamProtocol: "upsert-v1" });
 		flushQueuedMessages();
 		resyncState();
 	});
