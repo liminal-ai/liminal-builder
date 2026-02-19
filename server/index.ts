@@ -5,6 +5,8 @@ import { EventEmitter } from "node:events";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { AgentManager } from "./acp/agent-manager";
+import { ClaudeAgentSdkAdapter } from "./providers/claude/claude-agent-sdk-adapter";
+import { PooledClaudeSdkProvider } from "./providers/claude/pooled-claude-sdk-provider";
 import type { Project } from "./projects/project-types";
 import { ProjectStore } from "./projects/project-store";
 import { SessionManager } from "./sessions/session-manager";
@@ -31,10 +33,21 @@ async function main() {
 		[],
 	);
 	const agentManager = new AgentManager(new EventEmitter());
+	const claudeProvider = new PooledClaudeSdkProvider(
+		{
+			sdk: new ClaudeAgentSdkAdapter(),
+		},
+		{
+			poolSize: 3,
+			warmOnInit: true,
+			defaultProjectDir: process.cwd(),
+		},
+	);
 	const sessionManager = new SessionManager(
 		sessionsStore,
 		agentManager,
 		projectStore,
+		{ claudeProvider },
 	);
 
 	await app.register(fastifyStatic, {
@@ -73,6 +86,7 @@ async function main() {
 		shuttingDown = true;
 		console.log(`\n[server] Received ${signal}, shutting down...`);
 		try {
+			await claudeProvider.shutdown();
 			await agentManager.shutdownAll();
 			await app.close();
 			process.exit(0);

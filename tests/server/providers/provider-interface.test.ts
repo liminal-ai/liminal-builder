@@ -12,6 +12,7 @@ import {
 	type ClaudeSdkQueryHandle,
 	type ClaudeSdkQueryRequest,
 } from "../../../server/providers/claude/claude-sdk-provider";
+import { PooledClaudeSdkProvider } from "../../../server/providers/claude/pooled-claude-sdk-provider";
 import {
 	CodexAcpProvider,
 	type CodexAcpClient,
@@ -202,6 +203,44 @@ describe("Provider interface contracts (Story 1, Red)", () => {
 		});
 
 		expect(provider.cliType).toBe("codex");
+		expect(typeof provider.createSession).toBe("function");
+		expect(typeof provider.loadSession).toBe("function");
+		expect(typeof provider.sendMessage).toBe("function");
+		expect(typeof provider.cancelTurn).toBe("function");
+		expect(typeof provider.killSession).toBe("function");
+		expect(typeof provider.isAlive).toBe("function");
+		expect(typeof provider.onUpsert).toBe("function");
+		expect(typeof provider.onTurn).toBe("function");
+	});
+
+	it("TC-2.1d: Pooled Claude provider satisfies CliProvider surface with no type errors", () => {
+		async function* emptyStream(): AsyncGenerator<never> {}
+
+		const query = vi.fn<
+			(request: ClaudeSdkQueryRequest) => Promise<ClaudeSdkQueryHandle>
+		>(async () => ({
+			output: emptyStream(),
+			interrupt: async () => undefined,
+			close: async () => undefined,
+			isAlive: () => true,
+		}));
+
+		const sdk: ClaudeSdkAdapter = { query };
+		const provider: CliProvider = new PooledClaudeSdkProvider(
+			{
+				sdk,
+				createSessionId: () => "pooled-claude-session-001",
+				createTurnId: () => "pooled-claude-turn-001",
+				now: () => "2026-02-15T10:00:00.000Z",
+			},
+			{
+				poolSize: 2,
+				warmOnInit: false,
+				defaultProjectDir: "/tmp/liminal-builder",
+			},
+		);
+
+		expect(provider.cliType).toBe("claude-code");
 		expect(typeof provider.createSession).toBe("function");
 		expect(typeof provider.loadSession).toBe("function");
 		expect(typeof provider.sendMessage).toBe("function");

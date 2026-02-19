@@ -405,7 +405,6 @@ export function renderSessions(projectId, sessions) {
 		sessionItem.className = "session-item";
 		sessionItem.dataset.sessionId = session.id;
 		sessionItem.addEventListener("click", () => {
-			const wasAlreadyOpen = hasShellTab(session.id);
 			try {
 				openShellTab(
 					session.id,
@@ -419,13 +418,11 @@ export function renderSessions(projectId, sessions) {
 			} catch (error) {
 				console.warn("[sidebar] Failed to open session tab:", error);
 			}
-			if (!wasAlreadyOpen) {
-				sendMessageRef({
-					type: "session:open",
-					sessionId: session.id,
-					projectId,
-				});
-			}
+			sendMessageRef({
+				type: "session:open",
+				sessionId: session.id,
+				projectId,
+			});
 		});
 
 		const sessionBadge = document.createElement("span");

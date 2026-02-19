@@ -38,6 +38,7 @@ export interface WebSocketDeps {
 		| "createSession"
 		| "openSession"
 		| "archiveSession"
+		| "cancelTurn"
 		| "sendMessage"
 	>;
 }
@@ -1069,9 +1070,13 @@ async function routeMessage(
 
 		case "session:cancel": {
 			try {
-				const routing = parseSessionRouting(message.sessionId);
-				const client = await deps.agentManager.ensureAgent(routing.cliType);
-				client.sessionCancel(routing.acpSessionId);
+				if (deps.sessionManager) {
+					await deps.sessionManager.cancelTurn(message.sessionId);
+				} else {
+					const routing = parseSessionRouting(message.sessionId);
+					const client = await deps.agentManager.ensureAgent(routing.cliType);
+					client.sessionCancel(routing.acpSessionId);
+				}
 
 				const inFlightState = inFlightPrompts.get(message.sessionId);
 				if (inFlightState) {

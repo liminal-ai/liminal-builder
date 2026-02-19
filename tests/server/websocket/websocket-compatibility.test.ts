@@ -50,6 +50,7 @@ function createSessionManager(): MockSessionManager {
 		createSession: async () => "claude-code:created-session",
 		openSession: async () => [],
 		archiveSession: () => {},
+		cancelTurn: async () => {},
 		sendMessage: async (_sessionId, _content, onEvent) => {
 			onEvent({
 				type: "agent_message_chunk",

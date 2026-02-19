@@ -408,6 +408,31 @@ describe("Tab Management", () => {
 		]);
 	});
 
+	test("legacy restored tabs normalize non-canonical session IDs", () => {
+		localStorage.setItem(
+			"liminal:tabs",
+			JSON.stringify({
+				openTabs: ["019c6b78", "4e5741fe"],
+				activeTab: "4e5741fe",
+				tabOrder: ["019c6b78", "4e5741fe"],
+				tabMeta: {
+					"019c6b78": { title: "Session 019c6b78", cliType: "codex" },
+					"4e5741fe": { title: "Session 4e5741fe", cliType: "claude-code" },
+				},
+			}),
+		);
+
+		tabs.init(tabBar, portletContainer, emptyState);
+
+		expect(tabs.getTabOrder()).toEqual([
+			"codex:019c6b78",
+			"claude-code:4e5741fe",
+		]);
+		expect(tabs.getActiveTab()).toBe("claude-code:4e5741fe");
+		expect(tabs.hasTab("codex:019c6b78")).toBe(true);
+		expect(tabs.hasTab("claude-code:4e5741fe")).toBe(true);
+	});
+
 	test("restored inactive tab hydrates iframe on first activation", () => {
 		localStorage.setItem(
 			"liminal:tabs",
@@ -546,6 +571,37 @@ describe("Tab Management", () => {
 				content: "hello agent",
 			}),
 		);
+	});
+
+	test("portlet ready triggers session:open reload", () => {
+		const mockSend = vi.fn<(msg: object) => void>();
+		tabs.init(tabBar, portletContainer, emptyState);
+		tabs.openTab("claude-code:session-1", "S1", "claude-code");
+		shell.setupPortletRelay(mockSend);
+
+		const iframe = requireIframe(
+			tabs.getIframe("claude-code:session-1"),
+			"session-1",
+		);
+		const mockCW = createMockContentWindow();
+		Object.defineProperty(iframe, "contentWindow", {
+			value: mockCW,
+			writable: true,
+			configurable: true,
+		});
+
+		const event = new MessageEvent("message", {
+			data: { type: "portlet:ready" },
+			origin: window.location.origin,
+			source: mockCW,
+		});
+		window.dispatchEvent(event);
+
+		expect(mockSend).toHaveBeenCalledOnce();
+		expect(mockSend).toHaveBeenCalledWith({
+			type: "session:open",
+			sessionId: "claude-code:session-1",
+		});
 	});
 
 	test("session:created auto-opens tab via WS handler", () => {

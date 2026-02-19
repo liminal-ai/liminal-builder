@@ -61,6 +61,7 @@ function createSessionManager(): MockSessionManager {
 		createSession: async () => "claude-code:created-session",
 		openSession: async (sessionId) => createLegacyHistory(sessionId),
 		archiveSession: () => {},
+		cancelTurn: async () => {},
 		sendMessage: async () => ({ stopReason: "end_turn" }),
 	};
 }

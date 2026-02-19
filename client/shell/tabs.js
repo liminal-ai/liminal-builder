@@ -96,8 +96,10 @@ export const initTabs = init;
  * @param {string} cliType - CLI type ("claude-code" or "codex")
  */
 export function openTab(sessionId, title, cliType) {
-	if (hasTab(sessionId)) {
-		activateTab(sessionId);
+	const normalizedSessionId = normalizeSessionId(sessionId, cliType);
+
+	if (hasTab(normalizedSessionId)) {
+		activateTab(normalizedSessionId);
 		return;
 	}
 
@@ -105,11 +107,11 @@ export function openTab(sessionId, title, cliType) {
 		throw new Error("tabs.openTab: init must be called before openTab");
 	}
 
-	createIframe(sessionId);
+	createIframe(normalizedSessionId);
 
-	renderTabElement(sessionId, title, cliType);
-	tabOrder.push(sessionId);
-	activateTab(sessionId);
+	renderTabElement(normalizedSessionId, title, cliType);
+	tabOrder.push(normalizedSessionId);
+	activateTab(normalizedSessionId);
 	toggleEmptyState(false);
 	persistTabState();
 }
@@ -443,6 +445,7 @@ function restoreTabState() {
 				? state.tabMeta
 				: {};
 
+		const restoredSessionIds = new Set();
 		for (const sessionId of savedOrder) {
 			if (!openTabs.includes(sessionId)) {
 				continue;
@@ -460,14 +463,38 @@ function restoreTabState() {
 				typeof info.cliType === "string" && info.cliType.length > 0
 					? info.cliType
 					: "claude-code";
+			const normalizedSessionId = normalizeSessionId(sessionId, cliType);
+			if (restoredSessionIds.has(normalizedSessionId)) {
+				continue;
+			}
+			restoredSessionIds.add(normalizedSessionId);
 
-			renderTabElement(sessionId, title, cliType);
-			tabOrder.push(sessionId);
+			renderTabElement(normalizedSessionId, title, cliType);
+			tabOrder.push(normalizedSessionId);
 		}
 
-		const restoredActiveTab =
-			typeof state.activeTab === "string" && tabOrder.includes(state.activeTab)
+		const stateActiveTab =
+			typeof state.activeTab === "string" && state.activeTab.length > 0
 				? state.activeTab
+				: null;
+		const activeTabMeta =
+			stateActiveTab &&
+			typeof tabMeta[stateActiveTab] === "object" &&
+			tabMeta[stateActiveTab] !== null
+				? tabMeta[stateActiveTab]
+				: null;
+		const normalizedActiveTab =
+			stateActiveTab && activeTabMeta
+				? normalizeSessionId(
+						stateActiveTab,
+						typeof activeTabMeta.cliType === "string"
+							? activeTabMeta.cliType
+							: "claude-code",
+					)
+				: stateActiveTab;
+		const restoredActiveTab =
+			normalizedActiveTab && tabOrder.includes(normalizedActiveTab)
+				? normalizedActiveTab
 				: (tabOrder[0] ?? null);
 		if (restoredActiveTab) {
 			activateTab(restoredActiveTab);
@@ -478,6 +505,17 @@ function restoreTabState() {
 		console.warn("Failed to restore tab state:", error);
 		return null;
 	}
+}
+
+function normalizeSessionId(sessionId, cliType) {
+	if (typeof sessionId !== "string" || sessionId.length === 0) {
+		return sessionId;
+	}
+	if (sessionId.includes(":")) {
+		return sessionId;
+	}
+	const normalizedCliType = cliType === "codex" ? "codex" : "claude-code";
+	return `${normalizedCliType}:${sessionId}`;
 }
 
 /**

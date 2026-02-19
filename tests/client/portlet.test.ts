@@ -260,4 +260,18 @@ describe("Portlet Chat Session", () => {
 
 		expect(chatContainer.scrollTop).toBe(500);
 	});
+
+	it("session error clears loading shimmer", async () => {
+		const portlet = await importPortlet();
+		const chatContainer = getChatContainer();
+
+		expect(chatContainer.querySelector(".session-loading")).not.toBeNull();
+
+		portlet.handleShellMessage({
+			type: "session:error",
+			message: "Session failed to load",
+		});
+
+		expect(chatContainer.querySelector(".session-loading")).toBeNull();
+	});
 });

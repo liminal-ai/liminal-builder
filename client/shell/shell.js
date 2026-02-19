@@ -125,6 +125,7 @@ export function setupPortletRelay(sendMessageFn) {
 		}
 
 		if (data.type === "portlet:ready") {
+			sendMessageFn({ type: "session:open", sessionId });
 			return;
 		}
 

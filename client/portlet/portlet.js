@@ -204,6 +204,13 @@ function removeLoadingShimmer() {
 	if (shimmer) shimmer.remove();
 }
 
+function notifyParentReady() {
+	window.parent?.postMessage(
+		{ type: "portlet:ready" },
+		getPostMessageTargetOrigin(),
+	);
+}
+
 function replaceEntry(entryId, nextEntry) {
 	const existingIndex = entries.findIndex((entry) => entry.entryId === entryId);
 	if (existingIndex >= 0) {
@@ -400,6 +407,7 @@ if (typeof window !== "undefined") {
 
 	window[MESSAGE_LISTENER_KEY] = messageListener;
 	window.addEventListener("message", messageListener);
+	notifyParentReady();
 }
 
 /**
@@ -457,6 +465,7 @@ export function handleShellMessage(msg) {
 			break;
 
 		case "session:error":
+			removeLoadingShimmer();
 			updateComposerContext(inferCliTypeFromSessionId(msg.sessionId));
 			chat.showError(msg.message);
 			sessionState.value = "idle";

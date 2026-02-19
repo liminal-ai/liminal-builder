@@ -186,22 +186,40 @@ interface ClaudeProviderSessionState {
 	sessionId: string;
 	projectDir: string;
 	alive: boolean;
-	activeHandle?: ClaudeSdkQueryHandle;
-	inputQueue: InputQueueHandle;
+	slotIndex: number;
 	pendingTurnIds: PendingTurn[];
 	activeTurnById: Map<string, PendingTurn>;
 	toolByCallId: Map<string, ToolInvocationState>;
 	runtime: TurnRuntimeState;
+}
+
+interface PoolSlot {
+	index: number;
+	handle?: ClaudeSdkQueryHandle;
+	inputQueue?: InputQueueHandle;
+	boundSessionId: string | null;
+	lastActiveAt: number;
+	projectDir: string;
+	alive: boolean;
 	outputClosed: boolean;
 	outputConsumer?: Promise<void>;
 }
 
-const DEFAULT_BATCH_GRADIENT: readonly number[] = [10, 20, 40, 80, 120];
+export interface PoolConfig {
+	poolSize: number;
+	warmOnInit: boolean;
+	defaultProjectDir: string;
+}
 
-export class ClaudeSdkProvider implements CliProvider {
+const DEFAULT_BATCH_GRADIENT: readonly number[] = [10, 20, 40, 80, 120];
+const DEFAULT_POOL_SIZE = 3;
+
+export class PooledClaudeSdkProvider implements CliProvider {
 	readonly cliType = "claude-code" as const;
 
 	private readonly sessions = new Map<string, ClaudeProviderSessionState>();
+	private readonly sessionBindings = new Map<string, number>();
+	private readonly pool: PoolSlot[];
 	private readonly upsertListeners = new Map<
 		string,
 		Array<(upsert: UpsertObject) => void>
@@ -211,38 +229,53 @@ export class ClaudeSdkProvider implements CliProvider {
 		Array<(event: TurnEvent) => void>
 	>();
 	private readonly deps: ClaudeSdkProviderDeps;
+	private readonly poolConfig: PoolConfig;
+	private replenishPoolPromise?: Promise<void>;
 
-	constructor(deps: ClaudeSdkProviderDeps) {
+	constructor(deps: ClaudeSdkProviderDeps, config?: Partial<PoolConfig>) {
 		this.deps = deps;
+		this.poolConfig = {
+			poolSize: config?.poolSize ?? DEFAULT_POOL_SIZE,
+			warmOnInit: config?.warmOnInit ?? true,
+			defaultProjectDir: config?.defaultProjectDir ?? process.cwd(),
+		};
+		this.pool = Array.from(
+			{ length: this.poolConfig.poolSize },
+			(_, index) => ({
+				index,
+				boundSessionId: null,
+				lastActiveAt: Date.now(),
+				projectDir: this.poolConfig.defaultProjectDir,
+				alive: false,
+				outputClosed: true,
+			}),
+		);
+
+		if (this.poolConfig.warmOnInit) {
+			void this.replenishPool();
+		}
 	}
 
 	async createSession(options: CreateSessionOptions): Promise<ProviderSession> {
 		const sessionId = this.createSessionId();
-		const inputQueue = this.createInputGenerator();
+		const slot = await this.acquireSlot(options.projectDir);
 
-		let handle: ClaudeSdkQueryHandle;
-		try {
-			handle = await this.deps.sdk.query({
+		if (
+			!slot.handle ||
+			!slot.alive ||
+			!slot.handle.isAlive() ||
+			slot.projectDir !== options.projectDir
+		) {
+			await this.replaceSlotHandle(slot.index, {
 				cwd: options.projectDir,
-				input: inputQueue.input,
 				options: options.providerOptions,
 			});
-		} catch (error) {
-			throw new ProviderError(
-				"SESSION_CREATE_FAILED",
-				"Failed to create Claude SDK session",
-				error,
-			);
 		}
+		this.bindSession(slot.index, sessionId, options.projectDir);
 
-		const session = this.buildSessionState({
-			sessionId,
-			projectDir: options.projectDir,
-			inputQueue,
-			handle,
-		});
-		this.sessions.set(sessionId, session);
-		this.ensureOutputConsumer(session);
+		if (this.poolConfig.warmOnInit) {
+			void this.replenishPool();
+		}
 
 		return {
 			sessionId,
@@ -262,34 +295,20 @@ export class ClaudeSdkProvider implements CliProvider {
 			};
 		}
 
-		const inputQueue = this.createInputGenerator();
 		const cwd = options?.viewFilePath
 			? dirname(options.viewFilePath)
 			: process.cwd();
+		const queryOptions = options?.viewFilePath
+			? { viewFilePath: options.viewFilePath }
+			: undefined;
 
-		let handle: ClaudeSdkQueryHandle;
-		try {
-			handle = await this.deps.sdk.query({
-				cwd,
-				input: inputQueue.input,
-				resumeSessionId: sessionId,
-			});
-		} catch (error) {
-			throw new ProviderError(
-				"SESSION_CREATE_FAILED",
-				`Failed to load Claude SDK session ${sessionId}`,
-				error,
-			);
-		}
-
-		const session = this.buildSessionState({
-			sessionId,
-			projectDir: cwd,
-			inputQueue,
-			handle,
+		const slot = await this.acquireSlot(cwd);
+		await this.replaceSlotHandle(slot.index, {
+			cwd,
+			resumeSessionId: sessionId,
+			options: queryOptions,
 		});
-		this.sessions.set(sessionId, session);
-		this.ensureOutputConsumer(session);
+		this.bindSession(slot.index, sessionId, cwd);
 
 		return {
 			sessionId,
@@ -302,13 +321,23 @@ export class ClaudeSdkProvider implements CliProvider {
 		message: string,
 	): Promise<SendMessageResult> {
 		const session = this.requireSession(sessionId);
+		const slot = this.requireSlot(sessionId);
+		const inputQueue = slot.inputQueue;
+		const handle = slot.handle;
+		if (!inputQueue || !handle) {
+			throw new ProviderError(
+				"PROCESS_CRASH",
+				`Session ${sessionId} is not alive; cannot send message`,
+			);
+		}
 		const turnId = this.createTurnId();
 		const pendingTurn = this.createPendingTurn(turnId, sessionId);
 		session.pendingTurnIds.push(pendingTurn);
-		session.inputQueue.push(message);
-		this.ensureOutputConsumer(session);
-		if (session.outputClosed || !session.activeHandle) {
-			const isHandleAlive = session.activeHandle?.isAlive() ?? false;
+		inputQueue.push(message);
+		slot.lastActiveAt = Date.now();
+		this.ensureOutputConsumer(slot.index);
+		if (slot.outputClosed || !slot.handle) {
+			const isHandleAlive = slot.handle?.isAlive() ?? false;
 			if (!isHandleAlive) {
 				this.rejectTurnStarted(
 					pendingTurn,
@@ -356,13 +385,13 @@ export class ClaudeSdkProvider implements CliProvider {
 	}
 
 	async cancelTurn(sessionId: string): Promise<void> {
-		const session = this.requireSession(sessionId);
-		if (!session.activeHandle) {
+		const slot = this.requireSlot(sessionId);
+		if (!slot.handle) {
 			return;
 		}
 
 		try {
-			await session.activeHandle.interrupt();
+			await slot.handle.interrupt();
 		} catch (error) {
 			throw new ProviderError(
 				"INTERRUPT_FAILED",
@@ -373,29 +402,15 @@ export class ClaudeSdkProvider implements CliProvider {
 	}
 
 	async killSession(sessionId: string): Promise<void> {
-		const session = this.requireSession(sessionId);
-		session.alive = false;
-		session.inputQueue.close();
-		const killError = new ProviderError(
-			"PROCESS_CRASH",
-			`Session ${sessionId} was killed before turn start`,
-		);
-		this.failPendingTurns(session, killError);
-		this.failActiveTurns(session, killError);
-
-		const handle = session.activeHandle;
-		session.activeHandle = undefined;
-		this.sessions.delete(sessionId);
-
-		if (!handle) {
-			return;
-		}
-
-		try {
-			await handle.close();
-		} catch {
-			// Best-effort shutdown.
-		}
+		const slot = this.requireSlot(sessionId);
+		this.detachSession(slot.index, {
+			removeListeners: true,
+			error: new ProviderError(
+				"PROCESS_CRASH",
+				`Session ${sessionId} was killed before turn start`,
+			),
+		});
+		slot.lastActiveAt = Date.now();
 	}
 
 	isAlive(sessionId: string): boolean {
@@ -403,10 +418,8 @@ export class ClaudeSdkProvider implements CliProvider {
 		if (!session) {
 			return false;
 		}
-		if (!session.activeHandle) {
-			return session.alive;
-		}
-		return session.activeHandle.isAlive();
+		const slot = this.pool[session.slotIndex];
+		return session.alive && Boolean(slot?.handle?.isAlive());
 	}
 
 	onUpsert(sessionId: string, callback: (upsert: UpsertObject) => void): void {
@@ -424,19 +437,16 @@ export class ClaudeSdkProvider implements CliProvider {
 	private buildSessionState(args: {
 		sessionId: string;
 		projectDir: string;
-		inputQueue: InputQueueHandle;
-		handle: ClaudeSdkQueryHandle;
+		slotIndex: number;
 	}): ClaudeProviderSessionState {
 		return {
 			sessionId: args.sessionId,
 			projectDir: args.projectDir,
 			alive: true,
-			activeHandle: args.handle,
-			inputQueue: args.inputQueue,
+			slotIndex: args.slotIndex,
 			pendingTurnIds: [],
 			activeTurnById: new Map<string, PendingTurn>(),
 			toolByCallId: new Map<string, ToolInvocationState>(),
-			outputClosed: false,
 			runtime: {
 				messageOrdinal: 0,
 				blockStates: new Map<number, BlockState>(),
@@ -446,26 +456,40 @@ export class ClaudeSdkProvider implements CliProvider {
 	}
 
 	private async consumeOutput(
-		session: ClaudeProviderSessionState,
+		slotIndex: number,
+		handle: ClaudeSdkQueryHandle,
 	): Promise<void> {
-		const handle = session.activeHandle;
+		const slot = this.pool[slotIndex];
+		if (!slot) {
+			return;
+		}
+
 		if (!handle) {
 			return;
 		}
 
 		const iterator = handle.output[Symbol.asyncIterator]();
 		try {
-			while (session.alive) {
+			while (slot.alive && slot.handle === handle) {
 				const next = await iterator.next();
+				if (slot.handle !== handle) {
+					break;
+				}
+
+				const boundSessionId = slot.boundSessionId;
+				const session = boundSessionId
+					? this.sessions.get(boundSessionId)
+					: undefined;
+
 				if (next.done) {
-					session.outputClosed = true;
+					slot.outputClosed = true;
 					if (!handle.isAlive()) {
 						const crashError = new ProviderError(
 							"PROCESS_CRASH",
 							"Claude SDK output stream ended unexpectedly",
 						);
 						if (
-							session.runtime.currentTurnId &&
+							session?.runtime.currentTurnId &&
 							!session.runtime.isTurnTerminal
 						) {
 							this.emitTurn(session.sessionId, {
@@ -476,21 +500,41 @@ export class ClaudeSdkProvider implements CliProvider {
 								errorMessage: crashError.message,
 							});
 						}
-						session.alive = false;
-						session.activeHandle = undefined;
-						this.failPendingTurns(session, crashError);
-						this.failActiveTurns(session, crashError);
-						this.resetTurnState(session.runtime, true);
+						if (session) {
+							session.alive = false;
+							this.failPendingTurns(session, crashError);
+							this.failActiveTurns(session, crashError);
+							this.resetTurnState(session.runtime, true);
+							this.sessions.delete(session.sessionId);
+							this.sessionBindings.delete(session.sessionId);
+						}
+						slot.boundSessionId = null;
+						slot.alive = false;
+						slot.handle = undefined;
+						slot.inputQueue?.close();
+						slot.inputQueue = undefined;
 						break;
 					}
-					this.resolvePendingTurns(session);
-					this.resolveActiveTurns(session);
+					if (session) {
+						this.resolvePendingTurns(session);
+						this.resolveActiveTurns(session);
+					}
 					break;
 				}
+
+				if (!session) {
+					continue;
+				}
+
+				slot.lastActiveAt = Date.now();
 				const sourceTimestamp = this.now();
 				this.handleStreamEvent(session, next.value, sourceTimestamp);
 			}
 		} catch (error) {
+			if (slot.handle !== handle) {
+				return;
+			}
+
 			const resolvedMessage =
 				error instanceof Error ? error.message : String(error);
 			const crashError = new ProviderError(
@@ -498,19 +542,35 @@ export class ClaudeSdkProvider implements CliProvider {
 				resolvedMessage,
 				error,
 			);
-			this.emitTurn(session.sessionId, {
-				type: "turn_error",
-				turnId: session.runtime.currentTurnId ?? "unknown-turn",
-				sessionId: session.sessionId,
-				errorCode: crashError.code,
-				errorMessage: crashError.message,
-			});
-			session.alive = false;
-			session.activeHandle = undefined;
-			session.outputClosed = true;
-			this.failPendingTurns(session, crashError);
-			this.failActiveTurns(session, crashError);
-			this.resetTurnState(session.runtime, true);
+			const boundSessionId = slot.boundSessionId;
+			const session = boundSessionId
+				? this.sessions.get(boundSessionId)
+				: undefined;
+			if (session) {
+				this.emitTurn(session.sessionId, {
+					type: "turn_error",
+					turnId: session.runtime.currentTurnId ?? "unknown-turn",
+					sessionId: session.sessionId,
+					errorCode: crashError.code,
+					errorMessage: crashError.message,
+				});
+				session.alive = false;
+				this.failPendingTurns(session, crashError);
+				this.failActiveTurns(session, crashError);
+				this.resetTurnState(session.runtime, true);
+				this.sessions.delete(session.sessionId);
+				this.sessionBindings.delete(session.sessionId);
+			}
+			slot.boundSessionId = null;
+			slot.alive = false;
+			slot.handle = undefined;
+			slot.inputQueue?.close();
+			slot.inputQueue = undefined;
+			slot.outputClosed = true;
+		} finally {
+			if (slot.handle === handle) {
+				slot.outputConsumer = undefined;
+			}
 		}
 	}
 
@@ -1026,11 +1086,232 @@ export class ClaudeSdkProvider implements CliProvider {
 		};
 	}
 
-	private ensureOutputConsumer(session: ClaudeProviderSessionState): void {
-		if (session.outputClosed || session.outputConsumer) {
+	private ensureOutputConsumer(slotIndex: number): void {
+		const slot = this.pool[slotIndex];
+		if (!slot || slot.outputClosed || slot.outputConsumer || !slot.handle) {
 			return;
 		}
-		session.outputConsumer = this.consumeOutput(session);
+		slot.outputConsumer = this.consumeOutput(slotIndex, slot.handle);
+	}
+
+	private bindSession(
+		slotIndex: number,
+		sessionId: string,
+		projectDir: string,
+	): void {
+		const slot = this.pool[slotIndex];
+		if (!slot) {
+			throw new ProviderError(
+				"SESSION_CREATE_FAILED",
+				"Pool slot was not found",
+			);
+		}
+		const session = this.buildSessionState({
+			sessionId,
+			projectDir,
+			slotIndex,
+		});
+		slot.boundSessionId = sessionId;
+		slot.lastActiveAt = Date.now();
+		this.sessions.set(sessionId, session);
+		this.sessionBindings.set(sessionId, slotIndex);
+		this.ensureOutputConsumer(slotIndex);
+	}
+
+	private requireSlot(sessionId: string): PoolSlot {
+		const slotIndex = this.sessionBindings.get(sessionId);
+		if (slotIndex === undefined) {
+			throw new ProviderError(
+				"SESSION_NOT_FOUND",
+				`Session ${sessionId} was not found`,
+			);
+		}
+		const slot = this.pool[slotIndex];
+		if (!slot || slot.boundSessionId !== sessionId) {
+			throw new ProviderError(
+				"SESSION_NOT_FOUND",
+				`Session ${sessionId} was not found`,
+			);
+		}
+		return slot;
+	}
+
+	private async acquireSlot(_projectDir: string): Promise<PoolSlot> {
+		const idleSlots = this.pool.filter((slot) => slot.boundSessionId === null);
+		let selectedSlot: PoolSlot | undefined;
+		if (idleSlots.length > 0) {
+			selectedSlot = idleSlots.reduce((candidate, slot) =>
+				slot.lastActiveAt < candidate.lastActiveAt ? slot : candidate,
+			);
+		} else {
+			selectedSlot = this.pool.reduce((candidate, slot) =>
+				slot.lastActiveAt < candidate.lastActiveAt ? slot : candidate,
+			);
+			this.detachSession(selectedSlot.index, {
+				error: new ProviderError(
+					"PROCESS_CRASH",
+					`Session ${selectedSlot.boundSessionId ?? "unknown"} was evicted from pool`,
+				),
+			});
+		}
+
+		if (!selectedSlot) {
+			throw new ProviderError(
+				"SESSION_CREATE_FAILED",
+				"Failed to acquire pooled Claude SDK slot",
+			);
+		}
+
+		if (selectedSlot.handle && !selectedSlot.handle.isAlive()) {
+			await this.closeSlotHandle(selectedSlot.index);
+		}
+
+		return selectedSlot;
+	}
+
+	private detachSession(
+		slotIndex: number,
+		options?: {
+			error?: ProviderError;
+			removeListeners?: boolean;
+		},
+	): void {
+		const slot = this.pool[slotIndex];
+		if (!slot) {
+			return;
+		}
+		const sessionId = slot.boundSessionId;
+		if (!sessionId) {
+			return;
+		}
+
+		const session = this.sessions.get(sessionId);
+		const detachError =
+			options?.error ??
+			new ProviderError(
+				"PROCESS_CRASH",
+				`Session ${sessionId} was detached from pooled slot`,
+			);
+		if (session) {
+			session.alive = false;
+			this.failPendingTurns(session, detachError);
+			this.failActiveTurns(session, detachError);
+			this.resetTurnState(session.runtime, true);
+			session.toolByCallId.clear();
+			this.sessions.delete(sessionId);
+		}
+		this.sessionBindings.delete(sessionId);
+		slot.boundSessionId = null;
+		slot.lastActiveAt = Date.now();
+
+		if (options?.removeListeners) {
+			this.upsertListeners.delete(sessionId);
+			this.turnListeners.delete(sessionId);
+		}
+	}
+
+	private async replaceSlotHandle(
+		slotIndex: number,
+		request: Omit<ClaudeSdkQueryRequest, "input">,
+	): Promise<void> {
+		const slot = this.pool[slotIndex];
+		if (!slot) {
+			throw new ProviderError(
+				"SESSION_CREATE_FAILED",
+				"Pool slot was not found",
+			);
+		}
+
+		await this.closeSlotHandle(slotIndex);
+
+		const inputQueue = this.createInputGenerator();
+		let handle: ClaudeSdkQueryHandle;
+		try {
+			handle = await this.deps.sdk.query({
+				...request,
+				input: inputQueue.input,
+			});
+		} catch (error) {
+			inputQueue.close();
+			const detail = request.resumeSessionId
+				? `Failed to load Claude SDK session ${request.resumeSessionId}`
+				: "Failed to create Claude SDK session";
+			throw new ProviderError("SESSION_CREATE_FAILED", detail, error);
+		}
+
+		slot.handle = handle;
+		slot.inputQueue = inputQueue;
+		slot.projectDir = request.cwd;
+		slot.alive = true;
+		slot.outputClosed = false;
+		slot.lastActiveAt = Date.now();
+		this.ensureOutputConsumer(slotIndex);
+	}
+
+	private async closeSlotHandle(slotIndex: number): Promise<void> {
+		const slot = this.pool[slotIndex];
+		if (!slot) {
+			return;
+		}
+		const handle = slot.handle;
+		slot.handle = undefined;
+		slot.outputClosed = true;
+		slot.alive = false;
+		slot.outputConsumer = undefined;
+		slot.inputQueue?.close();
+		slot.inputQueue = undefined;
+		if (!handle) {
+			return;
+		}
+		try {
+			await handle.close();
+		} catch {
+			// Best-effort shutdown.
+		}
+	}
+
+	private async replenishPool(): Promise<void> {
+		if (this.replenishPoolPromise) {
+			return this.replenishPoolPromise;
+		}
+
+		const run = async (): Promise<void> => {
+			for (const slot of this.pool) {
+				if (slot.boundSessionId !== null) {
+					continue;
+				}
+				if (slot.handle?.isAlive()) {
+					continue;
+				}
+				try {
+					await this.replaceSlotHandle(slot.index, {
+						cwd: this.poolConfig.defaultProjectDir,
+					});
+				} catch {
+					// Best-effort warm up.
+				}
+			}
+		};
+
+		this.replenishPoolPromise = run().finally(() => {
+			this.replenishPoolPromise = undefined;
+		});
+		return this.replenishPoolPromise;
+	}
+
+	async shutdown(): Promise<void> {
+		for (const slot of this.pool) {
+			this.detachSession(slot.index, {
+				removeListeners: true,
+				error: new ProviderError(
+					"PROCESS_CRASH",
+					"Pooled Claude SDK provider was shut down",
+				),
+			});
+		}
+		for (const slot of this.pool) {
+			await this.closeSlotHandle(slot.index);
+		}
 	}
 
 	private createPendingTurn(turnId: string, sessionId: string): PendingTurn {

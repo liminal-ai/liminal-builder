@@ -333,7 +333,7 @@ describe("Sidebar", () => {
 		});
 	});
 
-	it("clicking already-open session does not re-request history", async () => {
+	it("clicking already-open session re-requests history", async () => {
 		vi.doMock("../../client/shell/tabs.js", () => ({
 			closeTab: vi.fn(),
 			hasTab: vi.fn(() => true),
@@ -373,6 +373,6 @@ describe("Sidebar", () => {
 					"sessionId" in message &&
 					message.sessionId === "claude-code:s1",
 			),
-		).toBe(false);
+		).toBe(true);
 	});
 });

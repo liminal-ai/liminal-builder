@@ -51,6 +51,7 @@ function createSessionManager(): MockSessionManager {
 		createSession: async () => "claude-code:created-session",
 		openSession: async () => [],
 		archiveSession: () => {},
+		cancelTurn: async () => {},
 		sendMessage: async (sessionId, content, onEvent) => {
 			if (content.includes("tool")) {
 				onEvent({
