@@ -109,7 +109,7 @@ If the server is available:
 
 **Tab lifecycle:**
 1. Start server: `bun run dev`
-2. Open browser: `http://localhost:3000`
+2. Open browser: `http://localhost:3051`
 3. Open a session -- verify tab appears automatically (session:created auto-open)
 4. Open a second session -- verify second tab, first still present
 5. Click first tab -- verify instant switch (no flicker, no delay)

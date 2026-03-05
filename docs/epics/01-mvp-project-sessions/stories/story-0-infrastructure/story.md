@@ -100,7 +100,7 @@ None directly. This is infrastructure-only. It enables all subsequent stories.
 ## Exit Criteria
 
 - `bun run verify` passes (format:check + biome lint + eslint + eslint-plugin tests + typecheck + `test` script)
-- `bun run dev` starts the server and serves shell HTML at `http://localhost:3000`
+- `bun run dev` starts the server and serves shell HTML at `http://localhost:3051`
 - WebSocket connects when shell page loads in browser
 - `bun run verify-all` is available and runs `verify` + client + integration + e2e hooks
 - All stub methods throw `NotImplementedError`

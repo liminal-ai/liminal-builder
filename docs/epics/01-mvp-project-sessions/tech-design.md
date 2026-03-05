@@ -1854,7 +1854,7 @@ Vitest runs under Node, not Bun. Code that uses Bun-specific APIs (`Bun.file()`,
 ### Manual Verification Checklist (Gorilla Testing)
 
 1. [ ] Start server: `bun run server/index.ts`
-2. [ ] Open browser: `http://localhost:3000`
+2. [ ] Open browser: `http://localhost:3051`
 3. [ ] Add a project directory
 4. [ ] Create a Claude Code session → verify streaming response
 5. [ ] Send a message that triggers tool calls → verify tool call rendering
@@ -1951,7 +1951,7 @@ For MVP, external boundary validation uses explicit guards and typed message con
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `LIMINAL_PORT` | `3000` | Fastify bind port |
+| `LIMINAL_PORT` | `3051` | Fastify bind port |
 | `LIMINAL_HOST` | `127.0.0.1` | Fastify bind host |
 | `LIMINAL_DATA_DIR` | `~/.liminal-builder` | JSON persistence root |
 | `CLAUDE_ACP_CMD` | `claude-code-acp` | Claude ACP launch command |

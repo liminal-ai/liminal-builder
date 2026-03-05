@@ -125,7 +125,7 @@ Confirm each TC is covered by checking test names contain the TC ID:
 
 If the server is runnable (`bun run dev`), perform these manual checks:
 
-- [ ] Open the app in a browser at `http://localhost:3000`
+- [ ] Open the app in a browser at `http://localhost:3051`
 - [ ] Open/create a session -- chat container and input bar are visible
 - [ ] Type a message and send -- message appears immediately as a user turn
 - [ ] Agent streams a response -- text appears incrementally (raw, not markdown)

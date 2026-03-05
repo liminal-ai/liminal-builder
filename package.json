@@ -4,6 +4,9 @@
 	"type": "module",
 	"scripts": {
 		"dev": "sh -c 'bun run dev:tailwind & bun run --watch server/index.ts'",
+		"desktop:dev": "bun run --cwd desktop dev",
+		"desktop:build": "bun run --cwd desktop build",
+		"desktop:test": "bun run --cwd desktop test",
 		"dev:tailwind": "tailwindcss -i ./client/shared/tailwind.input.css -o ./client/shared/tailwind.css --watch",
 		"build:tailwind": "tailwindcss -i ./client/shared/tailwind.input.css -o ./client/shared/tailwind.css --minify",
 		"start": "bun run build:tailwind && bun run server/index.ts",

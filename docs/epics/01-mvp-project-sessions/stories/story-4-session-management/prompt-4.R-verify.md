@@ -139,7 +139,7 @@ Confirm SessionManager resolves `cwd` through ProjectStore rather than requiring
 
 If the server is runnable (`bun run dev`), perform these manual checks:
 
-- [ ] Open the app in a browser at `http://localhost:3000`
+- [ ] Open the app in a browser at `http://localhost:3051`
 - [ ] Add a project directory
 - [ ] Expand the project in the sidebar -- session list loads (may be empty)
 - [ ] Click "New Session" -- CLI picker appears with "Claude Code" and "Codex" options

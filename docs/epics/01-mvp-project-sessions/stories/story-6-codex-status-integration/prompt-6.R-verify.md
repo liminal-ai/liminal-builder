@@ -206,12 +206,12 @@ Verify these critical implementations exist and are not stubs:
 
 This is the full manual verification checklist from the tech design (15 items). This checklist is for human execution after all automated tests pass. Document it here for the verifier.
 
-**Prerequisites:** Server running (`bun run start`), browser open at `http://localhost:3000`
+**Prerequisites:** Server running (`bun run start`), browser open at `http://localhost:3051`
 
 | # | Step | Expected Result | AC |
 |---|------|----------------|-----|
 | 1 | Start server: `bun run start` | Server starts, logs listening port | Infrastructure |
-| 2 | Open browser: `http://localhost:3000` | Shell page loads with sidebar, tab bar, empty portlet area | Infrastructure |
+| 2 | Open browser: `http://localhost:3051` | Shell page loads with sidebar, tab bar, empty portlet area | Infrastructure |
 | 3 | Add a project directory | Project appears in sidebar | AC-1.2 |
 | 4 | Create a Claude Code session, send a message | Streaming response renders: user turn, assistant turn with markdown, tool calls with status, thinking blocks | AC-2.2, TC-2.2d |
 | 5 | Send a message that triggers tool calls | Tool call name + running indicator, then collapsed result | AC-3.3 |

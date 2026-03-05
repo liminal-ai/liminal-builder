@@ -803,7 +803,7 @@ export function handleWebSocket(socket: WebSocket): void {
 
 #### 15. `server/index.ts`
 
-Fastify entry point. Registers static file serving (for `client/` directory) and the WebSocket plugin. Starts listening on port 3000.
+Fastify entry point. Registers static file serving (for `client/` directory) and the WebSocket plugin. Starts listening on port 3051.
 
 ```typescript
 import Fastify from 'fastify';
@@ -812,7 +812,7 @@ import fastifyStatic from '@fastify/static';
 import { join } from 'path';
 import { handleWebSocket } from './websocket';
 
-const PORT = Number(process.env.LIMINAL_PORT) || 3000;
+const PORT = Number(process.env.LIMINAL_PORT) || 3051;
 const HOST = process.env.LIMINAL_HOST || '127.0.0.1';
 const CLIENT_DIR = join(import.meta.dir, '..', 'client');
 
@@ -1623,10 +1623,10 @@ bun run verify
 
 # 2. Server must start
 bun run start &
-# Expected: "Liminal Builder running at http://localhost:3000"
+# Expected: "Liminal Builder running at http://localhost:3051"
 
 # 3. Shell page must be served
-curl -s http://localhost:3000/shell/index.html | head -5
+curl -s http://localhost:3051/shell/index.html | head -5
 # Expected: HTML content starting with <!DOCTYPE html>
 
 # 4. Kill server
@@ -1638,8 +1638,8 @@ kill %1
 - [ ] All 31 files listed above are created
 - [ ] `bun install` completes successfully
 - [ ] `bun run verify` passes with zero errors
-- [ ] `bun run start` starts the server on port 3000
-- [ ] `http://localhost:3000/shell/index.html` serves the shell page
+- [ ] `bun run start` starts the server on port 3051
+- [ ] `http://localhost:3051/shell/index.html` serves the shell page
 - [ ] `bun run verify-all` is wired and executable (integration/e2e may be placeholder/no-op in Story 0)
 - [ ] All stub methods throw `NotImplementedError` (except `json-store.ts`, `toCanonical`, `fromCanonical`)
 - [ ] No test files exist yet

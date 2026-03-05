@@ -14,7 +14,7 @@ import type { SessionMeta } from "./sessions/session-types";
 import { JsonStore } from "./store/json-store";
 import { handleWebSocket } from "./websocket";
 
-const PORT = Number(process.env.PORT) || 3000;
+const PORT = Number(process.env.PORT) || 3051;
 const CLIENT_DIR = join(import.meta.dir, "..", "client");
 const NODE_MODULES_DIR = join(import.meta.dir, "..", "node_modules");
 const PROJECTS_FILE = join(homedir(), ".liminal-builder", "projects.json");

@@ -108,7 +108,7 @@ SERVER_PID=$!
 sleep 2
 
 # Shell page served
-HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/shell/index.html)
+HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3051/shell/index.html)
 echo "Shell HTML status: $HTTP_CODE"
 # Expected: 200
 
@@ -118,7 +118,7 @@ WS_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Version: 13" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-  http://localhost:3000/ws)
+  http://localhost:3051/ws)
 echo "WebSocket status: $WS_CODE"
 # Expected: 101
 
@@ -204,7 +204,7 @@ Start the server and test in a browser:
 
 ```bash
 bun run dev
-# Open http://localhost:3000/shell/index.html in browser
+# Open http://localhost:3051/shell/index.html in browser
 ```
 
 - [ ] **Empty state:** On first run (no `~/.liminal-builder/projects.json`), sidebar shows "Add a project to get started"

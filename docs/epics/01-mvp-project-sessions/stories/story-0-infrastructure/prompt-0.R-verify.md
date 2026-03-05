@@ -88,7 +88,7 @@ SERVER_PID=$!
 sleep 2
 
 # Check it's running
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/shell/index.html
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3051/shell/index.html
 # Expected: 200
 
 # Kill the server
@@ -104,7 +104,7 @@ bun run start &
 SERVER_PID=$!
 sleep 2
 
-curl -s http://localhost:3000/shell/index.html | head -3
+curl -s http://localhost:3051/shell/index.html | head -3
 # Expected output should include: <!DOCTYPE html>
 
 kill $SERVER_PID
@@ -123,7 +123,7 @@ curl -s -o /dev/null -w "%{http_code}" \
   -H "Upgrade: websocket" \
   -H "Sec-WebSocket-Version: 13" \
   -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" \
-  http://localhost:3000/ws
+  http://localhost:3051/ws
 # Expected: 101 (Switching Protocols)
 
 kill $SERVER_PID
@@ -232,7 +232,7 @@ bun run verify-all
 
 If you have access to a browser:
 
-- [ ] Open `http://localhost:3000/shell/index.html`
+- [ ] Open `http://localhost:3051/shell/index.html`
 - [ ] Page renders with dark theme (Tokyo Night)
 - [ ] Sidebar is visible on the left with "Liminal Builder" header
 - [ ] "Add Project" button is visible at the bottom of the sidebar
@@ -270,7 +270,7 @@ All 8 steps above pass. Specifically:
 
 - [ ] File structure matches the expected layout
 - [ ] `bun run verify` passes with zero errors
-- [ ] Server starts on port 3000
+- [ ] Server starts on port 3051
 - [ ] Shell HTML is served correctly
 - [ ] WebSocket endpoint is functional
 - [ ] All stubs throw `NotImplementedError`
