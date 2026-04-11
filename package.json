@@ -6,6 +6,7 @@
 		"dev": "sh -c 'bun run dev:tailwind & bun run --watch server/index.ts'",
 		"desktop:dev": "bun run --cwd desktop dev",
 		"desktop:build": "bun run --cwd desktop build",
+		"desktop:typecheck": "bun run --cwd desktop typecheck",
 		"desktop:test": "bun run --cwd desktop test",
 		"dev:tailwind": "tailwindcss -i ./client/shared/tailwind.input.css -o ./client/shared/tailwind.css --watch",
 		"build:tailwind": "tailwindcss -i ./client/shared/tailwind.input.css -o ./client/shared/tailwind.css --minify",
@@ -28,7 +29,7 @@
 		"guard:no-test-changes": "bun run tools/green-test-guard.js check",
 		"red-verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck",
 		"green-verify": "bun run verify && bun run guard:no-test-changes",
-		"verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck && bun run test",
+		"verify": "bun run format:check && bun run lint && bun run lint:eslint && bun run test:eslint-plugin && bun run typecheck && bun run test && bun run desktop:typecheck && bun run desktop:test",
 		"verify-all": "bun run verify && bun run test:client && bun run test:integration && bun run test:e2e"
 	},
 	"dependencies": {

@@ -50,9 +50,13 @@ export const MOCK_SESSION_B: SessionMeta = {
 /** Session list item derived from MOCK_SESSION_CC_1 */
 export const MOCK_SESSION_LIST_ITEM: SessionListItem = {
 	id: "claude-code:session-001",
+	projectId: "proj-aaa-111",
 	title: "Fix authentication bug",
 	lastActiveAt: "2026-01-15T14:30:00.000Z",
 	cliType: "claude-code",
+	source: "builder",
+	availability: "available",
+	providerSessionId: "session-001",
 };
 
 /** All mock sessions */

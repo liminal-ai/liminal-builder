@@ -14,11 +14,18 @@ import type {
 import { AcpClient } from "../../server/acp/acp-client";
 import { ProjectStore } from "../../server/projects/project-store";
 import type { Project } from "../../server/projects/project-types";
-import { SessionManager } from "../../server/sessions/session-manager";
-import type { SessionMeta } from "../../server/sessions/session-types";
+import { createBuilderSessionServices } from "../../server/sessions/session-services";
+import {
+	SessionOpenError,
+	type SessionListItem,
+	type SessionMeta,
+} from "../../server/sessions/session-types";
 import type { CliType } from "../../server/sessions/session-types";
 import { JsonStore } from "../../server/store/json-store";
-import type { UpsertObject } from "../../server/streaming/upsert-types";
+import type {
+	TurnEvent,
+	UpsertObject,
+} from "../../server/streaming/upsert-types";
 import type { ChatEntry } from "../../shared/types";
 import type { ServerMessage } from "../../shared/types";
 import { handleWebSocket, type WebSocketDeps } from "../../server/websocket";
@@ -37,6 +44,45 @@ type ErrorListener = (error: Error) => void;
 type MockHarness = {
 	socket: MockSocket;
 	emitter: EventEmitter;
+	createSession: ReturnType<
+		typeof vi.fn<(projectId: string, cliType: CliType) => Promise<SessionMeta>>
+	>;
+	listSessions: ReturnType<
+		typeof vi.fn<(projectId: string) => Promise<SessionListItem[]>>
+	>;
+	openSession: ReturnType<
+		typeof vi.fn<
+			(
+				sessionId: string,
+				projectId?: string,
+			) => Promise<{
+				sessionId: string;
+				projectId: string;
+				cliType: CliType;
+				source: "builder";
+				availability: "available";
+				providerSessionId: string;
+				history: UpsertObject[];
+			}>
+		>
+	>;
+	sendClaudeMessage: ReturnType<
+		typeof vi.fn<
+			(
+				sessionId: string,
+				content: string,
+				callbacks: {
+					onUpsert: (upsert: UpsertObject) => void;
+					onTurn: (event: TurnEvent) => void;
+				},
+			) => Promise<{ stopReason: "end_turn"; titleUpdated?: string }>
+		>
+	>;
+	cancelClaudeTurn: ReturnType<
+		typeof vi.fn<(sessionId: string) => Promise<void>>
+	>;
+	archiveSession: ReturnType<typeof vi.fn<(sessionId: string) => SessionMeta>>;
+	runtimeSupports: ReturnType<typeof vi.fn<(cliType: CliType) => boolean>>;
 	ensureAgent: ReturnType<
 		typeof vi.fn<(cliType: CliType) => Promise<AcpClient>>
 	>;
@@ -226,6 +272,13 @@ function createMockAcpProcess(
 	const stdin = new PassThrough();
 	const stdout = new PassThrough();
 	const stderr = new PassThrough();
+	const pendingPromptTimers = new Map<
+		string,
+		{
+			requestId: number;
+			timer: ReturnType<typeof setTimeout>;
+		}
+	>();
 	let resolveExited: (code: number) => void = () => {};
 	const exited = new Promise<number>((resolve) => {
 		resolveExited = resolve;
@@ -269,12 +322,13 @@ function createMockAcpProcess(
 			}
 
 			if (req.method === "session/prompt" && typeof req.id === "number") {
+				const sessionId = req.params?.sessionId ?? "acp-session-xyz";
 				stdout.write(
 					JSON.stringify({
 						jsonrpc: "2.0",
 						method: "session/update",
 						params: {
-							sessionId: req.params?.sessionId ?? "acp-session-xyz",
+							sessionId,
 							update: {
 								type: "agent_message_chunk",
 								content: [
@@ -285,15 +339,43 @@ function createMockAcpProcess(
 					}),
 				);
 				stdout.write("\n");
-				stdout.write(
-					JSON.stringify(makeRpcResponse(req.id, MOCK_PROMPT_RESULT)),
-				);
-				stdout.write("\n");
+				const timer = setTimeout(() => {
+					pendingPromptTimers.delete(sessionId);
+					stdout.write(
+						JSON.stringify(
+							makeRpcResponse(req.id as number, MOCK_PROMPT_RESULT),
+						),
+					);
+					stdout.write("\n");
+				}, 120);
+				pendingPromptTimers.set(sessionId, {
+					requestId: req.id,
+					timer,
+				});
 				continue;
 			}
 
 			if (req.method === "session/load" && typeof req.id === "number") {
 				stdout.write(JSON.stringify(makeRpcResponse(req.id, { loaded: true })));
+				stdout.write("\n");
+				continue;
+			}
+
+			if (req.method === "session/cancel") {
+				const sessionId = req.params?.sessionId ?? "acp-session-xyz";
+				const pendingPrompt = pendingPromptTimers.get(sessionId);
+				if (!pendingPrompt) {
+					continue;
+				}
+				clearTimeout(pendingPrompt.timer);
+				pendingPromptTimers.delete(sessionId);
+				stdout.write(
+					JSON.stringify(
+						makeRpcResponse(pendingPrompt.requestId, {
+							stopReason: "cancelled",
+						}),
+					),
+				);
 				stdout.write("\n");
 			}
 		}
@@ -305,6 +387,10 @@ function createMockAcpProcess(
 		stderr,
 		exited,
 		kill: () => {
+			for (const pendingPrompt of pendingPromptTimers.values()) {
+				clearTimeout(pendingPrompt.timer);
+			}
+			pendingPromptTimers.clear();
 			resolveExited(0);
 		},
 	};
@@ -313,6 +399,103 @@ function createMockAcpProcess(
 function createHarness(): MockHarness {
 	const socket = new MockSocket();
 	const emitter = new EventEmitter();
+	const storedSessions = new Map<string, SessionMeta>();
+
+	const createSession = vi.fn<
+		(projectId: string, cliType: CliType) => Promise<SessionMeta>
+	>(async (projectId, cliType) => {
+		const session: SessionMeta = {
+			id: `${cliType}:created-session`,
+			projectId,
+			cliType,
+			archived: false,
+			source: "builder",
+			providerSessionId: "created-session",
+			title: "New Session",
+			lastActiveAt: "2026-02-17T00:00:00.000Z",
+			createdAt: "2026-02-17T00:00:00.000Z",
+		};
+		storedSessions.set(session.id, session);
+		return session;
+	});
+	const listSessions = vi.fn<(projectId: string) => Promise<SessionListItem[]>>(
+		async () => [],
+	);
+	const openSession = vi.fn<
+		(
+			sessionId: string,
+			projectId?: string,
+		) => Promise<{
+			sessionId: string;
+			projectId: string;
+			cliType: CliType;
+			source: "builder";
+			availability: "available";
+			providerSessionId: string;
+			history: UpsertObject[];
+		}>
+	>(async (sessionId, projectId) => ({
+		sessionId,
+		projectId: projectId ?? "project-1",
+		cliType: "claude-code",
+		source: "builder",
+		availability: "available",
+		providerSessionId: sessionId.split(":")[1] ?? sessionId,
+		history: [],
+	}));
+	const sendClaudeMessage = vi.fn<
+		(
+			sessionId: string,
+			content: string,
+			callbacks: {
+				onUpsert: (upsert: UpsertObject) => void;
+				onTurn: (event: TurnEvent) => void;
+			},
+		) => Promise<{ stopReason: "end_turn"; titleUpdated?: string }>
+	>(async (sessionId, _content, callbacks) => {
+		callbacks.onTurn({
+			type: "turn_started",
+			turnId: "turn-builder-1",
+			sessionId,
+			modelId: "claude-3-7-sonnet",
+			providerId: "claude-code",
+		});
+		callbacks.onUpsert({
+			type: "message",
+			status: "complete",
+			turnId: "turn-builder-1",
+			sessionId,
+			itemId: "assistant-1",
+			sourceTimestamp: "2026-02-17T00:00:00.000Z",
+			emittedAt: "2026-02-17T00:00:00.000Z",
+			content: "Mock streamed response chunk",
+			origin: "agent",
+		});
+		callbacks.onTurn({
+			type: "turn_complete",
+			turnId: "turn-builder-1",
+			sessionId,
+			status: "completed",
+		});
+		return { stopReason: "end_turn" };
+	});
+	const cancelClaudeTurn = vi.fn<(sessionId: string) => Promise<void>>(
+		async () => undefined,
+	);
+	const archiveSession = vi.fn<(sessionId: string) => SessionMeta>(
+		(sessionId) => {
+			const current = storedSessions.get(sessionId);
+			if (!current) {
+				throw new Error("Session not found");
+			}
+			const archived = { ...current, archived: true };
+			storedSessions.set(sessionId, archived);
+			return archived;
+		},
+	);
+	const runtimeSupports = vi.fn<(cliType: CliType) => boolean>(
+		(cliType) => cliType === "claude-code",
+	);
 
 	const sessionNew = vi.fn<
 		(params: { cwd: string }) => Promise<{ sessionId: string }>
@@ -364,15 +547,95 @@ function createHarness(): MockHarness {
 		emitter,
 		ensureAgent,
 	};
+	const sessionServices: WebSocketDeps["sessionServices"] = {
+		create: {
+			createSession,
+		} as WebSocketDeps["sessionServices"]["create"],
+		listing: {
+			listSessions,
+		} as WebSocketDeps["sessionServices"]["listing"],
+		open: {
+			openSession,
+		} as WebSocketDeps["sessionServices"]["open"],
+		registry: {
+			listAll: () => Array.from(storedSessions.values()),
+			listByProject: (projectId: string) =>
+				Array.from(storedSessions.values()).filter(
+					(session) => session.projectId === projectId,
+				),
+			get: (canonicalId: string) => storedSessions.get(canonicalId),
+			create: async (meta: SessionMeta) => {
+				storedSessions.set(meta.id, meta);
+				return meta;
+			},
+			adopt: async (meta: SessionMeta) => {
+				storedSessions.set(meta.id, meta);
+				return meta;
+			},
+			update: async (
+				canonicalId: string,
+				updater: (session: SessionMeta) => SessionMeta,
+			) => {
+				const current = storedSessions.get(canonicalId);
+				if (!current) {
+					throw new Error("Session not found");
+				}
+				const next = updater(current);
+				storedSessions.set(canonicalId, next);
+				return next;
+			},
+			updateSyncBlocking: (
+				canonicalId: string,
+				updater: (session: SessionMeta) => SessionMeta,
+			) => {
+				const current = storedSessions.get(canonicalId);
+				if (!current) {
+					throw new Error("Session not found");
+				}
+				const next = updater(current);
+				storedSessions.set(canonicalId, next);
+				return next;
+			},
+			archive: archiveSession,
+		} as WebSocketDeps["sessionServices"]["registry"],
+		messages: {
+			sendMessage: sendClaudeMessage,
+			cancelTurn: cancelClaudeTurn,
+		} as WebSocketDeps["sessionServices"]["messages"],
+		runtime: {
+			supports: runtimeSupports,
+			createSession: vi.fn(),
+			loadSession: vi.fn(),
+			sendMessage: vi.fn(),
+			cancelTurn: vi.fn(),
+		} as WebSocketDeps["sessionServices"]["runtime"],
+		title: {
+			reloadOverrides: vi.fn(),
+			applyTitle: vi.fn(
+				(_sessionId: string, fallbackTitle: string) => fallbackTitle,
+			),
+			deriveTitle: vi.fn((content: string) => content),
+			maybeApplyInitialPromptTitle: vi.fn(() => undefined),
+			setManualTitle: vi.fn(),
+		} as WebSocketDeps["sessionServices"]["title"],
+	};
 
 	handleWebSocket(socket, {
 		projectStore,
 		agentManager,
+		sessionServices,
 	});
 
 	return {
 		socket,
 		emitter,
+		createSession,
+		listSessions,
+		openSession,
+		sendClaudeMessage,
+		cancelClaudeTurn,
+		archiveSession,
+		runtimeSupports,
 		ensureAgent,
 		sessionNew,
 		sessionLoad,
@@ -390,15 +653,53 @@ describe("handleWebSocket", () => {
 	});
 
 	it("bridges session:send streaming updates and completion", async () => {
-		harness.sessionPrompt.mockImplementation(
-			async (_sessionId, _content, onEvent) => {
-				onEvent({
-					type: "agent_message_chunk",
-					content: [{ type: "text", text: "Hello" }],
+		harness.sendClaudeMessage.mockImplementation(
+			async (sessionId, _content, callbacks) => {
+				callbacks.onTurn({
+					type: "turn_started",
+					turnId: "turn-builder-1",
+					sessionId,
+					modelId: "claude-3-7-sonnet",
+					providerId: "claude-code",
 				});
-				onEvent({
-					type: "agent_message_chunk",
-					content: [{ type: "text", text: " world" }],
+				callbacks.onUpsert({
+					type: "message",
+					status: "create",
+					turnId: "turn-builder-1",
+					sessionId,
+					itemId: "assistant-1",
+					sourceTimestamp: "2026-02-17T00:00:00.000Z",
+					emittedAt: "2026-02-17T00:00:00.000Z",
+					content: "Hello",
+					origin: "agent",
+				});
+				callbacks.onUpsert({
+					type: "message",
+					status: "update",
+					turnId: "turn-builder-1",
+					sessionId,
+					itemId: "assistant-1",
+					sourceTimestamp: "2026-02-17T00:00:01.000Z",
+					emittedAt: "2026-02-17T00:00:01.000Z",
+					content: "Hello world",
+					origin: "agent",
+				});
+				callbacks.onUpsert({
+					type: "message",
+					status: "complete",
+					turnId: "turn-builder-1",
+					sessionId,
+					itemId: "assistant-1",
+					sourceTimestamp: "2026-02-17T00:00:02.000Z",
+					emittedAt: "2026-02-17T00:00:02.000Z",
+					content: "Hello world",
+					origin: "agent",
+				});
+				callbacks.onTurn({
+					type: "turn_complete",
+					turnId: "turn-builder-1",
+					sessionId,
+					status: "completed",
 				});
 				return { stopReason: "end_turn" };
 			},
@@ -412,11 +713,10 @@ describe("handleWebSocket", () => {
 		});
 		await flushAsync();
 
-		expect(harness.ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(harness.sessionPrompt).toHaveBeenCalledWith(
-			"session-7",
+		expect(harness.sendClaudeMessage).toHaveBeenCalledWith(
+			"claude-code:session-7",
 			"hi",
-			expect.any(Function),
+			expect.any(Object),
 		);
 
 		const messages = harness.socket.getMessages();
@@ -464,7 +764,7 @@ describe("handleWebSocket", () => {
 
 		harness.socket.emitMessage({
 			type: "session:send",
-			sessionId: "claude-code:session-unknown-update",
+			sessionId: "codex:session-unknown-update",
 			content: "hi",
 			requestId: "req-unknown",
 		});
@@ -489,7 +789,7 @@ describe("handleWebSocket", () => {
 
 		harness.socket.emitMessage({
 			type: "session:send",
-			sessionId: "claude-code:cancel-me",
+			sessionId: "codex:cancel-me",
 			content: "cancel this",
 		});
 		await flushAsync();
@@ -524,7 +824,7 @@ describe("handleWebSocket", () => {
 
 		harness.socket.emitMessage({
 			type: "session:send",
-			sessionId: "claude-code:tool-title",
+			sessionId: "codex:tool-title",
 			content: "trigger tool",
 		});
 		await flushAsync();
@@ -546,7 +846,17 @@ describe("handleWebSocket", () => {
 	});
 
 	it("uses requested cliType + project cwd for session:create and returns canonical sessionId", async () => {
-		harness.sessionNew.mockResolvedValue({ sessionId: "raw-acp-id" });
+		harness.createSession.mockResolvedValue({
+			id: "claude-code:raw-acp-id",
+			projectId: "project-1",
+			cliType: "claude-code",
+			archived: false,
+			source: "builder",
+			providerSessionId: "raw-acp-id",
+			title: "New Session",
+			lastActiveAt: "2026-02-17T00:00:00.000Z",
+			createdAt: "2026-02-17T00:00:00.000Z",
+		});
 
 		harness.socket.emitMessage({
 			type: "session:create",
@@ -556,8 +866,10 @@ describe("handleWebSocket", () => {
 		});
 		await flushAsync();
 
-		expect(harness.ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(harness.sessionNew).toHaveBeenCalledWith({ cwd: "/tmp/project-1" });
+		expect(harness.createSession).toHaveBeenCalledWith(
+			"project-1",
+			"claude-code",
+		);
 
 		const created = messagesOfType(
 			harness.socket.getMessages(),
@@ -573,7 +885,7 @@ describe("handleWebSocket", () => {
 	});
 
 	it("returns request-correlated error when session:create cliType is unsupported", async () => {
-		harness.ensureAgent.mockRejectedValue(
+		harness.createSession.mockRejectedValue(
 			new Error("CLI type not yet supported in Story 2b: codex"),
 		);
 
@@ -592,7 +904,17 @@ describe("handleWebSocket", () => {
 	});
 
 	it("uses session:create project cwd when opening that canonical session", async () => {
-		harness.sessionNew.mockResolvedValue({ sessionId: "raw-acp-id" });
+		harness.createSession.mockResolvedValue({
+			id: "claude-code:raw-acp-id",
+			projectId: "project-1",
+			cliType: "claude-code",
+			archived: false,
+			source: "builder",
+			providerSessionId: "raw-acp-id",
+			title: "New Session",
+			lastActiveAt: "2026-02-17T00:00:00.000Z",
+			createdAt: "2026-02-17T00:00:00.000Z",
+		});
 
 		harness.socket.emitMessage({
 			type: "session:create",
@@ -616,21 +938,34 @@ describe("handleWebSocket", () => {
 		});
 		await flushAsync();
 
-		expect(harness.sessionLoad).toHaveBeenCalledWith(
-			"raw-acp-id",
-			"/tmp/project-1",
+		expect(harness.openSession).toHaveBeenCalledWith(
+			"claude-code:raw-acp-id",
+			undefined,
 		);
 	});
 
 	it("session:open sends a single session:history response without replay updates", async () => {
-		harness.sessionLoad.mockResolvedValue([
-			{
-				entryId: "entry-1",
-				type: "assistant",
-				content: "Loaded once",
-				timestamp: "2026-02-15T00:00:00.000Z",
-			},
-		]);
+		harness.openSession.mockResolvedValue({
+			sessionId: "claude-code:history-once",
+			projectId: "project-1",
+			cliType: "claude-code",
+			source: "builder",
+			availability: "available",
+			providerSessionId: "history-once",
+			history: [
+				{
+					type: "message",
+					status: "complete",
+					turnId: "history:1",
+					sessionId: "claude-code:history-once",
+					itemId: "entry-1",
+					sourceTimestamp: "2026-02-15T00:00:00.000Z",
+					emittedAt: "2026-02-15T00:00:00.000Z",
+					content: "Loaded once",
+					origin: "agent",
+				},
+			],
+		});
 
 		harness.socket.emitMessage({
 			type: "session:open",
@@ -663,13 +998,17 @@ describe("handleWebSocket", () => {
 	it("parses canonical session IDs for session:open and session:cancel", async () => {
 		harness.socket.emitMessage({
 			type: "session:open",
-			sessionId: "claude-code:open-123",
+			sessionId: "codex:open-123",
 			requestId: "open-1",
 		});
 		await flushAsync();
 
-		expect(harness.ensureAgent).toHaveBeenCalledWith("claude-code");
-		expect(harness.sessionLoad).toHaveBeenCalledWith("open-123", ".");
+		expect(harness.ensureAgent).toHaveBeenCalledWith("codex");
+		expect(harness.sessionLoad).toHaveBeenCalledWith(
+			"open-123",
+			".",
+			undefined,
+		);
 		const histories = messagesOfType(
 			harness.socket.getMessages(),
 			"session:history",
@@ -677,12 +1016,12 @@ describe("handleWebSocket", () => {
 		expect(histories).toHaveLength(1);
 		expect(histories[0]).toMatchObject({
 			type: "session:history",
-			sessionId: "claude-code:open-123",
+			sessionId: "codex:open-123",
 		});
 
 		harness.socket.emitMessage({
 			type: "session:cancel",
-			sessionId: "claude-code:cancel-123",
+			sessionId: "codex:cancel-123",
 		});
 		await flushAsync();
 
@@ -690,7 +1029,7 @@ describe("handleWebSocket", () => {
 	});
 
 	it("emits session:error when session:open fails", async () => {
-		harness.sessionLoad.mockRejectedValue(new Error("Session not found"));
+		harness.openSession.mockRejectedValue(new Error("Session not found"));
 
 		harness.socket.emitMessage({
 			type: "session:open",
@@ -715,6 +1054,92 @@ describe("handleWebSocket", () => {
 			requestId: "open-error-1",
 			message: "Session not found",
 		});
+	});
+
+	it("logs session:open failure context with route, session, project, and reason", async () => {
+		const socket = new MockSocket();
+		const emitter = new EventEmitter();
+		const consoleError = vi
+			.spyOn(console, "error")
+			.mockImplementation(() => {});
+
+		handleWebSocket(socket as never, {
+			projectStore: {
+				addProject: vi.fn(),
+				removeProject: vi.fn(),
+				listProjects: vi.fn(async () => []),
+			},
+			agentManager: {
+				emitter,
+				ensureAgent: vi.fn(async () => {
+					throw new Error("unused");
+				}),
+			},
+			sessionServices: {
+				create: {
+					createSession: vi.fn(),
+				} as WebSocketDeps["sessionServices"]["create"],
+				listing: {
+					listSessions: vi.fn(async () => []),
+				} as WebSocketDeps["sessionServices"]["listing"],
+				open: {
+					openSession: vi.fn(async () => {
+						throw new SessionOpenError(
+							"stale_local_session",
+							"Session is stale",
+							"claude-code:stale-session",
+							"project-9",
+						);
+					}),
+				} as WebSocketDeps["sessionServices"]["open"],
+				registry: {
+					listAll: () => [],
+					listByProject: () => [],
+					get: () => undefined,
+					create: vi.fn(),
+					adopt: vi.fn(),
+					update: vi.fn(),
+					updateSyncBlocking: vi.fn(),
+					archive: vi.fn(),
+				} as WebSocketDeps["sessionServices"]["registry"],
+				messages: {
+					sendMessage: vi.fn(),
+					cancelTurn: vi.fn(),
+				} as WebSocketDeps["sessionServices"]["messages"],
+				runtime: {
+					supports: vi.fn(() => true),
+					createSession: vi.fn(),
+					loadSession: vi.fn(),
+					sendMessage: vi.fn(),
+					cancelTurn: vi.fn(),
+				} as WebSocketDeps["sessionServices"]["runtime"],
+				title: {
+					reloadOverrides: vi.fn(),
+					applyTitle: vi.fn(),
+					deriveTitle: vi.fn(),
+					maybeApplyInitialPromptTitle: vi.fn(),
+					setManualTitle: vi.fn(),
+				} as WebSocketDeps["sessionServices"]["title"],
+			},
+		});
+
+		socket.emitMessage({
+			type: "session:open",
+			sessionId: "claude-code:stale-session",
+			projectId: "project-9",
+			requestId: "open-stale-1",
+		});
+		await flushAsync();
+
+		expect(consoleError).toHaveBeenCalledWith(
+			"[ws] Route failure",
+			expect.objectContaining({
+				route: "session:open",
+				sessionId: "claude-code:stale-session",
+				projectId: "project-9",
+				reason: "stale_local_session",
+			}),
+		);
 	});
 
 	it("forwards non-idle agent status events over websocket", async () => {
@@ -795,16 +1220,16 @@ describe("WebSocket Integration: Round-Trip Message Flow", () => {
 		const agentManager = new AgentManager(emitter, {
 			spawn: () => createMockAcpProcess({ failCreate: shouldFailCreate }),
 		});
-		const sessionManager = new SessionManager(
-			sessionsStore,
+		const sessionServices = createBuilderSessionServices({
+			store: sessionsStore,
 			agentManager,
 			projectStore,
-		);
+		});
 
 		server = Fastify();
 		await server.register(fastifyWebsocket);
 		server.get("/ws", { websocket: true }, (socket) => {
-			handleWebSocket(socket, { projectStore, sessionManager, agentManager });
+			handleWebSocket(socket, { projectStore, sessionServices, agentManager });
 		});
 		await server.listen({ port: 0, host: "127.0.0.1" });
 		const address = server.server.address();
@@ -823,8 +1248,12 @@ describe("WebSocket Integration: Round-Trip Message Flow", () => {
 			(ws.readyState === WebSocket.OPEN ||
 				ws.readyState === WebSocket.CONNECTING)
 		) {
-			ws.close();
+			await new Promise<void>((resolve) => {
+				ws.addEventListener("close", () => resolve(), { once: true });
+				ws.close();
+			});
 		}
+		server.server.closeAllConnections?.();
 		await server.close();
 		rmSync(tempRoot, { recursive: true, force: true });
 		rmSync(dataRoot, { recursive: true, force: true });

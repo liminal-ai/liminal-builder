@@ -7,6 +7,9 @@ export type {
 } from "@server/streaming/stream-event-schema";
 
 export type {
+	CanonicalAnnotationKind,
+	CanonicalContentFormat,
+	CanonicalSemanticRole,
 	UpsertObject,
 	MessageUpsert,
 	ThinkingUpsert,

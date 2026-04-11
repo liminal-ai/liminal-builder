@@ -44,3 +44,7 @@ tmp/
 
 # Local workflow state
 .liminal/
+
+# Desktop packaged output
+desktop/dist/
+desktop/release/

@@ -3,6 +3,8 @@
 		"includes": [
 			"**",
 			"!dist",
+			"!desktop/dist",
+			"!desktop/release",
 			"!tools/eslint-plugin-lb/dist",
 			"!client/shared/tailwind.css"
 		]

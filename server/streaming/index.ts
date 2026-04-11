@@ -16,6 +16,9 @@ export type {
 } from "./stream-event-schema";
 
 export type {
+	CanonicalAnnotationKind,
+	CanonicalContentFormat,
+	CanonicalSemanticRole,
 	UpsertObject,
 	MessageUpsert,
 	ThinkingUpsert,
@@ -30,3 +33,15 @@ export {
 	DEFAULT_BATCH_GRADIENT,
 	DEFAULT_BATCH_TIMEOUT_MS,
 } from "./upsert-types";
+
+export { enrichCanonicalUpsert } from "./canonical-upsert-enricher";
+export {
+	CanonicalHistoryStore,
+	type CanonicalHistoryIndex,
+	type SessionCanonicalHistory,
+} from "./canonical-history-store";
+export {
+	isUpsertObject,
+	legacyChatEntryToUpsert,
+	toHistoryUpserts,
+} from "./history-compat";

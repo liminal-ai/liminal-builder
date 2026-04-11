@@ -1,13 +1,13 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
 import type { AcpUpdateEvent } from "../../../server/acp/acp-types";
+import { AcpClient } from "../../../server/acp/acp-client";
 import type { WebSocketDeps } from "../../../server/websocket";
 import { handleWebSocket } from "../../../server/websocket";
 import type { ServerMessage } from "../../../shared/types";
 
 type MessageListener = (payload: Buffer | string) => void;
-
-type MockSessionManager = NonNullable<WebSocketDeps["sessionManager"]>;
+type MockSessionServices = WebSocketDeps["sessionServices"];
 
 class MockSocket {
 	private messageListeners: MessageListener[] = [];
@@ -45,42 +45,194 @@ function flushAsync(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function createSessionManager(): MockSessionManager {
+function createSessionServices(): MockSessionServices {
 	return {
-		listSessions: async () => [],
-		createSession: async () => "claude-code:created-session",
-		openSession: async () => [],
-		archiveSession: () => {},
-		cancelTurn: async () => {},
-		sendMessage: async (sessionId, content, onEvent) => {
-			if (content.includes("tool")) {
-				onEvent({
-					type: "tool_call",
-					toolCallId: `call-${sessionId}`,
-					title: "read_file",
-					status: "running",
-					content: [],
-				} as AcpUpdateEvent);
-				onEvent({
-					type: "tool_call_update",
-					toolCallId: `call-${sessionId}`,
-					title: "read_file",
+		create: {
+			createSession: async () => ({
+				id: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: false,
+				source: "builder",
+				providerSessionId: "created-session",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["create"],
+		listing: {
+			listSessions: async () => [],
+		} as MockSessionServices["listing"],
+		open: {
+			openSession: async () => ({
+				sessionId: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				source: "builder",
+				availability: "available",
+				providerSessionId: "created-session",
+				history: [],
+			}),
+		} as MockSessionServices["open"],
+		registry: {
+			listAll: () => [],
+			listByProject: () => [],
+			get: () => undefined,
+			create: async (meta) => meta,
+			adopt: async (meta) => meta,
+			update: async (_id, updater) =>
+				updater({
+					id: "claude-code:session-a",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "session-a",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			updateSyncBlocking: (_id, updater) =>
+				updater({
+					id: "claude-code:session-a",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "session-a",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			archive: () => ({
+				id: "claude-code:session-a",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: true,
+				source: "builder",
+				providerSessionId: "session-a",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["registry"],
+		messages: {
+			sendMessage: async (sessionId, content, callbacks) => {
+				callbacks.onTurn({
+					type: "turn_started",
+					turnId: `turn-${sessionId}`,
+					sessionId,
+					modelId: "claude-3-7-sonnet",
+					providerId: "claude-code",
+				});
+				if (content.includes("tool")) {
+					callbacks.onUpsert({
+						type: "tool_call",
+						status: "create",
+						turnId: `turn-${sessionId}`,
+						sessionId,
+						itemId: `call-${sessionId}`,
+						sourceTimestamp: "2026-02-17T00:00:00.000Z",
+						emittedAt: "2026-02-17T00:00:00.000Z",
+						toolName: "read_file",
+						toolArguments: {},
+						callId: `call-${sessionId}`,
+						toolArgumentsText: "",
+					});
+					callbacks.onUpsert({
+						type: "tool_call",
+						status: "complete",
+						turnId: `turn-${sessionId}`,
+						sessionId,
+						itemId: `call-${sessionId}`,
+						sourceTimestamp: "2026-02-17T00:00:01.000Z",
+						emittedAt: "2026-02-17T00:00:01.000Z",
+						toolName: "read_file",
+						toolArguments: {},
+						callId: `call-${sessionId}`,
+						toolArgumentsText: "",
+						toolOutput: "ok",
+					});
+				} else {
+					callbacks.onUpsert({
+						type: "message",
+						status: "complete",
+						turnId: `turn-${sessionId}`,
+						sessionId,
+						itemId: `assistant-${sessionId}`,
+						sourceTimestamp: "2026-02-17T00:00:00.000Z",
+						emittedAt: "2026-02-17T00:00:00.000Z",
+						content: `stream-${sessionId}`,
+						origin: "agent",
+					});
+				}
+				callbacks.onTurn({
+					type: "turn_complete",
+					turnId: `turn-${sessionId}`,
+					sessionId,
 					status: "completed",
-					content: [{ type: "text", text: "ok" }],
-				} as AcpUpdateEvent);
-			} else {
-				onEvent({
-					type: "agent_message_chunk",
-					content: [{ type: "text", text: `stream-${sessionId}` }],
-				} as AcpUpdateEvent);
-			}
-			return { stopReason: "end_turn" };
-		},
+				});
+				return { stopReason: "end_turn" };
+			},
+			cancelTurn: async () => {},
+		} as MockSessionServices["messages"],
+		runtime: {
+			supports: (cliType) => cliType === "claude-code",
+			createSession: async () => ({
+				sessionId: "created-session",
+				cliType: "claude-code",
+			}),
+			loadSession: async () => {},
+			sendMessage: async () => ({ stopReason: "end_turn" }),
+			cancelTurn: async () => {},
+		} as MockSessionServices["runtime"],
+		title: {
+			reloadOverrides: () => {},
+			applyTitle: (_sessionId, fallbackTitle) => fallbackTitle,
+			deriveTitle: (content) => content,
+			maybeApplyInitialPromptTitle: () => undefined,
+			setManualTitle: () => {},
+		} as MockSessionServices["title"],
 	};
 }
 
 function createDeps(): WebSocketDeps {
 	const emitter = new EventEmitter();
+	const sessionPrompt = async (
+		sessionId: string,
+		content: string,
+		onEvent: (event: AcpUpdateEvent) => void,
+	) => {
+		if (content.includes("tool")) {
+			onEvent({
+				type: "tool_call",
+				toolCallId: `call-${sessionId}`,
+				title: "read_file",
+				status: "in_progress",
+				content: [],
+			});
+			onEvent({
+				type: "tool_call_update",
+				toolCallId: `call-${sessionId}`,
+				status: "completed",
+				content: [{ type: "text", text: "ok" }],
+			});
+		} else {
+			onEvent({
+				type: "agent_message_chunk",
+				content: [{ type: "text", text: `stream-${sessionId}` }],
+			});
+		}
+		return { stopReason: "end_turn" as const };
+	};
+	const compatibilityClient = Object.create(AcpClient.prototype) as AcpClient;
+	Object.assign(compatibilityClient, {
+		sessionNew: async () => ({ sessionId: "compat-created-session" }),
+		sessionLoad: async () => [],
+		sessionPrompt,
+		sessionCancel: () => undefined,
+	});
+
 	return {
 		projectStore: {
 			addProject: async () => ({
@@ -101,11 +253,9 @@ function createDeps(): WebSocketDeps {
 		},
 		agentManager: {
 			emitter,
-			ensureAgent: async () => {
-				throw new Error("not used in pipeline integration tests");
-			},
+			ensureAgent: async () => compatibilityClient,
 		},
-		sessionManager: createSessionManager(),
+		sessionServices: createSessionServices(),
 	};
 }
 

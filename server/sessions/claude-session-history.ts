@@ -1,15 +1,26 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join, sep } from "node:path";
-import type { ChatEntry } from "../../shared/types";
-
-const CLAUDE_PROJECTS_DIR = join(homedir(), ".claude", "projects");
+import type { UpsertObject } from "../streaming/upsert-types";
+import { claudeSessionJsonlPath } from "./session-discovery";
 
 type JsonRecord = Record<string, unknown>;
 
+type HistoryEntry =
+	| {
+			entryId: string;
+			type: "user";
+			content: string;
+			timestamp: string;
+	  }
+	| {
+			entryId: string;
+			type: "assistant";
+			content: string;
+			timestamp: string;
+	  };
+
 type OrderedEntry = {
 	order: number;
-	entry: ChatEntry;
+	entry: HistoryEntry;
 };
 
 type AssistantAggregate = {
@@ -19,12 +30,16 @@ type AssistantAggregate = {
 	content: string;
 };
 
-export async function loadClaudeSessionHistory(
+function nowIso(): string {
+	return new Date().toISOString();
+}
+
+export async function loadClaudeSessionHistoryUpserts(
 	projectPath: string,
 	sessionId: string,
-): Promise<ChatEntry[]> {
-	const slug = projectPathToSlug(projectPath);
-	const jsonlPath = join(CLAUDE_PROJECTS_DIR, slug, `${sessionId}.jsonl`);
+	canonicalSessionId: string,
+): Promise<UpsertObject[]> {
+	const jsonlPath = claudeSessionJsonlPath(projectPath, sessionId);
 
 	let raw: string;
 	try {
@@ -70,7 +85,7 @@ export async function loadClaudeSessionHistory(
 						asString(record.uuid) ?? `${sessionId}:user:${String(index + 1)}`,
 					type: "user",
 					content,
-					timestamp: asString(record.timestamp) ?? new Date().toISOString(),
+					timestamp: asString(record.timestamp) ?? nowIso(),
 				},
 			});
 			continue;
@@ -96,7 +111,7 @@ export async function loadClaudeSessionHistory(
 				entryId:
 					asString(record.uuid) ??
 					`${sessionId}:assistant:${String(index + 1)}`,
-				timestamp: asString(record.timestamp) ?? new Date().toISOString(),
+				timestamp: asString(record.timestamp) ?? nowIso(),
 				content: text,
 			});
 			continue;
@@ -118,12 +133,42 @@ export async function loadClaudeSessionHistory(
 		});
 	}
 
-	orderedEntries.sort((a, b) => a.order - b.order);
-	return orderedEntries.map((item) => item.entry);
+	orderedEntries.sort((left, right) => left.order - right.order);
+	return orderedEntries.map((item, index) =>
+		toCanonicalHistoryUpsert(item.entry, canonicalSessionId, index),
+	);
 }
 
-function projectPathToSlug(projectPath: string): string {
-	return projectPath.split(sep).join("-");
+function toCanonicalHistoryUpsert(
+	entry: HistoryEntry,
+	sessionId: string,
+	index: number,
+): UpsertObject {
+	const turnId = `history:${index + 1}`;
+	const base = {
+		turnId,
+		sessionId,
+		itemId: entry.entryId,
+		sourceTimestamp: entry.timestamp,
+		emittedAt: entry.timestamp,
+		status: "complete" as const,
+	};
+
+	if (entry.type === "user") {
+		return {
+			type: "message",
+			...base,
+			content: entry.content,
+			origin: "user",
+		};
+	}
+
+	return {
+		type: "message",
+		...base,
+		content: entry.content,
+		origin: "agent",
+	};
 }
 
 function extractUserText(content: unknown): string {

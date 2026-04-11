@@ -9,9 +9,17 @@ import { ClaudeAgentSdkAdapter } from "./providers/claude/claude-agent-sdk-adapt
 import { PooledClaudeSdkProvider } from "./providers/claude/pooled-claude-sdk-provider";
 import type { Project } from "./projects/project-types";
 import { ProjectStore } from "./projects/project-store";
-import { SessionManager } from "./sessions/session-manager";
+import { createBuilderSessionServices } from "./sessions/session-services";
 import type { SessionMeta } from "./sessions/session-types";
+import {
+	SessionTitleOverrideStore,
+	type SessionTitleOverrideIndex,
+} from "./sessions/session-title-overrides";
 import { JsonStore } from "./store/json-store";
+import {
+	CanonicalHistoryStore,
+	type CanonicalHistoryIndex,
+} from "./streaming/canonical-history-store";
 import { handleWebSocket } from "./websocket";
 
 const PORT = Number(process.env.PORT) || 3051;
@@ -19,6 +27,16 @@ const CLIENT_DIR = join(import.meta.dir, "..", "client");
 const NODE_MODULES_DIR = join(import.meta.dir, "..", "node_modules");
 const PROJECTS_FILE = join(homedir(), ".liminal-builder", "projects.json");
 const SESSIONS_FILE = join(homedir(), ".liminal-builder", "sessions.json");
+const SESSION_UPSERTS_FILE = join(
+	homedir(),
+	".liminal-builder",
+	"session-upserts.json",
+);
+const SESSION_TITLE_OVERRIDES_FILE = join(
+	homedir(),
+	".liminal-builder",
+	"session-title-overrides.json",
+);
 
 async function main() {
 	const app = Fastify({ logger: true });
@@ -32,6 +50,18 @@ async function main() {
 		{ filePath: SESSIONS_FILE, writeDebounceMs: 500 },
 		[],
 	);
+	const sessionUpsertsStore = new JsonStore<CanonicalHistoryIndex>(
+		{ filePath: SESSION_UPSERTS_FILE, writeDebounceMs: 500 },
+		{},
+	);
+	const sessionTitleOverridesStore = new JsonStore<SessionTitleOverrideIndex>(
+		{ filePath: SESSION_TITLE_OVERRIDES_FILE, writeDebounceMs: 500 },
+		{},
+	);
+	const canonicalHistoryStore = new CanonicalHistoryStore(sessionUpsertsStore);
+	const titleOverrideStore = new SessionTitleOverrideStore(
+		sessionTitleOverridesStore,
+	);
 	const agentManager = new AgentManager(new EventEmitter());
 	const claudeProvider = new PooledClaudeSdkProvider(
 		{
@@ -43,12 +73,14 @@ async function main() {
 			defaultProjectDir: process.cwd(),
 		},
 	);
-	const sessionManager = new SessionManager(
-		sessionsStore,
+	const sessionServices = createBuilderSessionServices({
+		store: sessionsStore,
 		agentManager,
 		projectStore,
-		{ claudeProvider },
-	);
+		claudeProvider,
+		canonicalHistoryStore,
+		titleOverrideStore,
+	});
 
 	await app.register(fastifyStatic, {
 		root: NODE_MODULES_DIR,
@@ -66,7 +98,7 @@ async function main() {
 
 	// WebSocket endpoint
 	app.get("/ws", { websocket: true }, (socket, _req) => {
-		handleWebSocket(socket, { projectStore, agentManager, sessionManager });
+		handleWebSocket(socket, { projectStore, agentManager, sessionServices });
 	});
 
 	// Default route: land on the shell home page.

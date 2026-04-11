@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { readFileSync, existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
-import type { SessionListItem, CliType } from "./session-types";
+import type { CliType, DiscoveredSession } from "./session-types";
 
 /**
  * Discovers pre-existing Claude Code and Codex sessions from
@@ -26,14 +26,23 @@ const CODEX_SCAN_DAYS = 90;
  * where slug = projectPath with "/" replaced by "-"
  *
  * If sessions-index.json exists, use it (fast).
- * Otherwise, scan .jsonl files (slow fallback).
+ * Raw .jsonl scanning is available only as an explicit fallback for
+ * non-sidebar flows because it is much noisier than the indexed view.
  */
 export async function discoverClaudeSessions(
 	projectPath: string,
-): Promise<SessionListItem[]> {
+	options?: { fallbackToJsonl?: boolean },
+): Promise<DiscoveredSession[]> {
 	const slug = projectPathToSlug(projectPath);
 	const projectDir = join(CLAUDE_PROJECTS_DIR, slug);
 
+	return discoverClaudeSessionsFromProjectDir(projectDir, options);
+}
+
+export async function discoverClaudeSessionsFromProjectDir(
+	projectDir: string,
+	options?: { fallbackToJsonl?: boolean },
+): Promise<DiscoveredSession[]> {
 	if (!existsSync(projectDir)) {
 		return [];
 	}
@@ -43,15 +52,18 @@ export async function discoverClaudeSessions(
 		return parseClaudeIndex(indexPath);
 	}
 
-	return scanClaudeJsonlFiles(projectDir);
+	return options?.fallbackToJsonl === true
+		? scanClaudeJsonlFiles(projectDir)
+		: [];
 }
 
 function projectPathToSlug(projectPath: string): string {
 	return projectPath.split(sep).join("-");
 }
 
-interface ClaudeIndexEntry {
+export interface ClaudeIndexEntry {
 	sessionId: string;
+	fullPath?: string;
 	firstPrompt?: string;
 	summary?: string;
 	messageCount?: number;
@@ -61,7 +73,22 @@ interface ClaudeIndexEntry {
 	isSidechain?: boolean;
 }
 
-function parseClaudeIndex(indexPath: string): SessionListItem[] {
+export function claudeSessionJsonlPath(
+	projectPath: string,
+	sessionId: string,
+): string {
+	const slug = projectPathToSlug(projectPath);
+	return join(CLAUDE_PROJECTS_DIR, slug, `${sessionId}.jsonl`);
+}
+
+export async function claudeSessionFileExists(
+	projectPath: string,
+	sessionId: string,
+): Promise<boolean> {
+	return existsSync(claudeSessionJsonlPath(projectPath, sessionId));
+}
+
+export function parseClaudeIndex(indexPath: string): DiscoveredSession[] {
 	try {
 		const raw = readFileSync(indexPath, "utf-8");
 		const data = JSON.parse(raw) as {
@@ -75,6 +102,7 @@ function parseClaudeIndex(indexPath: string): SessionListItem[] {
 			.filter((entry) => !entry.isSidechain)
 			.map((entry) => ({
 				id: `claude-code:${entry.sessionId}`,
+				providerSessionId: entry.sessionId,
 				title: deriveClaudeTitle(entry),
 				lastActiveAt:
 					entry.modified ?? entry.created ?? new Date().toISOString(),
@@ -85,7 +113,7 @@ function parseClaudeIndex(indexPath: string): SessionListItem[] {
 	}
 }
 
-function deriveClaudeTitle(entry: ClaudeIndexEntry): string {
+export function deriveClaudeTitle(entry: ClaudeIndexEntry): string {
 	if (entry.summary && entry.summary.length > 0) {
 		const cleaned = entry.summary
 			.replace(/<[^>]+>/g, "")
@@ -109,13 +137,13 @@ function deriveClaudeTitle(entry: ClaudeIndexEntry): string {
 
 async function scanClaudeJsonlFiles(
 	projectDir: string,
-): Promise<SessionListItem[]> {
+): Promise<DiscoveredSession[]> {
 	try {
 		const files = await readdir(projectDir);
 		const jsonlFiles = files.filter(
 			(f) => f.endsWith(".jsonl") && !f.startsWith("."),
 		);
-		const sessions: SessionListItem[] = [];
+		const sessions: DiscoveredSession[] = [];
 
 		for (const file of jsonlFiles) {
 			const sessionId = file.replace(".jsonl", "");
@@ -124,6 +152,7 @@ async function scanClaudeJsonlFiles(
 				const fileStat = await stat(filePath);
 				sessions.push({
 					id: `claude-code:${sessionId}`,
+					providerSessionId: sessionId,
 					title: `Session ${sessionId.substring(0, 8)}`,
 					lastActiveAt: fileStat.mtime.toISOString(),
 					cliType: "claude-code",
@@ -148,7 +177,7 @@ async function scanClaudeJsonlFiles(
  */
 export async function discoverCodexSessions(
 	projectPath: string,
-): Promise<SessionListItem[]> {
+): Promise<DiscoveredSession[]> {
 	if (!existsSync(CODEX_SESSIONS_DIR)) {
 		return [];
 	}
@@ -157,7 +186,7 @@ export async function discoverCodexSessions(
 	const cutoff = new Date();
 	cutoff.setDate(cutoff.getDate() - CODEX_SCAN_DAYS);
 
-	const sessions: SessionListItem[] = [];
+	const sessions: DiscoveredSession[] = [];
 
 	try {
 		const years = await readdir(CODEX_SESSIONS_DIR);
@@ -195,6 +224,7 @@ export async function discoverCodexSessions(
 
 						sessions.push({
 							id: `codex:${meta.id}`,
+							providerSessionId: meta.id,
 							title,
 							lastActiveAt: meta.timestamp ?? new Date().toISOString(),
 							cliType: "codex",
@@ -288,7 +318,7 @@ async function safeStat(
  */
 export async function discoverAllSessions(
 	projectPath: string,
-): Promise<SessionListItem[]> {
+): Promise<DiscoveredSession[]> {
 	const [claudeSessions, codexSessions] = await Promise.all([
 		discoverClaudeSessions(projectPath),
 		discoverCodexSessions(projectPath),

@@ -1,12 +1,12 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
+import { AcpClient } from "../../../server/acp/acp-client";
 import type { ChatEntry, ServerMessage } from "../../../shared/types";
 import type { WebSocketDeps } from "../../../server/websocket";
 import { handleWebSocket } from "../../../server/websocket";
 
 type MessageListener = (payload: Buffer | string) => void;
-
-type MockSessionManager = NonNullable<WebSocketDeps["sessionManager"]>;
+type MockSessionServices = WebSocketDeps["sessionServices"];
 
 class MockSocket {
 	private messageListeners: MessageListener[] = [];
@@ -55,19 +55,111 @@ function createLegacyHistory(sessionId: string): ChatEntry[] {
 	];
 }
 
-function createSessionManager(): MockSessionManager {
+function createSessionServices(): MockSessionServices {
 	return {
-		listSessions: async () => [],
-		createSession: async () => "claude-code:created-session",
-		openSession: async (sessionId) => createLegacyHistory(sessionId),
-		archiveSession: () => {},
-		cancelTurn: async () => {},
-		sendMessage: async () => ({ stopReason: "end_turn" }),
+		create: {
+			createSession: async () => ({
+				id: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: false,
+				source: "builder",
+				providerSessionId: "created-session",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["create"],
+		listing: {
+			listSessions: async () => [],
+		} as MockSessionServices["listing"],
+		open: {
+			openSession: async () => ({
+				sessionId: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				source: "builder",
+				availability: "available",
+				providerSessionId: "created-session",
+				history: [],
+			}),
+		} as MockSessionServices["open"],
+		registry: {
+			listAll: () => [],
+			listByProject: () => [],
+			get: () => undefined,
+			create: async (meta) => meta,
+			adopt: async (meta) => meta,
+			update: async (_id, updater) =>
+				updater({
+					id: "claude-code:history-a",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "history-a",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			updateSyncBlocking: (_id, updater) =>
+				updater({
+					id: "claude-code:history-a",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "history-a",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			archive: () => ({
+				id: "claude-code:history-a",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: true,
+				source: "builder",
+				providerSessionId: "history-a",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["registry"],
+		messages: {
+			sendMessage: async () => ({ stopReason: "end_turn" }),
+			cancelTurn: async () => {},
+		} as MockSessionServices["messages"],
+		runtime: {
+			supports: (cliType) => cliType === "claude-code",
+			createSession: async () => ({
+				sessionId: "created-session",
+				cliType: "claude-code",
+			}),
+			loadSession: async () => {},
+			sendMessage: async () => ({ stopReason: "end_turn" }),
+			cancelTurn: async () => {},
+		} as MockSessionServices["runtime"],
+		title: {
+			reloadOverrides: () => {},
+			applyTitle: (_sessionId, fallbackTitle) => fallbackTitle,
+			deriveTitle: (content) => content,
+			maybeApplyInitialPromptTitle: () => undefined,
+			setManualTitle: () => {},
+		} as MockSessionServices["title"],
 	};
 }
 
 function createDeps(): WebSocketDeps {
 	const emitter = new EventEmitter();
+	const compatibilityClient = Object.create(AcpClient.prototype) as AcpClient;
+	Object.assign(compatibilityClient, {
+		sessionNew: async () => ({ sessionId: "compat-created-session" }),
+		sessionLoad: async (sessionId: string) => createLegacyHistory(sessionId),
+		sessionPrompt: async () => ({ stopReason: "end_turn" as const }),
+		sessionCancel: () => undefined,
+	});
+
 	return {
 		projectStore: {
 			addProject: async () => ({
@@ -88,11 +180,9 @@ function createDeps(): WebSocketDeps {
 		},
 		agentManager: {
 			emitter,
-			ensureAgent: async () => {
-				throw new Error("not used in history pipeline tests");
-			},
+			ensureAgent: async () => compatibilityClient,
 		},
-		sessionManager: createSessionManager(),
+		sessionServices: createSessionServices(),
 	};
 }
 

@@ -9,6 +9,23 @@
  *   Phase 2 defines the field-by-field transformation from upsert objects to Context canonical entries.
  */
 
+export type CanonicalSemanticRole =
+	| "user_prompt"
+	| "primary_response"
+	| "thinking"
+	| "tool_activity"
+	| "system_notice"
+	| "error";
+
+export type CanonicalAnnotationKind = "thinking" | "tool" | "system" | "error";
+
+export type CanonicalContentFormat =
+	| "plain"
+	| "markdown"
+	| "json"
+	| "diff"
+	| "code";
+
 export interface UpsertObjectBase {
 	turnId: string;
 	sessionId: string;
@@ -20,6 +37,18 @@ export interface UpsertObjectBase {
 	status: "create" | "update" | "complete" | "error";
 	errorCode?: string;
 	errorMessage?: string;
+	/** Canonical semantic meaning for renderers, persistence, and replay. */
+	semanticRole?: CanonicalSemanticRole;
+	/** Secondary classification for non-primary turn content. */
+	annotationKind?: CanonicalAnnotationKind;
+	/** Durable content typing for rich rendering and replay. */
+	contentFormat?: CanonicalContentFormat;
+	/** Stable order of first appearance for all items in a session. */
+	itemOrder?: number;
+	/** Stable order of first appearance for turns in a session. */
+	turnOrder?: number;
+	/** Identifies the main assistant output surface for a turn. */
+	isPrimaryTurnOutput?: boolean;
 }
 
 export interface MessageUpsert extends UpsertObjectBase {
@@ -44,6 +73,9 @@ export interface ToolCallUpsert extends UpsertObjectBase {
 	toolArguments: Record<string, unknown>;
 	callId: string;
 	toolOutput?: string;
+	toolDisplayName?: string;
+	toolArgumentsText?: string;
+	toolOutputFormat?: CanonicalContentFormat;
 	/**
 	 * Whether the tool output represents an error.
 	 * Note: named `toolOutputIsError` (not `isError`) to disambiguate from

@@ -1,5 +1,8 @@
 import type { Project } from "../server/projects/project-types";
-import type { CliType } from "../server/sessions/session-types";
+import type {
+	CliType,
+	SessionListItem,
+} from "../server/sessions/session-types";
 import type {
 	WsHistoryMessage,
 	WsTurnMessage,
@@ -59,12 +62,7 @@ export type ServerMessage =
 	| {
 			type: "session:list";
 			projectId: string;
-			sessions: Array<{
-				id: string;
-				title: string;
-				lastActiveAt: string;
-				cliType: CliType;
-			}>;
+			sessions: SessionListItem[];
 	  }
 	| { type: "project:added"; project: Project; requestId?: string }
 	| { type: "project:removed"; projectId: string; requestId?: string }

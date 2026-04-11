@@ -1,12 +1,11 @@
 import { EventEmitter } from "node:events";
 import { describe, expect, it } from "vitest";
-import type { AcpUpdateEvent } from "../../../server/acp/acp-types";
 import type { WebSocketDeps } from "../../../server/websocket";
 import { handleWebSocket } from "../../../server/websocket";
 import type { ServerMessage } from "../../../shared/types";
 
 type MessageListener = (payload: Buffer | string) => void;
-type MockSessionManager = NonNullable<WebSocketDeps["sessionManager"]>;
+type MockSessionServices = WebSocketDeps["sessionServices"];
 
 class MockSocket {
 	private messageListeners: MessageListener[] = [];
@@ -44,20 +43,124 @@ function flushAsync(): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function createSessionManager(): MockSessionManager {
+function createSessionServices(): MockSessionServices {
 	return {
-		listSessions: async () => [],
-		createSession: async () => "claude-code:created-session",
-		openSession: async () => [],
-		archiveSession: () => {},
-		cancelTurn: async () => {},
-		sendMessage: async (_sessionId, _content, onEvent) => {
-			onEvent({
-				type: "agent_message_chunk",
-				content: [{ type: "text", text: "hello from provider" }],
-			} as AcpUpdateEvent);
-			return { stopReason: "end_turn" };
-		},
+		create: {
+			createSession: async () => ({
+				id: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: false,
+				source: "builder",
+				providerSessionId: "created-session",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["create"],
+		listing: {
+			listSessions: async () => [],
+		} as MockSessionServices["listing"],
+		open: {
+			openSession: async () => ({
+				sessionId: "claude-code:created-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				source: "builder",
+				availability: "available",
+				providerSessionId: "created-session",
+				history: [],
+			}),
+		} as MockSessionServices["open"],
+		registry: {
+			listAll: () => [],
+			listByProject: () => [],
+			get: () => undefined,
+			create: async (meta) => meta,
+			adopt: async (meta) => meta,
+			update: async (_id, updater) =>
+				updater({
+					id: "claude-code:test-session",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "test-session",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			updateSyncBlocking: (_id, updater) =>
+				updater({
+					id: "claude-code:test-session",
+					projectId: "p1",
+					cliType: "claude-code",
+					archived: false,
+					source: "builder",
+					providerSessionId: "test-session",
+					title: "New Session",
+					lastActiveAt: "2026-02-17T00:00:00.000Z",
+					createdAt: "2026-02-17T00:00:00.000Z",
+				}),
+			archive: () => ({
+				id: "claude-code:test-session",
+				projectId: "p1",
+				cliType: "claude-code",
+				archived: true,
+				source: "builder",
+				providerSessionId: "test-session",
+				title: "New Session",
+				lastActiveAt: "2026-02-17T00:00:00.000Z",
+				createdAt: "2026-02-17T00:00:00.000Z",
+			}),
+		} as MockSessionServices["registry"],
+		messages: {
+			sendMessage: async (_sessionId, _content, callbacks) => {
+				callbacks.onTurn({
+					type: "turn_started",
+					turnId: "turn-1",
+					sessionId: "claude-code:test-session",
+					modelId: "claude-3-7-sonnet",
+					providerId: "claude-code",
+				});
+				callbacks.onUpsert({
+					type: "message",
+					status: "complete",
+					turnId: "turn-1",
+					sessionId: "claude-code:test-session",
+					itemId: "assistant-1",
+					sourceTimestamp: "2026-02-17T00:00:00.000Z",
+					emittedAt: "2026-02-17T00:00:00.000Z",
+					content: "hello from provider",
+					origin: "agent",
+				});
+				callbacks.onTurn({
+					type: "turn_complete",
+					turnId: "turn-1",
+					sessionId: "claude-code:test-session",
+					status: "completed",
+				});
+				return { stopReason: "end_turn" };
+			},
+			cancelTurn: async () => {},
+		} as MockSessionServices["messages"],
+		runtime: {
+			supports: () => false,
+			createSession: async () => ({
+				sessionId: "created-session",
+				cliType: "claude-code",
+			}),
+			loadSession: async () => {},
+			sendMessage: async () => ({ stopReason: "end_turn" }),
+			cancelTurn: async () => {},
+		} as MockSessionServices["runtime"],
+		title: {
+			reloadOverrides: () => {},
+			applyTitle: (_sessionId, fallbackTitle) => fallbackTitle,
+			deriveTitle: (content) => content,
+			maybeApplyInitialPromptTitle: () => undefined,
+			setManualTitle: () => {},
+		} as MockSessionServices["title"],
 	};
 }
 
@@ -87,7 +190,7 @@ function createDeps(): WebSocketDeps {
 				throw new Error("not used in delivery test");
 			},
 		},
-		sessionManager: createSessionManager(),
+		sessionServices: createSessionServices(),
 	};
 }
 
